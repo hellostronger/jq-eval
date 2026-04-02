@@ -34,7 +34,7 @@ class Evaluation(BaseModel):
     completed_at = Column(DateTime, nullable=True)
 
     # 关系
-    dataset = relationship("Dataset", back_populates="evalations")
+    dataset = relationship("Dataset", back_populates="evaluations")
     results = relationship("EvalResult", back_populates="evaluation", cascade="all, delete-orphan")
     metric_configs = relationship("EvaluationMetricConfig", back_populates="evaluation", cascade="all, delete-orphan")
 

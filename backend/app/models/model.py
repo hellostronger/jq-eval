@@ -1,5 +1,5 @@
 # 模型配置表
-from sqlalchemy import Column, String, Text, Boolean, ForeignKey
+from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 
 from .base import BaseModel

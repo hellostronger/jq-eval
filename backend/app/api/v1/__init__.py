@@ -1,7 +1,7 @@
 # API v1 Module
 from fastapi import APIRouter
 
-from . import health, models, rag_systems, datasets, evaluations, metrics, data_sources, files
+from . import health, models, rag_systems, datasets, evaluations, metrics, data_sources, files, graph
 
 api_router = APIRouter()
 
@@ -14,5 +14,6 @@ api_router.include_router(evaluations.router, prefix="/evaluations", tags=["Eval
 api_router.include_router(metrics.router, prefix="/metrics", tags=["Metrics"])
 api_router.include_router(data_sources.router, prefix="/data-sources", tags=["Data Sources"])
 api_router.include_router(files.router, prefix="/files", tags=["Files"])
+api_router.include_router(graph.router, tags=["Graph Building"])
 
 __all__ = ["api_router"]

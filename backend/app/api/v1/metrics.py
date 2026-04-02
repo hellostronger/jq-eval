@@ -41,6 +41,7 @@ class MetricResponse(BaseModel):
     category: str
     framework: Optional[str]
     requires_llm: bool
+    requires_embedding: bool
     requires_ground_truth: bool
     requires_contexts: bool
     usage_count: int
@@ -95,6 +96,7 @@ async def list_metrics(
             category=m.category,
             framework=m.framework,
             requires_llm=m.requires_llm,
+            requires_embedding=m.requires_embedding,
             requires_ground_truth=m.requires_ground_truth,
             requires_contexts=m.requires_contexts,
             usage_count=m.usage_count,
@@ -108,13 +110,7 @@ async def list_metrics(
 @router.get("/categories")
 async def get_categories(db: AsyncSession = Depends(get_db)):
     """获取指标分类列表"""
-    return [
-        {"code": "retrieval", "name": "检索指标", "description": "评估检索质量"},
-        {"code": "generation", "name": "生成指标", "description": "评估生成质量"},
-        {"code": "quality", "name": "质量指标", "description": "评估文本质量"},
-        {"code": "performance", "name": "性能指标", "description": "评估系统性能"},
-        {"code": "custom", "name": "自定义指标", "description": "用户自定义指标"}
-    ]
+    return ["retrieval", "generation", "quality", "performance", "custom"]
 
 
 @router.get("/{metric_id}", response_model=MetricResponse)
@@ -144,6 +140,7 @@ async def get_metric(
         category=metric.category,
         framework=metric.framework,
         requires_llm=metric.requires_llm,
+        requires_embedding=metric.requires_embedding,
         requires_ground_truth=metric.requires_ground_truth,
         requires_contexts=metric.requires_contexts,
         usage_count=metric.usage_count,
@@ -204,6 +201,7 @@ async def create_metric(
         category=metric.category,
         framework=metric.framework,
         requires_llm=metric.requires_llm,
+        requires_embedding=metric.requires_embedding,
         requires_ground_truth=metric.requires_ground_truth,
         requires_contexts=metric.requires_contexts,
         usage_count=metric.usage_count,

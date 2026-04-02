@@ -21,7 +21,7 @@ class Dataset(BaseModel):
     has_contexts = Column(Boolean, default=False)
 
     status = Column(String(50), default="draft")  # draft/ready/archived
-    metadata = Column(JSONB, default=dict)
+    dataset_metadata = Column(JSONB, default=dict)
 
     # 关系
     qa_records = relationship("QARecord", back_populates="dataset", cascade="all, delete-orphan")
@@ -49,7 +49,7 @@ class QARecord(BaseModel):
     # 元信息
     question_type = Column(String(50), nullable=True)  # simple/complex/multi_hop
     difficulty = Column(String(20), nullable=True)  # easy/medium/hard
-    metadata = Column(JSONB, default=dict)
+    qa_metadata = Column(JSONB, default=dict)
 
     # 关系
     dataset = relationship("Dataset", back_populates="qa_records")

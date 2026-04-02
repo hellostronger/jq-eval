@@ -2,7 +2,23 @@
   "permissions": {
     "allow": [
       "WebSearch",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(npm install:*)",
+      "Bash(npm ls:*)",
+      "Bash(rm:*)",
+      "Bash(npm run:*)",
+      "Bash(pip install:*)",
+      "Bash(pip list:*)",
+      "Bash(python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload)",
+      "Bash(pip cache:*)",
+      "Bash(pip check:*)",
+      "Bash(curl -s http://localhost:8000/docs)",
+      "Bash(curl -s http://localhost:8000/api/v1/health)",
+      "Bash(curl:*)",
+      "Bash(python -c \"from app.services.graph import LightRAGGraphBuilder, GraphBuildRequest; print\\('Graph imports OK'\\)\")",
+      "Bash(python -c \"from app.api.v1.graph import router; print\\('Graph API imports OK'\\)\")",
+      "Bash(timeout 10 python -c ':*)",
+      "Bash(python -c ':*)"
     ]
   }
 }

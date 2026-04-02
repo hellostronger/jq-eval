@@ -17,7 +17,7 @@ class Document(BaseModel):
     source_type = Column(String(50), nullable=True)  # upload/huggingface/api/sync
     source_url = Column(String(1000), nullable=True)
     content_hash = Column(String(64), nullable=True)
-    metadata = Column(JSONB, default=dict)
+    doc_metadata = Column(JSONB, default=dict)
 
     # 关系
     chunks = relationship("Chunk", back_populates="document", cascade="all, delete-orphan")
@@ -38,7 +38,7 @@ class Chunk(BaseModel):
     embedding_model = Column(String(100), nullable=True)
     embedding_dimension = Column(Integer, nullable=True)
 
-    metadata = Column(JSONB, default=dict)
+    chunk_metadata = Column(JSONB, default=dict)
 
     # 关系
     document = relationship("Document", back_populates="chunks")

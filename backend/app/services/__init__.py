@@ -16,6 +16,16 @@ from .metrics import (
     METRIC_REGISTRY,
 )
 from .storage import MinIOService, get_minio_service
+from .graph import (
+    BaseGraphBuilder,
+    LightRAGGraphBuilder,
+    GraphEntity,
+    GraphRelation,
+    KnowledgeGraphResult,
+    GraphBuildRequest,
+    GraphChunkBuildRequest,
+    GraphBuildResult,
+)
 
 __all__ = [
     "AdapterFactory",
@@ -32,4 +42,12 @@ __all__ = [
     "METRIC_REGISTRY",
     "MinIOService",
     "get_minio_service",
+    "BaseGraphBuilder",
+    "LightRAGGraphBuilder",
+    "GraphEntity",
+    "GraphRelation",
+    "KnowledgeGraphResult",
+    "GraphBuildRequest",
+    "GraphChunkBuildRequest",
+    "GraphBuildResult",
 ]

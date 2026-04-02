@@ -18,7 +18,7 @@ class RAGSystemCreate(BaseModel):
     system_type: str
     description: Optional[str] = None
     connection_config: Dict[str, Any]
-    model_config: Optional[Dict[str, Any]] = None
+    llm_config: Optional[Dict[str, Any]] = None
     retrieval_config: Optional[Dict[str, Any]] = None
 
 
@@ -69,7 +69,7 @@ async def create_rag_system(
         system_type=data.system_type,
         description=data.description,
         connection_config=data.connection_config,
-        model_config=data.model_config or {},
+        llm_config=data.llm_config or {},
         retrieval_config=data.retrieval_config or {}
     )
     db.add(rag_system)
@@ -120,7 +120,7 @@ async def update_rag_system(
     rag_system.system_type = data.system_type
     rag_system.description = data.description
     rag_system.connection_config = data.connection_config
-    rag_system.model_config = data.model_config or {}
+    rag_system.llm_config = data.llm_config or {}
     rag_system.retrieval_config = data.retrieval_config or {}
 
     await db.commit()

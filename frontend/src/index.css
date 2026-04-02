@@ -1,0 +1,29 @@
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+.logo {
+  padding: 16px;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.logo h1 {
+  color: #fff;
+  margin: 0;
+  font-size: 20px;
+}
+
+.logo span {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 12px;
+}
+
+.ant-layout-sider {
+  background: #001529 !important;
+}
+
+.ant-menu-dark {
+  background: #001529 !important;
+}

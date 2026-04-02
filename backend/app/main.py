@@ -12,16 +12,16 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时
     await init_db()
-    print(f"🚀 {settings.APP_NAME} v{settings.APP_VERSION} 启动成功")
-    print(f"📊 环境: {settings.APP_ENV}")
-    print(f"🔗 数据库: {settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}")
-    print(f"向量库: {settings.MILVUS_HOST}:{settings.MILVUS_PORT}")
+    print(f"[OK] {settings.APP_NAME} v{settings.APP_VERSION} 启动成功")
+    print(f"[INFO] 环境: {settings.APP_ENV}")
+    print(f"[INFO] 数据库: {settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}")
+    print(f"[INFO] 向量库: {settings.MILVUS_HOST}:{settings.MILVUS_PORT}")
 
     yield
 
     # 关闭时
     await close_db()
-    print(f"👋 {settings.APP_NAME} 已关闭")
+    print(f"[OK] {settings.APP_NAME} 已关闭")
 
 
 def create_app() -> FastAPI:

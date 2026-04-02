@@ -1,6 +1,7 @@
 # 指标定义模型
 from sqlalchemy import Column, String, Text, Integer, Float, Boolean, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import relationship
 
 from .base import BaseModel
 
@@ -70,7 +71,3 @@ class MetricTag(BaseModel):
     __table_args__ = (
         # UniqueConstraint('metric_id', 'tag', name='uq_metric_tag'),
     )
-
-
-# 导入relationship
-from sqlalchemy.orm import relationship

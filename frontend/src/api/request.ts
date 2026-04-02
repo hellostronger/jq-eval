@@ -1,6 +1,5 @@
-import axios from 'axios'
-import { ElMessage } from 'element-plus'
-import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
+import { message } from 'antd'
 
 const service: AxiosInstance = axios.create({
   baseURL: '/api/v1',
@@ -27,8 +26,8 @@ service.interceptors.response.use(
     return response.data
   },
   (error) => {
-    const message = error.response?.data?.detail || error.message || '请求失败'
-    ElMessage.error(message)
+    const errorMessage = error.response?.data?.detail || error.message || '请求失败'
+    message.error(errorMessage)
     return Promise.reject(error)
   }
 )
@@ -38,10 +37,10 @@ export const request = {
   get<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
     return service.get(url, config)
   },
-  post<T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
+  post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
     return service.post(url, data, config)
   },
-  put<T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
+  put<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
     return service.put(url, data, config)
   },
   delete<T>(url: string, config?: AxiosRequestConfig): Promise<T> {

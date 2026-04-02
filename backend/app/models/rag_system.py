@@ -42,7 +42,7 @@ class RAGSystem(BaseModel):
     connection_config = Column(JSONB, nullable=False)
 
     # 模型配置（可选）
-    model_config = Column(JSONB, default=dict)
+    llm_config = Column(JSONB, default=dict)
 
     # 检索配置
     retrieval_config = Column(JSONB, default=dict)

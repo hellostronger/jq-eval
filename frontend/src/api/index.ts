@@ -1,5 +1,26 @@
 import { request } from './request'
-import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, DataSource, SyncTask } from '@/types'
+import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, DataSource, SyncTask, ModelConfig, SystemStats } from '@/types'
+
+// 模型API
+export const getModels = (modelType: string) => {
+  return request.get<ModelConfig[]>(`/models?type=${modelType}`)
+}
+
+export const createModel = (data: Partial<ModelConfig>) => {
+  return request.post<ModelConfig>('/models', data)
+}
+
+export const updateModel = (id: number, data: Partial<ModelConfig>) => {
+  return request.put<ModelConfig>(`/models/${id}`, data)
+}
+
+export const deleteModel = (id: number) => {
+  return request.delete(`/models/${id}`)
+}
+
+export const testModel = (id: number) => {
+  return request.post<{ success: boolean; error?: string }>(`/models/${id}/test`)
+}
 
 // RAG系统API
 export const getRAGSystems = () => {
@@ -78,6 +99,15 @@ export const getEvaluationSummary = (id: number) => {
   return request.get(`/evaluations/${id}/summary`)
 }
 
+// 统计API
+export const getSystemStats = () => {
+  return request.get<SystemStats>('/evaluations/daily-stats')
+}
+
+export const getHealth = () => {
+  return request.get<{ components: Record<string, { status: string }> }>('/health')
+}
+
 // 指标市场API
 export const getMetrics = () => {
   return request.get<MetricDefinition[]>('/metrics')
@@ -92,7 +122,7 @@ export const getMetricCategories = () => {
 }
 
 export const getMetricsByCategory = (category: string) => {
-  return request.get<MetricDefinition[]>(`/metrics/category/${category}`)
+  return request.get<MetricDefinition[]>('/metrics', { params: { category } })
 }
 
 // 数据源API
@@ -102,6 +132,10 @@ export const getDataSources = () => {
 
 export const createDataSource = (data: Partial<DataSource>) => {
   return request.post<DataSource>('/data-sources', data)
+}
+
+export const deleteDataSource = (id: number) => {
+  return request.delete(`/data-sources/${id}`)
 }
 
 export const testDataSourceConnection = (id: number) => {
