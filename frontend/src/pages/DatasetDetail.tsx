@@ -4,6 +4,7 @@ import { UploadOutlined, PlusOutlined } from '@ant-design/icons'
 import { useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { getDataset, getQARecords, uploadDatasetFile } from '@/api'
+import GeneratePanel from '@/components/GeneratePanel'
 import type { Dataset, QARecord } from '@/types'
 
 const DatasetDetail: React.FC = () => {
@@ -104,6 +105,16 @@ const DatasetDetail: React.FC = () => {
               setPageSize(ps)
             },
           }}
+        />
+      ),
+    },
+    {
+      key: 'generate',
+      label: '生成数据',
+      children: (
+        <GeneratePanel
+          datasetId={id || ''}
+          onGenerateSuccess={fetchQARecords}
         />
       ),
     },

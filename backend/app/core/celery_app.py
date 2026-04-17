@@ -1,5 +1,6 @@
 # Celery配置
 from celery import Celery
+from celery.schedules import crontab
 from app.core.config import settings
 
 celery_app = Celery(
@@ -21,6 +22,15 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,  # 每次只取一个任务
     worker_max_tasks_per_child=100,  # 每个worker处理100个任务后重启
 )
+
+# Celery Beat定时任务配置
+celery_app.conf.beat_schedule = {
+    # 每小时爬取所有活跃新闻源
+    "crawl-hot-news-hourly": {
+        "task": "crawl_all_active_sources",
+        "schedule": crontab(minute=0),  # 每小时执行
+    },
+}
 
 # 自动发现任务
 celery_app.autodiscover_tasks(["app.tasks"])

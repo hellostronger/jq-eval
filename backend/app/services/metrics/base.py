@@ -18,6 +18,7 @@ class BaseMetric(ABC):
     display_name: str
     category: str  # retrieval/generation/quality/performance/custom
     framework: str  # ragas/evalscope/custom
+    eval_stage: str  # process/result
 
     # 依赖
     requires_llm: bool = True
@@ -52,6 +53,7 @@ class BaseMetric(ABC):
             "display_name": self.display_name,
             "category": self.category,
             "framework": self.framework,
+            "eval_stage": self.eval_stage,
             "requires_llm": self.requires_llm,
             "requires_embedding": self.requires_embedding,
             "requires_ground_truth": self.requires_ground_truth,

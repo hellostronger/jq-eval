@@ -74,6 +74,28 @@ export const uploadDatasetFile = (datasetId: number, file: File) => {
   return request.post(`/datasets/${datasetId}/import`, formData)
 }
 
+// 生成测试数据集
+export interface GenerateRequest {
+  sources: Array<{
+    source_type: 'file_upload' | 'text_input' | 'existing_doc'
+    file_paths?: string[]
+    texts?: string[]
+    document_ids?: string[]
+  }>
+  test_size: number
+  distributions: Record<string, number>
+  llm_model_id: string
+  embedding_model_id: string
+}
+
+export const generateDataset = (datasetId: number, data: GenerateRequest) => {
+  return request.post<{ task_id: string; status: string; message: string }>(`/datasets/${datasetId}/generate`, data)
+}
+
+export const getGenerateStatus = (datasetId: number, taskId: string) => {
+  return request.get(`/datasets/${datasetId}/generate/status/${taskId}`)
+}
+
 // 评估任务API
 export const getEvaluations = () => {
   return request.get<Evaluation[]>('/evaluations')

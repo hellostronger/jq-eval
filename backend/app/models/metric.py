@@ -18,6 +18,7 @@ class MetricDefinition(BaseModel):
     # 分类
     category = Column(String(50), nullable=False)  # retrieval/generation/quality/performance/custom
     framework = Column(String(50), nullable=True)  # ragas/evalscope/custom
+    eval_stage = Column(String(20), nullable=False, default='result')  # process/result
 
     # 参数Schema（JSON Schema格式）
     params_schema = Column(JSONB, nullable=True)

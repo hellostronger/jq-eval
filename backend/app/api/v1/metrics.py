@@ -20,6 +20,7 @@ class MetricCreate(BaseModel):
     description: Optional[str] = None
     category: str  # retrieval/generation/quality/performance/custom
     framework: Optional[str] = None
+    eval_stage: str = "result"  # process/result
     params_schema: Optional[Dict[str, Any]] = None
     default_params: Dict[str, Any] = {}
     requires_llm: bool = True
@@ -40,6 +41,7 @@ class MetricResponse(BaseModel):
     description: Optional[str]
     category: str
     framework: Optional[str]
+    eval_stage: str
     requires_llm: bool
     requires_embedding: bool
     requires_ground_truth: bool
@@ -56,6 +58,7 @@ class MetricResponse(BaseModel):
 async def list_metrics(
     category: Optional[str] = None,
     framework: Optional[str] = None,
+    eval_stage: Optional[str] = None,
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
@@ -69,6 +72,8 @@ async def list_metrics(
         query = query.where(MetricDefinition.category == category)
     if framework:
         query = query.where(MetricDefinition.framework == framework)
+    if eval_stage:
+        query = query.where(MetricDefinition.eval_stage == eval_stage)
     if search:
         query = query.where(
             MetricDefinition.name.ilike(f"%{search}%") |
@@ -95,6 +100,7 @@ async def list_metrics(
             description=m.description,
             category=m.category,
             framework=m.framework,
+            eval_stage=m.eval_stage,
             requires_llm=m.requires_llm,
             requires_embedding=m.requires_embedding,
             requires_ground_truth=m.requires_ground_truth,
@@ -111,6 +117,12 @@ async def list_metrics(
 async def get_categories(db: AsyncSession = Depends(get_db)):
     """获取指标分类列表"""
     return ["retrieval", "generation", "quality", "performance", "custom"]
+
+
+@router.get("/eval-stages")
+async def get_eval_stages(db: AsyncSession = Depends(get_db)):
+    """获取评估阶段列表"""
+    return ["process", "result"]
 
 
 @router.get("/{metric_id}", response_model=MetricResponse)
@@ -169,6 +181,7 @@ async def create_metric(
         description=data.description,
         category=data.category,
         framework=data.framework,
+        eval_stage=data.eval_stage,
         params_schema=data.params_schema,
         default_params=data.default_params,
         requires_llm=data.requires_llm,

@@ -129,6 +129,7 @@ class MetricEngine:
                 "display_name": cls.display_name,
                 "category": cls.category,
                 "framework": cls.framework,
+                "eval_stage": cls.eval_stage,
                 "requires_llm": cls.requires_llm,
                 "requires_embedding": cls.requires_embedding,
                 "requires_ground_truth": cls.requires_ground_truth,

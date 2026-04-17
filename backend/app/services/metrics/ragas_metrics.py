@@ -12,6 +12,7 @@ class RagasFaithfulness(BaseMetric):
     display_name = "忠实度"
     category = "generation"
     framework = "ragas"
+    eval_stage = "result"
 
     requires_llm = True
     requires_contexts = True
@@ -93,6 +94,7 @@ class RagasContextPrecision(BaseMetric):
     display_name = "上下文精确度"
     category = "retrieval"
     framework = "ragas"
+    eval_stage = "process"
 
     requires_llm = True
     requires_contexts = True
@@ -170,6 +172,7 @@ class RagasContextRecall(BaseMetric):
     display_name = "上下文召回率"
     category = "retrieval"
     framework = "ragas"
+    eval_stage = "process"
 
     requires_llm = True
     requires_contexts = True
@@ -248,6 +251,7 @@ class RagasAnswerRelevancy(BaseMetric):
     display_name = "答案相关性"
     category = "generation"
     framework = "ragas"
+    eval_stage = "result"
 
     requires_llm = True
     requires_embedding = True

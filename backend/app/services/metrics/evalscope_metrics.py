@@ -13,6 +13,7 @@ class EvalScopeBLEU(BaseMetric):
     display_name = "BLEU评分"
     category = "quality"
     framework = "evalscope"
+    eval_stage = "result"
 
     requires_llm = False
     requires_ground_truth = True
@@ -93,6 +94,7 @@ class EvalScopeROUGE(BaseMetric):
     display_name = "ROUGE-L评分"
     category = "quality"
     framework = "evalscope"
+    eval_stage = "result"
 
     requires_llm = False
     requires_ground_truth = True
@@ -181,6 +183,7 @@ class SemanticSimilarity(BaseMetric):
     display_name = "语义相似度"
     category = "quality"
     framework = "custom"
+    eval_stage = "result"
 
     requires_llm = False
     requires_embedding = True

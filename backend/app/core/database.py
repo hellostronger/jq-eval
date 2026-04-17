@@ -83,3 +83,26 @@ async def init_db():
 async def close_db():
     """关闭数据库连接"""
     await async_engine.dispose()
+
+
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def get_db_context():
+    """异步数据库上下文管理器（用于 Celery 任务等场景）
+
+    用法:
+        async with get_db_context() as db:
+            # 使用 db 进行数据库操作
+            await db.commit()
+    """
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()

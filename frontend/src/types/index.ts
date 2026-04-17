@@ -120,6 +120,20 @@ export interface MetricCategory {
   count: number
 }
 
+// 生成测试数据集请求
+export interface GenerateRequest {
+  sources: Array<{
+    source_type: 'file_upload' | 'text_input' | 'existing_doc'
+    file_paths?: string[]
+    texts?: string[]
+    document_ids?: string[]
+  }>
+  test_size: number
+  distributions: Record<string, number>
+  llm_model_id: string
+  embedding_model_id: string
+}
+
 export interface SystemStats {
   total_datasets: number
   total_qa_records: number
