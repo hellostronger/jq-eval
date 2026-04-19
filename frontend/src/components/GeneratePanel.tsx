@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Card, Form, Input, Button, Select, Upload, message, Progress, Space, InputNumber, Collapse } from 'antd'
 import { UploadOutlined, PlusOutlined, DeleteOutlined, PlayCircleOutlined } from '@ant-design/icons'
-import { generateDataset, getGenerateStatus, getModels, uploadDatasetFile } from '@/api'
+import { generateDataset, getGenerateStatus, getCurrentGenerateTask, getModels, uploadDatasetFile } from '@/api'
 import type { ModelConfig, GenerateRequest } from '@/types'
 
 interface GeneratePanelProps {
@@ -35,13 +35,48 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
     loadModels()
   }, [])
 
+  // 加载时检查是否有进行中的任务（恢复轮询）
+  useEffect(() => {
+    const checkCurrentTask = async () => {
+      try {
+        const result = await getCurrentGenerateTask(datasetId)
+        if (result.has_active_task && result.task_id) {
+          // 有进行中的任务，先获取 Celery 状态
+          const statusResult = await getGenerateStatus(datasetId, result.task_id)
+          const celeryStatus = statusResult.status
+
+          if (celeryStatus === 'SUCCESS') {
+            setProgress(100)
+            message.success(`生成完成: ${statusResult.result?.generated_count || 0} 条数据`)
+            onGenerateSuccess()
+            // 清除本地状态，数据库状态会在轮询 API 中自动清除
+            setTaskId(null)
+            setStatus('idle')
+          } else if (celeryStatus === 'FAILURE') {
+            message.error(`生成失败: ${statusResult.result?.error || '未知错误'}`)
+            setTaskId(null)
+            setStatus('idle')
+          } else {
+            // PENDING 或 PROGRESS，恢复轮询
+            setTaskId(result.task_id)
+            setStatus(celeryStatus)
+            setProgress(celeryStatus === 'PROGRESS' ? statusResult.progress?.progress || 0 : 0)
+          }
+        }
+      } catch (e) {
+        // 错误已在拦截器处理
+      }
+    }
+    checkCurrentTask()
+  }, [datasetId, onGenerateSuccess])
+
   // 轮询任务状态
   useEffect(() => {
     if (!taskId || status === 'SUCCESS' || status === 'FAILURE') return
 
     const pollStatus = async () => {
       try {
-        const result = await getGenerateStatus(Number(datasetId), taskId)
+        const result = await getGenerateStatus(datasetId, taskId)
         setStatus(result.status)
 
         if (result.status === 'PROGRESS' && result.progress) {
@@ -52,10 +87,16 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
           setProgress(100)
           message.success(`生成完成: ${result.result?.generated_count || 0} 条数据`)
           onGenerateSuccess()
+          // 清除本地状态，数据库状态会在 API 中自动清除
+          setTaskId(null)
+          setStatus('idle')
         }
 
         if (result.status === 'FAILURE') {
           message.error(`生成失败: ${result.result?.error || '未知错误'}`)
+          // 清除本地状态
+          setTaskId(null)
+          setStatus('idle')
         }
       } catch (e) {
         // 错误已在拦截器处理
@@ -69,7 +110,7 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
   // 上传文件处理
   const handleUpload = async (file: File) => {
     try {
-      const result = await uploadDatasetFile(Number(datasetId), file)
+      const result = await uploadDatasetFile(datasetId, file)
       if (result.object_name || result.file_path) {
         setUploadedFiles([...uploadedFiles, result.object_name || result.file_path])
         message.success('文件上传成功')
@@ -125,7 +166,7 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
       }
 
       setLoading(true)
-      const result = await generateDataset(Number(datasetId), {
+      const result = await generateDataset(datasetId, {
         sources,
         test_size: values.test_size,
         distributions: {
@@ -142,8 +183,12 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
       setProgress(0)
       message.info(result.message)
 
-    } catch (e) {
-      // 错误已在拦截器处理
+    } catch (e: any) {
+      // 表单验证错误由 antd 显示，API 错误由拦截器处理
+      if (e?.errorFields) {
+        return // 表单验证失败，antd 会自动显示错误
+      }
+      // 其他错误静默处理（已在拦截器中提示）
     } finally {
       setLoading(false)
     }
@@ -167,7 +212,7 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
         {/* 文档源配置 */}
         <Collapse defaultActiveKey={['upload', 'text']}>
           <Collapse.Panel header="上传文件" key="upload">
-            <Upload beforeUpload={handleUpload} accept=".pdf,.txt,.md,.docx" showUploadList={uploadedFiles.map(f => ({ name: f }))}>
+            <Upload beforeUpload={handleUpload} accept=".pdf,.txt,.md,.docx" showUploadList={false}>
               <Button icon={<UploadOutlined />}>上传文档 (PDF/TXT/MD/DOCX)</Button>
             </Upload>
             {uploadedFiles.length > 0 && (

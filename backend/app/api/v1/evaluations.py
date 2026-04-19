@@ -15,20 +15,27 @@ router = APIRouter()
 # Pydantic Schemas
 class EvaluationCreate(BaseModel):
     name: str
+    description: Optional[str] = None
     dataset_id: UUID
-    config: Dict[str, Any]
+    rag_system_id: Optional[UUID] = None
+    llm_model_id: Optional[UUID] = None
+    embedding_model_id: Optional[UUID] = None
     metrics: List[str]
-    rag_system_ids: Optional[List[UUID]] = None
+    batch_size: Optional[int] = 10
 
 
 class EvaluationResponse(BaseModel):
     id: UUID
     name: str
+    description: Optional[str]
     dataset_id: UUID
+    rag_system_id: Optional[UUID]
+    llm_model_id: Optional[UUID]
+    embedding_model_id: Optional[UUID]
+    metrics: List[str]
+    batch_size: int
     status: str
     progress: int
-    config: Dict[str, Any]
-    metrics: List[str]
 
     class Config:
         from_attributes = True
@@ -55,10 +62,13 @@ async def create_evaluation(
 
     evaluation = Evaluation(
         name=data.name,
+        description=data.description,
         dataset_id=data.dataset_id,
-        config=data.config,
+        rag_system_id=data.rag_system_id,
+        llm_model_id=data.llm_model_id,
+        embedding_model_id=data.embedding_model_id,
         metrics=data.metrics,
-        rag_system_ids=data.rag_system_ids or []
+        batch_size=data.batch_size or 10,
     )
     db.add(evaluation)
     await db.commit()

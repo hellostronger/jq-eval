@@ -1,5 +1,5 @@
 # 模型配置表
-from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey
+from sqlalchemy import Column, String, Text, Integer, Boolean
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 
 from .base import BaseModel
@@ -12,9 +12,10 @@ class Model(BaseModel):
     name = Column(String(200), nullable=False)
     model_type = Column(String(50), nullable=False)  # llm/embedding/reranker
     provider = Column(String(100), nullable=True)  # openai/anthropic/local/custom
-    endpoint = Column(String(500), nullable=True)
-    api_key_encrypted = Column(Text, nullable=True)
-    params = Column(JSONB, default=dict)
+    model_name = Column(String(200), nullable=True)  # 模型名称，如 gpt-4o-mini
+    endpoint = Column(String(500), nullable=True)  # API地址
+    api_key_encrypted = Column(Text, nullable=True)  # API密钥（加密存储）
+    params = Column(JSONB, nullable=True)  # 参数配置，如 temperature, max_tokens
     is_default = Column(Boolean, default=False)
     status = Column(String(50), default="active")  # active/inactive
 

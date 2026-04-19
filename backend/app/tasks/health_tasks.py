@@ -3,6 +3,7 @@ import asyncio
 from typing import Dict, Any
 from datetime import datetime, timedelta
 import logging
+from sqlalchemy import text
 
 from app.core.celery_app import celery_app
 from app.core.database import get_db_context
@@ -39,7 +40,7 @@ async def _run_health_check() -> Dict[str, Any]:
     # 检查数据库
     try:
         async with get_db_context() as db:
-            await db.execute("SELECT 1")
+            await db.execute(text("SELECT 1"))
             results["components"]["database"] = {"status": "healthy", "type": "postgresql"}
     except Exception as e:
         results["components"]["database"] = {"status": "unhealthy", "error": str(e)}
@@ -86,19 +87,19 @@ async def _run_health_check() -> Dict[str, Any]:
     # 统计运行中的任务
     async with get_db_context() as db:
         running_evals = await db.execute(
-            """
+            text("""
             SELECT COUNT(*) as count FROM evaluations
             WHERE status = :status
-            """,
+            """),
             {"status": EvaluationStatus.RUNNING}
         )
         results["running_evaluations"] = running_evals.fetchone()["count"]
 
         running_syncs = await db.execute(
-            """
+            text("""
             SELECT COUNT(*) as count FROM sync_tasks
             WHERE status = :status
-            """,
+            """),
             {"status": SyncTaskStatus.RUNNING}
         )
         results["running_sync_tasks"] = running_syncs.fetchone()["count"]
@@ -127,22 +128,22 @@ async def _run_cleanup(days: int) -> Dict[str, Any]:
     async with get_db_context() as db:
         # 清理失败的评估任务（超过指定天数）
         failed_evals = await db.execute(
-            """
+            text("""
             DELETE FROM evaluations
             WHERE status = :status AND created_at < :cutoff
             RETURNING id
-            """,
+            """),
             {"status": EvaluationStatus.FAILED, "cutoff": cutoff_date}
         )
         cleanup_stats["deleted_failed_evaluations"] = len(failed_evals.fetchall())
 
         # 清理失败的同步任务
         failed_syncs = await db.execute(
-            """
+            text("""
             DELETE FROM sync_tasks
             WHERE status = :status AND created_at < :cutoff
             RETURNING id
-            """,
+            """),
             {"status": SyncTaskStatus.FAILED, "cutoff": cutoff_date}
         )
         cleanup_stats["deleted_failed_syncs"] = len(failed_syncs.fetchall())
@@ -198,16 +199,16 @@ async def _run_daily_stats() -> Dict[str, Any]:
 
     async with get_db_context() as db:
         # 统计数据集
-        datasets_count = await db.execute("SELECT COUNT(*) as count FROM datasets")
+        datasets_count = await db.execute(text("SELECT COUNT(*) as count FROM datasets"))
         stats["total_datasets"] = datasets_count.fetchone()["count"]
 
         # 统计QA记录
-        qa_count = await db.execute("SELECT COUNT(*) as count FROM qa_records")
+        qa_count = await db.execute(text("SELECT COUNT(*) as count FROM qa_records"))
         stats["total_qa_records"] = qa_count.fetchone()["count"]
 
         # 统计评估任务
         eval_stats = await db.execute(
-            """
+            text("""
             SELECT
                 COUNT(*) as total,
                 COUNT(*) FILTER (WHERE status = 'completed') as completed,
@@ -215,7 +216,7 @@ async def _run_daily_stats() -> Dict[str, Any]:
                 COUNT(*) FILTER (WHERE status = 'pending') as pending,
                 COUNT(*) FILTER (WHERE status = 'failed') as failed
             FROM evaluations
-            """
+            """)
         )
         row = eval_stats.fetchone()
         stats["evaluations"] = {
@@ -227,18 +228,18 @@ async def _run_daily_stats() -> Dict[str, Any]:
         }
 
         # 统计RAG系统
-        rag_count = await db.execute("SELECT COUNT(*) as count FROM rag_systems")
+        rag_count = await db.execute(text("SELECT COUNT(*) as count FROM rag_systems"))
         stats["total_rag_systems"] = rag_count.fetchone()["count"]
 
         # 统计模型配置
         model_stats = await db.execute(
-            """
+            text("""
             SELECT
                 COUNT(*) FILTER (WHERE model_type = 'llm') as llm,
                 COUNT(*) FILTER (WHERE model_type = 'embedding') as embedding,
                 COUNT(*) FILTER (WHERE model_type = 'reranker') as reranker
             FROM model_configs
-            """
+            """)
         )
         row = model_stats.fetchone()
         stats["models"] = {

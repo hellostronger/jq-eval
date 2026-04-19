@@ -1,9 +1,14 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Button, Tag, Modal, Form, Input, Select, Switch, message, Popconfirm } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Tag, Modal, Form, Input, Select, Switch, message, Popconfirm, Spin, List } from 'antd'
+import { PlusOutlined, MessageOutlined, SendOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { getRAGSystems, createRAGSystem, updateRAGSystem, deleteRAGSystem, testRAGSystem } from '@/api'
+import { getRAGSystems, createRAGSystem, updateRAGSystem, deleteRAGSystem, testRAGSystem, queryRAGSystem } from '@/api'
 import type { RAGSystem } from '@/types'
+
+interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
 
 const RAGSystems: React.FC = () => {
   const [systems, setSystems] = useState<RAGSystem[]>([])
@@ -12,6 +17,13 @@ const RAGSystems: React.FC = () => {
   const [editingSystem, setEditingSystem] = useState<RAGSystem | null>(null)
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm()
+
+  // 聊天状态
+  const [chatModalVisible, setChatModalVisible] = useState(false)
+  const [chattingSystem, setChattingSystem] = useState<RAGSystem | null>(null)
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
 
   const fetchSystems = async () => {
     setLoading(true)
@@ -39,13 +51,15 @@ const RAGSystems: React.FC = () => {
 
   const editSystem = (system: RAGSystem) => {
     setEditingSystem(system)
+    // 从 connection_config 中提取字段
+    const config = system.connection_config || {}
     form.setFieldsValue({
       name: system.name,
-      display_name: system.display_name,
+      display_name: config.display_name || system.name,
       system_type: system.system_type,
-      api_endpoint: system.api_endpoint,
-      api_key: system.api_key,
-      is_active: system.is_active,
+      api_endpoint: config.api_endpoint || '',
+      api_key: config.api_key || '',
+      is_active: config.is_active ?? true,
     })
     setModalVisible(true)
   }
@@ -54,11 +68,25 @@ const RAGSystems: React.FC = () => {
     try {
       const values = await form.validateFields()
       setSaving(true)
+      // 转换数据格式以匹配后端API
+      const payload = {
+        name: values.name,
+        system_type: values.system_type,
+        description: values.display_name,
+        connection_config: {
+          api_endpoint: values.api_endpoint,
+          api_key: values.api_key,
+          display_name: values.display_name,
+          is_active: values.is_active,
+        },
+        llm_config: {},
+        retrieval_config: {},
+      }
       if (editingSystem) {
-        await updateRAGSystem(editingSystem.id, values)
+        await updateRAGSystem(editingSystem.id, payload)
         message.success('更新成功')
       } else {
-        await createRAGSystem(values)
+        await createRAGSystem(payload)
         message.success('创建成功')
       }
       setModalVisible(false)
@@ -87,21 +115,66 @@ const RAGSystems: React.FC = () => {
     }
   }
 
+  // 打开聊天窗口
+  const openChat = (system: RAGSystem) => {
+    setChattingSystem(system)
+    setChatMessages([])
+    setChatInput('')
+    setChatModalVisible(true)
+  }
+
+  // 发送聊天消息
+  const sendChatMessage = async () => {
+    if (!chatInput.trim() || !chattingSystem) return
+
+    const userMessage = chatInput.trim()
+    setChatMessages(prev => [...prev, { role: 'user', content: userMessage }])
+    setChatInput('')
+    setChatLoading(true)
+
+    try {
+      const res = await queryRAGSystem(chattingSystem.id, userMessage)
+      const assistantContent = res.answer || res.response || res.content || '无响应'
+      setChatMessages(prev => [...prev, { role: 'assistant', content: assistantContent }])
+    } catch (e) {
+      setChatMessages(prev => [...prev, { role: 'assistant', content: '查询失败，请检查连接配置' }])
+    } finally {
+      setChatLoading(false)
+    }
+  }
+
   const columns = [
     { title: '名称', dataIndex: 'name', key: 'name' },
-    { title: '显示名称', dataIndex: 'display_name', key: 'display_name' },
+    {
+      title: '显示名称',
+      key: 'display_name',
+      render: (_: unknown, record: RAGSystem) => record.connection_config?.display_name || record.name,
+    },
     {
       title: '类型',
       dataIndex: 'system_type',
       key: 'system_type',
       render: (type: string) => <Tag color="blue">{type.toUpperCase()}</Tag>,
     },
-    { title: 'API地址', dataIndex: 'api_endpoint', key: 'api_endpoint' },
+    {
+      title: 'API地址',
+      key: 'api_endpoint',
+      render: (_: unknown, record: RAGSystem) => record.connection_config?.api_endpoint || '-',
+    },
     {
       title: '状态',
-      dataIndex: 'is_active',
-      key: 'is_active',
-      render: (v: boolean) => <Tag color={v ? 'success' : 'default'}>{v ? '启用' : '禁用'}</Tag>,
+      dataIndex: 'status',
+      key: 'status',
+      render: (v: string) => <Tag color={v === 'active' ? 'success' : 'default'}>{v === 'active' ? '启用' : '禁用'}</Tag>,
+    },
+    {
+      title: '健康状态',
+      dataIndex: 'health_status',
+      key: 'health_status',
+      render: (v?: string) => {
+        if (!v) return <Tag color="default">未检查</Tag>
+        return <Tag color={v === 'healthy' ? 'green' : 'red'}>{v}</Tag>
+      },
     },
     {
       title: '创建时间',
@@ -114,6 +187,9 @@ const RAGSystems: React.FC = () => {
       key: 'action',
       render: (_: unknown, record: RAGSystem) => (
         <>
+          <Button type="link" size="small" icon={<MessageOutlined />} onClick={() => openChat(record)}>
+            聊天
+          </Button>
           <Button type="link" size="small" onClick={() => handleTestSystem(record)}>
             测试连接
           </Button>
@@ -159,13 +235,13 @@ const RAGSystems: React.FC = () => {
       >
         <Form form={form} labelCol={{ span: 6 }}>
           <Form.Item name="name" label="名称" rules={[{ required: true }]}>
-            <Input placeholder="系统标识名称" />
+            <Input placeholder="系统标识名称" disabled={editingSystem !== null} />
           </Form.Item>
           <Form.Item name="display_name" label="显示名称" rules={[{ required: true }]}>
             <Input placeholder="展示名称" />
           </Form.Item>
           <Form.Item name="system_type" label="系统类型" rules={[{ required: true }]}>
-            <Select options={systemTypes} />
+            <Select options={systemTypes} disabled={editingSystem !== null} />
           </Form.Item>
           <Form.Item name="api_endpoint" label="API地址" rules={[{ required: true }]}>
             <Input placeholder="API Endpoint URL" />
@@ -177,6 +253,66 @@ const RAGSystems: React.FC = () => {
             <Switch />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 聊天弹窗 */}
+      <Modal
+        title={`与 ${chattingSystem?.connection_config?.display_name || chattingSystem?.name} 聊天`}
+        open={chatModalVisible}
+        onCancel={() => setChatModalVisible(false)}
+        footer={null}
+        width={700}
+      >
+        <div style={{ height: 400, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ flex: 1, overflow: 'auto', marginBottom: 16 }}>
+            {chatMessages.length === 0 && (
+              <div style={{ textAlign: 'center', color: '#999', padding: 20 }}>
+                输入问题开始对话
+              </div>
+            )}
+            <List
+              dataSource={chatMessages}
+              renderItem={(msg) => (
+                <List.Item style={{ border: 'none', padding: '8px 0' }}>
+                  <div style={{
+                    maxWidth: '80%',
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    backgroundColor: msg.role === 'user' ? '#e6f7ff' : '#f5f5f5',
+                    alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                  }}>
+                    <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
+                      {msg.role === 'user' ? '你' : '系统'}
+                    </div>
+                    <div>{msg.content}</div>
+                  </div>
+                </List.Item>
+              )}
+            />
+            {chatLoading && (
+              <div style={{ textAlign: 'center', padding: 10 }}>
+                <Spin size="small" />
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Input
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              placeholder="输入问题..."
+              onPressEnter={sendChatMessage}
+              disabled={chatLoading}
+            />
+            <Button
+              type="primary"
+              icon={<SendOutlined />}
+              onClick={sendChatMessage}
+              loading={chatLoading}
+            >
+              发送
+            </Button>
+          </div>
+        </div>
       </Modal>
     </Card>
   )

@@ -1,4 +1,5 @@
 # 评估任务和结果模型
+import enum
 from sqlalchemy import Column, String, Text, Integer, Float, Boolean, ForeignKey, ARRAY, DateTime
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
@@ -7,19 +8,30 @@ from datetime import datetime
 from .base import BaseModel
 
 
+class EvaluationStatus(str, enum.Enum):
+    """评估状态枚举"""
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class Evaluation(BaseModel):
     """评估任务表"""
     __tablename__ = "evaluations"
 
     name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
     dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id"), nullable=False, index=True)
 
-    # 评估配置
-    config = Column(JSONB, nullable=False)
-    metrics = Column(ARRAY(String), nullable=False)
+    # 关联系统配置
+    rag_system_id = Column(UUID(as_uuid=True), ForeignKey("rag_systems.id"), nullable=True, index=True)
+    llm_model_id = Column(UUID(as_uuid=True), ForeignKey("models.id"), nullable=True, index=True)
+    embedding_model_id = Column(UUID(as_uuid=True), ForeignKey("models.id"), nullable=True, index=True)
 
-    # 关联RAG系统（可选）
-    rag_system_ids = Column(ARRAY(UUID(as_uuid=True)), default=list)
+    # 评估配置
+    metrics = Column(ARRAY(String), nullable=False)
+    batch_size = Column(Integer, default=10)
 
     # 状态
     status = Column(String(50), default="pending")  # pending/running/completed/failed

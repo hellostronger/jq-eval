@@ -13,7 +13,8 @@ class DifyAdapter(BaseRAGAdapter):
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.api_url = config.get("api_url", "").rstrip("/")
+        # 支持 api_endpoint 或 api_url
+        self.api_url = (config.get("api_endpoint") or config.get("api_url", "")).rstrip("/")
         self.api_key = config.get("api_key", "")
         self.app_type = config.get("app_type", "chat-app")
         self.user_id = config.get("user_id", "eval-user")

@@ -3,48 +3,50 @@
 export type ModelType = 'llm' | 'embedding' | 'reranker'
 
 export interface ModelConfig {
-  id: number
+  id: string
   name: string
   model_type: ModelType
   provider: string
   model_name: string
-  api_base: string
-  api_key: string
-  temperature?: number
-  max_tokens?: number
+  endpoint: string
+  api_key_masked?: string  // 掩码显示，如 "sk-***abc"
+  params: {
+    temperature: number
+    max_tokens: number
+  }
+  api_key?: string  // 仅用于创建/更新时传递
   dimension?: number
+  max_input_length?: number
   is_default: boolean
-  created_at: string
-  updated_at: string
+  status: string
 }
 
 export interface RAGSystem {
-  id: number
+  id: string
   name: string
   system_type: string
-  display_name: string
-  api_endpoint: string
-  api_key: string
-  llm_model_id?: number
-  embedding_model_id?: number
-  reranker_model_id?: number
-  config: Record<string, any>
-  is_active: boolean
+  description?: string
+  connection_config: Record<string, any>
+  llm_config?: Record<string, any>
+  retrieval_config?: Record<string, any>
+  status: string
+  health_status?: string
+  total_calls: number
   created_at: string
 }
 
 export interface Dataset {
-  id: number
+  id: string
   name: string
   description: string
-  rag_system_id?: number
+  rag_system_id?: string
   total_records: number
   created_at: string
 }
 
 export interface QARecord {
-  id: number
-  snapshot_id: number
+  id: string
+  snapshot_id: string
   question: string
   answer?: string
   contexts?: string[]
@@ -54,13 +56,13 @@ export interface QARecord {
 }
 
 export interface Evaluation {
-  id: number
+  id: string
   name: string
   description?: string
-  dataset_id: number
-  rag_system_id?: number
-  llm_model_id: number
-  embedding_model_id?: number
+  dataset_id: string
+  rag_system_id?: string
+  llm_model_id: string
+  embedding_model_id?: string
   metrics: string[]
   batch_size: number
   status: 'pending' | 'running' | 'completed' | 'failed'
@@ -71,15 +73,15 @@ export interface Evaluation {
 }
 
 export interface EvalResult {
-  id: number
-  evaluation_id: number
-  qa_record_id: number
+  id: string
+  evaluation_id: string
+  qa_record_id: string
   metric_scores: Record<string, { score: number; error?: string }>
   created_at: string
 }
 
 export interface MetricDefinition {
-  id: number
+  id: string
   name: string
   display_name: string
   category: string
@@ -93,23 +95,23 @@ export interface MetricDefinition {
 }
 
 export interface DataSource {
-  id: number
+  id: string
   name: string
   system_type: string
   connection_config: Record<string, any>
-  rag_system_id?: number
+  rag_system_id?: string
   created_at: string
 }
 
 export interface SyncTask {
-  id: number
-  data_source_id: number
+  id: string
+  data_source_id: string
   target_types: string[]
   incremental: boolean
   batch_size: number
   status: 'pending' | 'running' | 'completed' | 'failed'
   records_synced?: number
-  dataset_id?: number
+  dataset_id?: string
   started_at?: string
   completed_at?: string
   created_at: string
@@ -150,4 +152,46 @@ export interface SystemStats {
     embedding: number
     reranker: number
   }
+}
+
+// 热点新闻相关类型
+export interface NewsSource {
+  id: string
+  name: string
+  domain: string
+  source_url: string
+  source_type: string
+  crawl_config: Record<string, any>
+  crawl_frequency: string
+  is_active: boolean
+  last_crawl_at?: string
+  last_crawl_status?: string
+  total_articles: number
+}
+
+export interface HotArticle {
+  id: string
+  source_id: string
+  title: string
+  content?: string
+  author?: string
+  published_at?: string
+  crawled_at: string
+  source_url?: string
+  category?: string
+  tags: string[]
+  content_length?: number
+  language?: string
+}
+
+export interface NewsStats {
+  sources: {
+    total: number
+    active: number
+  }
+  articles: {
+    total: number
+    today: number
+  }
+  by_domain: Record<string, number>
 }

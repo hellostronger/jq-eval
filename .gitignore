@@ -69,3 +69,6 @@ Thumbs.db
 *.temp
 tmp/
 temp/
+
+# Reference files
+reference/

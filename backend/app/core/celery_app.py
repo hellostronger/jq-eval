@@ -21,6 +21,13 @@ celery_app.conf.update(
     task_soft_time_limit=25 * 60,  # 25分钟软超时
     worker_prefetch_multiplier=1,  # 每次只取一个任务
     worker_max_tasks_per_child=100,  # 每个worker处理100个任务后重启
+    imports=[
+        "app.tasks.evaluation_tasks",
+        "app.tasks.dataset_tasks",
+        "app.tasks.sync_tasks",
+        "app.tasks.health_tasks",
+        "app.tasks.crawler_tasks",
+    ],
 )
 
 # Celery Beat定时任务配置
@@ -31,6 +38,3 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(minute=0),  # 每小时执行
     },
 }
-
-# 自动发现任务
-celery_app.autodiscover_tasks(["app.tasks"])

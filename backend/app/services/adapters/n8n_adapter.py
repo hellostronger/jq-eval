@@ -14,7 +14,8 @@ class N8nAdapter(BaseRAGAdapter):
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.webhook_url = config.get("webhook_url", "")
+        # 支持 api_endpoint 或 webhook_url
+        self.webhook_url = config.get("api_endpoint") or config.get("webhook_url", "")
         self.auth_type = config.get("auth_type", "none")
         self.auth_config = config.get("auth_config", {})
 

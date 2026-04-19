@@ -3,12 +3,13 @@ import asyncio
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 import logging
+from sqlalchemy import text
 
 from app.core.celery_app import celery_app
 from app.core.database import get_db_context
 from app.models.evaluation import Evaluation, EvaluationStatus, EvalResult
 from app.models.dataset import Dataset, QARecord
-from app.models.model import ModelConfig, ModelType
+from app.models.model import Model
 from app.services.metrics import MetricEngine, get_metric_engine, METRIC_REGISTRY
 from app.services.adapters import AdapterFactory
 
@@ -52,20 +53,20 @@ async def _run_evaluation(task, evaluation_id: int) -> Dict[str, Any]:
 
             # 获取QA记录
             qa_records = await db.execute(
-                """
+                text("""
                 SELECT qr.*, ds.snapshot_version
                 FROM qa_records qr
                 JOIN dataset_snapshots ds ON qr.snapshot_id = ds.id
                 WHERE ds.dataset_id = :dataset_id
                 ORDER BY qr.created_at
-                """,
+                """),
                 {"dataset_id": dataset.id}
             )
             qa_list = [dict(r) for r in qa_records.fetchall()]
 
             # 获取模型配置
-            llm_config = await db.get(ModelConfig, evaluation.llm_model_id)
-            embedding_config = await db.get(ModelConfig, evaluation.embedding_model_id) if evaluation.embedding_model_id else None
+            llm_config = await db.get(Model, evaluation.llm_model_id)
+            embedding_config = await db.get(Model, evaluation.embedding_model_id) if evaluation.embedding_model_id else None
 
             # 初始化模型
             llm = await _init_model(llm_config)
@@ -73,10 +74,10 @@ async def _run_evaluation(task, evaluation_id: int) -> Dict[str, Any]:
 
             # 获取指标配置
             metric_configs = await db.execute(
-                """
+                text("""
                 SELECT * FROM evaluation_metric_configs
                 WHERE evaluation_id = :eval_id AND enabled = true
-                """,
+                """),
                 {"eval_id": evaluation_id}
             )
             metric_names = [r.metric_name for r in metric_configs.fetchall()]
@@ -145,21 +146,22 @@ def batch_evaluation_task(self, evaluation_ids: List[int]) -> Dict[str, Any]:
     return {"total": len(evaluation_ids), "results": results}
 
 
-async def _init_model(model_config: ModelConfig) -> Any:
+async def _init_model(model_config: Model) -> Any:
     """初始化模型"""
-    if model_config.model_type == ModelType.LLM:
+    params = model_config.params or {}
+    if model_config.model_type == "llm":
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(
             model=model_config.model_name,
-            api_key=model_config.api_key,
-            base_url=model_config.api_base,
-            temperature=model_config.temperature or 0.7,
+            api_key=model_config.api_key_encrypted,
+            base_url=model_config.endpoint,
+            temperature=params.get("temperature", 0.7),
         )
-    elif model_config.model_type == ModelType.EMBEDDING:
+    elif model_config.model_type == "embedding":
         from langchain_openai import OpenAIEmbeddings
         return OpenAIEmbeddings(
             model=model_config.model_name,
-            api_key=model_config.api_key,
-            base_url=model_config.api_base,
+            api_key=model_config.api_key_encrypted,
+            base_url=model_config.endpoint,
         )
     return None

@@ -24,6 +24,7 @@ class HotNewsSource(BaseModel):
 
     # 状态
     is_active = Column(Boolean, default=True)
+    is_builtin = Column(Boolean, default=False)  # 内置源标记
     last_crawl_at = Column(DateTime, nullable=True)
     last_crawl_status = Column(String(50), nullable=True)  # success/failed
     last_crawl_error = Column(Text, nullable=True)

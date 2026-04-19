@@ -1,60 +1,80 @@
 # FastAPI and ASGI
-fastapi==0.109.0
+fastapi==0.119.1
 uvicorn[standard]==0.27.0
-python-multipart==0.0.6
+python-multipart==0.0.20
 
 # Database
-sqlalchemy==2.0.25
-asyncpg==0.29.0
-psycopg2-binary>=2.9.9
+sqlalchemy==2.0.40
+asyncpg==0.31.0
+psycopg2-binary==2.9.11
 
 # Redis
-redis==5.0.1
+redis==7.4.0
 
 # Celery
-celery==5.3.6
+celery==5.6.3
 
 # Pydantic
-pydantic==2.5.3
-pydantic-settings==2.1.0
+pydantic==2.11.7
+pydantic-settings==2.11.0
 
 # Milvus
-pymilvus==2.3.6
+pymilvus==2.6.2
 
 # MinIO
-minio==7.2.3
+minio==7.2.20
 
 # Authentication
-python-jose[cryptography]==3.3.0
+python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4
 
 # HTTP Client
-httpx==0.26.0
-aiohttp==3.9.1
+httpx==0.28.1
+aiohttp==3.13.1
 
 # MongoDB (for FastGPT sync)
-motor==3.3.2
-pymongo==4.6.1
+motor==3.7.1
+pymongo==4.16.0
 
 # Evaluation Frameworks
 ragas==0.1.7
-datasets==2.16.1
-openai==1.8.0
-langchain-openai>=0.1.0
+datasets==4.2.0
+openai==1.109.1
+langchain==0.2.17
+langchain-core==0.2.43
+langchain-community==0.2.19
+langchain-openai==0.1.25
+langchain-text-splitters==0.2.4
 
 # Document Processing
-pypdf>=4.0.0
-python-docx>=1.1.0
+pypdf==5.8.0
+python-docx==1.2.0
 
 # Data Processing
-pandas>=2.1.4
-numpy==1.26.3
+pandas==2.2.3
+numpy==1.26.4
 
 # Utilities
-python-dotenv==1.0.0
-orjson==3.9.12
-httpx==0.26.0
+python-dotenv==1.1.0
+orjson==3.10.6
+
+# RSS Parsing
+feedparser==6.0.11
+
+# Language Detection
+langdetect==1.0.9
+
+# HTML Parsing (for fetching full article content)
+beautifulsoup4==4.12.3
+lxml==5.1.0
+markdownify==0.14.1
 
 # Development
-pytest==7.4.4
+pytest==8.2.1
 pytest-asyncio==0.23.3
+
+# Additional dependencies (pinned for consistency)
+tiktoken==0.12.0
+pysbd==0.3.4
+nest-asyncio==1.6.0
+appdirs==1.4.4

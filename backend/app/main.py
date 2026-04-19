@@ -1,10 +1,21 @@
 # FastAPI 主入口
+import signal
+import sys
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .core import settings, init_db, close_db
+from .core.database import AsyncSessionLocal
 from .api.v1 import api_router
+from .services.crawler.preset_sources import init_preset_sources
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 
 @asynccontextmanager
@@ -12,6 +23,11 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时
     await init_db()
+
+    # 初始化预设RSS源
+    async with AsyncSessionLocal() as db:
+        await init_preset_sources(db)
+
     print(f"[OK] {settings.APP_NAME} v{settings.APP_VERSION} 启动成功")
     print(f"[INFO] 环境: {settings.APP_ENV}")
     print(f"[INFO] 数据库: {settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}")

@@ -26,6 +26,7 @@ def run_async(coro):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
+        logger.info("开始执行异步任务")
         return loop.run_until_complete(coro)
     finally:
         loop.close()
@@ -47,11 +48,13 @@ def generate_dataset_task(self, dataset_id: str, config: Dict[str, Any]) -> Dict
     Returns:
         任务结果
     """
+    logger.info(f"generate_dataset_task 开始执行，dataset_id: {dataset_id}")
     return run_async(_run_generate_task(self, UUID(dataset_id), config))
 
 
 async def _run_generate_task(task, dataset_id: UUID, config: Dict[str, Any]) -> Dict[str, Any]:
     """异步执行生成任务"""
+    logger.info(f"_run_generate_task 异步执行开始，dataset_id: {dataset_id}")
     async with get_db_context() as db:
         # 1. 获取数据集
         dataset = await db.get(Dataset, dataset_id)
@@ -149,6 +152,8 @@ async def _run_generate_task(task, dataset_id: UUID, config: Dict[str, Any]) -> 
             dataset.has_ground_truth = True
             dataset.has_contexts = True
             dataset.status = "ready"
+            dataset.generate_task_id = None  # 清除任务ID
+            dataset.generate_task_status = None
 
             await db.commit()
 
@@ -162,6 +167,8 @@ async def _run_generate_task(task, dataset_id: UUID, config: Dict[str, Any]) -> 
         except Exception as e:
             logger.error(f"生成任务失败: {e}")
             dataset.status = "failed"
+            dataset.generate_task_id = None  # 清除任务ID
+            dataset.generate_task_status = None
             await db.commit()
 
             return {"error": str(e), "dataset_id": str(dataset_id)}

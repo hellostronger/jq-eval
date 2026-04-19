@@ -1,9 +1,18 @@
 # 数据同步相关模型
+import enum
 from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, DateTime
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from datetime import datetime
 
 from .base import BaseModel
+
+
+class SyncTaskStatus(str, enum.Enum):
+    """同步任务状态枚举"""
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class DataSource(BaseModel):

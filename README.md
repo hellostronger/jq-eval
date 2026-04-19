@@ -111,6 +111,33 @@ docker-compose logs -f [service_name]
 docker-compose restart milvus
 ```
 
+## 启动服务
+
+### 后端 API
+
+```bash
+cd backend
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Celery Worker
+
+```bash
+cd backend
+# Windows
+celery -A app.core.celery_app worker --pool=solo --loglevel=info
+
+# Linux/Mac
+celery -A app.core.celery_app worker --loglevel=info
+```
+
+### Celery Beat (定时任务调度)
+
+```bash
+cd backend
+celery -A app.core.celery_app beat --loglevel=info
+```
+
 ## 开发
 
 详见 [需求说明.md](./需求说明.md)

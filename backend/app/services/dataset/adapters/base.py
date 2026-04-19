@@ -64,11 +64,13 @@ class AdapterFactory:
         if source_type == "file_upload":
             if "file_paths" not in config:
                 raise ValueError("file_upload 类型需要 file_paths 配置")
+            from .file_upload_adapter import FileUploadAdapter
             return FileUploadAdapter(file_paths=config["file_paths"])
 
         elif source_type == "text_input":
             if "texts" not in config:
                 raise ValueError("text_input 类型需要 texts 配置")
+            from .text_input_adapter import TextInputAdapter
             return TextInputAdapter(
                 texts=config["texts"],
                 metadata=config.get("metadata", {})
@@ -79,6 +81,7 @@ class AdapterFactory:
                 raise ValueError("existing_doc 类型需要 document_ids 配置")
             if db is None:
                 raise ValueError("existing_doc 类型需要数据库会话")
+            from .existing_doc_adapter import ExistingDocAdapter
             return ExistingDocAdapter(
                 document_ids=config["document_ids"],
                 db=db

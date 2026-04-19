@@ -218,6 +218,11 @@ class MilvusService:
             "num_entities": stats
         }
 
+    def list_collections(self) -> List[str]:
+        """列出所有collections"""
+        self.connect()
+        return utility.list_collections()
+
     def drop_chunks_collection(self):
         """删除文档分片向量集合"""
         self.connect()
@@ -237,3 +242,12 @@ def get_milvus_service() -> MilvusService:
     if _milvus_service is None:
         _milvus_service = MilvusService()
     return _milvus_service
+
+
+def get_milvus_client() -> MilvusService:
+    """获取Milvus客户端实例"""
+    return get_milvus_service()
+
+
+# 别名，保持向后兼容
+MilvusClient = MilvusService

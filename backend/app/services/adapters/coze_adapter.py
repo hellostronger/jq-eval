@@ -13,7 +13,8 @@ class CozeAdapter(BaseRAGAdapter):
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.api_url = config.get("api_url", "https://api.coze.cn/v3").rstrip("/")
+        # 支持 api_endpoint 或 api_url
+        self.api_url = (config.get("api_endpoint") or config.get("api_url", "https://api.coze.cn/v3")).rstrip("/")
         self.access_token = config.get("access_token", "")
         self.bot_id = config.get("bot_id", "")
 

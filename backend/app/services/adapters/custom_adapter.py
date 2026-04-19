@@ -15,7 +15,8 @@ class CustomAdapter(BaseRAGAdapter):
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.api_url = config.get("api_url", "")
+        # 支持 api_endpoint 或 api_url
+        self.api_url = config.get("api_endpoint") or config.get("api_url", "")
         self.request_method = config.get("request_method", "POST")
         self.request_template = config.get("request_template", {})
         self.response_parser = config.get("response_parser", {})

@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Card, Table, Button, Tabs, Tag, Modal, Form, Input, Select, Switch, Slider, InputNumber, message, Popconfirm } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
-import dayjs from 'dayjs'
 import { getModels, createModel, updateModel, deleteModel, testModel } from '@/api'
 import type { ModelConfig, ModelType } from '@/types'
 
@@ -49,28 +48,30 @@ const Models: React.FC = () => {
       model_type: model.model_type,
       provider: model.provider,
       model_name: model.model_name,
-      api_base: model.api_base,
-      api_key: model.api_key,
-      temperature: model.temperature || 0.7,
-      max_tokens: model.max_tokens || 2048,
+      endpoint: model.endpoint,
+      // API key 显示掩码值作为 placeholder，实际值为空（不修改则保留原值）
+      api_key: '',
+      temperature: model.params?.temperature || 0.7,
+      max_tokens: model.params?.max_tokens || 2048,
       dimension: model.dimension || 1536,
+      max_input_length: model.max_input_length,
       is_default: model.is_default,
     })
     setModalVisible(true)
   }
 
   const onProviderChange = (provider: string) => {
-    const presets: Record<string, { api_base: string }> = {
-      openai: { api_base: 'https://api.openai.com/v1' },
-      azure: { api_base: '' },
-      zhipuai: { api_base: 'https://open.bigmodel.cn/api/paas/v4' },
-      baidu: { api_base: '' },
-      aliyun: { api_base: '' },
-      volcengine: { api_base: '' },
-      local: { api_base: 'http://localhost:8000/v1' },
+    const presets: Record<string, { endpoint: string }> = {
+      openai: { endpoint: 'https://api.openai.com/v1' },
+      azure: { endpoint: '' },
+      zhipuai: { endpoint: 'https://open.bigmodel.cn/api/paas/v4' },
+      baidu: { endpoint: '' },
+      aliyun: { endpoint: '' },
+      volcengine: { endpoint: '' },
+      local: { endpoint: 'http://localhost:8000/v1' },
     }
     if (presets[provider]) {
-      form.setFieldsValue({ api_base: presets[provider].api_base })
+      form.setFieldsValue({ endpoint: presets[provider].endpoint })
     }
   }
 
@@ -78,11 +79,24 @@ const Models: React.FC = () => {
     try {
       const values = await form.validateFields()
       setSaving(true)
+      const payload = {
+        name: values.name,
+        model_type: values.model_type,
+        provider: values.provider,
+        model_name: values.model_name,
+        endpoint: values.endpoint,
+        api_key: values.api_key,
+        temperature: values.temperature,
+        max_tokens: values.max_tokens,
+        dimension: values.dimension,
+        max_input_length: values.max_input_length,
+        is_default: values.is_default,
+      }
       if (editingModel) {
-        await updateModel(editingModel.id, values)
+        await updateModel(editingModel.id, payload)
         message.success('更新成功')
       } else {
-        await createModel(values)
+        await createModel(payload)
         message.success('创建成功')
       }
       setModalVisible(false)
@@ -121,7 +135,7 @@ const Models: React.FC = () => {
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: '提供商', dataIndex: 'provider', key: 'provider' },
     { title: '模型名称', dataIndex: 'model_name', key: 'model_name' },
-    { title: 'API地址', dataIndex: 'api_base', key: 'api_base' },
+    { title: 'API地址', dataIndex: 'endpoint', key: 'endpoint' },
     {
       title: '默认',
       dataIndex: 'is_default',
@@ -130,15 +144,8 @@ const Models: React.FC = () => {
     },
     {
       title: 'Temperature',
-      dataIndex: 'temperature',
       key: 'temperature',
-      render: (v: number) => v || '-',
-    },
-    {
-      title: '创建时间',
-      dataIndex: 'created_at',
-      key: 'created_at',
-      render: (date: string) => dayjs(date).format('YYYY-MM-DD'),
+      render: (_: unknown, record: ModelConfig) => record.params?.temperature || '-',
     },
     {
       title: '操作',
@@ -212,11 +219,11 @@ const Models: React.FC = () => {
           <Form.Item name="model_name" label="模型名称" rules={[{ required: true }]}>
             <Input placeholder="如 gpt-4, text-embedding-ada-002" />
           </Form.Item>
-          <Form.Item name="api_base" label="API地址" rules={[{ required: true }]}>
+          <Form.Item name="endpoint" label="API地址" rules={[{ required: true }]}>
             <Input placeholder="API Base URL" />
           </Form.Item>
-          <Form.Item name="api_key" label="API Key" rules={[{ required: true }]}>
-            <Input.Password placeholder="API Key" />
+          <Form.Item name="api_key" label="API Key" rules={[{ required: !editingModel, message: '请输入 API Key' }]}>
+            <Input.Password placeholder={editingModel?.api_key_masked || 'API Key'} />
           </Form.Item>
           <Form.Item shouldUpdate={(prev, curr) => prev.model_type !== curr.model_type}>
             {({ getFieldValue }) => {
@@ -235,9 +242,14 @@ const Models: React.FC = () => {
               }
               if (modelType === 'embedding') {
                 return (
-                  <Form.Item name="dimension" label="向量维度">
-                    <InputNumber min={256} max={4096} />
-                  </Form.Item>
+                  <>
+                    <Form.Item name="dimension" label="向量维度">
+                      <InputNumber min={256} max={4096} />
+                    </Form.Item>
+                    <Form.Item name="max_input_length" label="最大输入长度">
+                      <InputNumber min={512} max={8192} />
+                    </Form.Item>
+                  </>
                 )
               }
               return null

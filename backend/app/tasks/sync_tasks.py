@@ -4,6 +4,7 @@ from typing import Dict, List, Any
 from datetime import datetime
 import logging
 import json
+from sqlalchemy import text
 
 from app.core.celery_app import celery_app
 from app.core.database import get_db_context
@@ -122,7 +123,7 @@ async def _run_data_sync(task, sync_task_id: int) -> Dict[str, Any]:
                     # 插入向量（如果有embedding）
                     if data_source.rag_system_id:
                         rag_system = await db.execute(
-                            "SELECT * FROM rag_systems WHERE id = :id",
+                            text("SELECT * FROM rag_systems WHERE id = :id"),
                             {"id": data_source.rag_system_id}
                         )
                         rag = rag_system.fetchone()
@@ -200,7 +201,7 @@ async def _run_data_sync(task, sync_task_id: int) -> Dict[str, Any]:
             sync_task.error_message = str(e)
             sync_task.completed_at = datetime.utcnow()
             await db.commit()
-            return {"error": str(e)}}
+            return {"error": str(e)}
 
 
 @celery_app.task(bind=True, name="data_import_task")
@@ -219,10 +220,10 @@ async def _run_data_import(task, dataset_id: int, file_path: str, import_type: s
         try:
             # 创建新快照
             latest_snapshot = await db.execute(
-                """
+                text("""
                 SELECT MAX(snapshot_version) as max_version
                 FROM dataset_snapshots WHERE dataset_id = :dataset_id
-                """,
+                """),
                 {"dataset_id": dataset_id}
             )
             max_version = latest_snapshot.fetchone()["max_version"] or 0
@@ -284,7 +285,7 @@ async def _run_data_import(task, dataset_id: int, file_path: str, import_type: s
 
         except Exception as e:
             logger.error(f"数据导入失败: {e}")
-            return {"error": str(e)}}
+            return {"error": str(e)}
 
 
 def _get_source_table(system_type: str, data_type: str) -> str:

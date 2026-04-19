@@ -27,6 +27,9 @@ class RAGSystemResponse(BaseModel):
     name: str
     system_type: str
     description: Optional[str]
+    connection_config: Dict[str, Any] = {}
+    llm_config: Optional[Dict[str, Any]] = None
+    retrieval_config: Optional[Dict[str, Any]] = None
     status: str
     health_status: Optional[str]
     total_calls: int

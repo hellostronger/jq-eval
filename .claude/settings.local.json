@@ -18,7 +18,21 @@
       "Bash(python -c \"from app.services.graph import LightRAGGraphBuilder, GraphBuildRequest; print\\('Graph imports OK'\\)\")",
       "Bash(python -c \"from app.api.v1.graph import router; print\\('Graph API imports OK'\\)\")",
       "Bash(timeout 10 python -c ':*)",
-      "Bash(python -c ':*)"
+      "Bash(python -c ':*)",
+      "Bash(pip index *)",
+      "Bash(pip show *)",
+      "Bash(./venv/Scripts/pip install *)",
+      "Bash(./venv/Scripts/python.exe -m pip install pip-tools -q)",
+      "Bash(where pip-compile *)",
+      "Bash(pip-compile --version)",
+      "Bash(pip freeze *)",
+      "Bash(python -m venv venv)",
+      "Bash(python -c ' *)",
+      "Bash(./venv/Scripts/pip.exe install *)",
+      "Bash(./venv/Scripts/python.exe -m pytest tests/test_imports.py -v)",
+      "Bash(PGPASSWORD=jqeval123 psql *)",
+      "Bash(./venv/Scripts/python.exe -c ' *)",
+      "Bash(python -c \"from app.services.dataset.adapters.base import AdapterFactory; print\\('Import OK'\\)\")"
     ]
   }
 }

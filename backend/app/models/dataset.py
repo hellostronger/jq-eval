@@ -4,6 +4,8 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 
 from .base import BaseModel
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, UUID, ForeignKey
 
 
 class Dataset(BaseModel):
@@ -20,12 +22,17 @@ class Dataset(BaseModel):
     has_ground_truth = Column(Boolean, default=False)
     has_contexts = Column(Boolean, default=False)
 
-    status = Column(String(50), default="draft")  # draft/ready/archived
-    dataset_metadata = Column(JSONB, default=dict)
+    status = Column(String(50), default="draft")  # draft/ready/archived/generating/importing
 
+    # 生成任务信息（用于恢复轮询）
+    generate_task_id = Column(String(100), nullable=True)
+    generate_task_status = Column(String(50), nullable=True)  # PENDING/PROGRESS/SUCCESS/FAILURE
+
+    dataset_metadata = Column(JSONB, default=dict)
     # 关系
     qa_records = relationship("QARecord", back_populates="dataset", cascade="all, delete-orphan")
     evaluations = relationship("Evaluation", back_populates="dataset")
+    snapshots = relationship("DatasetSnapshot", back_populates="dataset")
 
 
 class QARecord(BaseModel):
@@ -54,3 +61,15 @@ class QARecord(BaseModel):
     # 关系
     dataset = relationship("Dataset", back_populates="qa_records")
     eval_results = relationship("EvalResult", back_populates="qa_record")
+
+
+class DatasetSnapshot(BaseModel):
+    """数据集快照表"""
+    __tablename__ = "dataset_snapshots"
+
+    dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id"), nullable=False, index=True)
+    snapshot_data = Column(JSONB, default=dict)
+    version = Column(Integer, default=1)
+
+    # 关系
+    dataset = relationship("Dataset", back_populates="snapshots")

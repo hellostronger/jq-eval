@@ -13,7 +13,12 @@ class FastGPTAdapter(BaseRAGAdapter):
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.api_url = config.get("api_url", "https://api.fastgpt.in/api/v1").rstrip("/")
+        # 支持 api_endpoint 或 api_url，用户输入如 https://cloud.fastgpt.cn/api
+        base_url = (config.get("api_endpoint") or config.get("api_url", "")).rstrip("/")
+        # 自动拼接 /v1
+        if not base_url.endswith("/v1"):
+            base_url = f"{base_url}/v1"
+        self.api_url = base_url
         self.api_key = config.get("api_key", "")
         self.chat_id = config.get("chat_id", "eval-chat")
 

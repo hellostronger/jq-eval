@@ -9,7 +9,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.infoq.cn/feed",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True, "content_format": "markdown"}
     },
     {
         "name": "开源中国",
@@ -17,7 +17,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.oschina.net/news/rss",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True, "content_format": "markdown"}
     },
     {
         "name": "CSDN资讯",
@@ -25,7 +25,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.csdn.net/rss.html",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True, "content_format": "markdown"}
     },
     {
         "name": "科技行者",
@@ -33,7 +33,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.techwalker.com/feed",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "TechCrunch",
@@ -41,7 +41,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://techcrunch.com/feed/",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "Engadget中文",
@@ -49,7 +49,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://cn.engadget.com/rss.xml",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "Wired",
@@ -57,7 +57,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.wired.com/feed/rss",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "The Verge",
@@ -65,7 +65,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.theverge.com/rss/index.xml",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
 
     # ==================== 财经类 ====================
@@ -75,7 +75,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.eastmoney.com/rss.html",
         "source_type": "rss",
         "crawl_frequency": "30 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "雪球热门",
@@ -83,7 +83,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://xueqiu.com/hots/topic/rss",
         "source_type": "rss",
         "crawl_frequency": "30 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "财新网",
@@ -91,7 +91,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.caixin.com/rss.html",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "Bloomberg",
@@ -99,7 +99,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.bloomberg.com/feed/podcast/bloomberg-technology.xml",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "Reuters Business",
@@ -107,7 +107,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.reutersagency.com/feed/?tax=business-finance",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
 
     # ==================== 综合新闻 ====================
@@ -117,7 +117,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "http://www.news.cn/rss.html",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "BBC News",
@@ -125,7 +125,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://feeds.bbci.co.uk/news/rss.xml",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "CNN",
@@ -133,7 +133,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "http://rss.cnn.com/rss/edition.rss",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "Reuters World",
@@ -141,7 +141,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.reutersagency.com/feed/?tax=world-news",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "NYTimes World",
@@ -149,7 +149,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "澎湃新闻",
@@ -157,7 +157,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.thepaper.cn/rss.html",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
 
     # ==================== 体育类 ====================
@@ -167,7 +167,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.espn.com/espn/rss/news",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "体育画报",
@@ -175,7 +175,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.si.com/rss/si_topstories.rss",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "Bleacher Report",
@@ -183,7 +183,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://bleacherreport.com/articles/feed",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "NBA官网",
@@ -191,7 +191,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.nba.com/rss/nba_rss.xml",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "虎扑体育",
@@ -199,7 +199,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.hupu.com/rss",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
 
     # ==================== 健康类 ====================
@@ -209,7 +209,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://rssfeeds.webmd.com/rss/rss.aspx?RSSSource=RSSConsumer",
         "source_type": "rss",
         "crawl_frequency": "0 */2 * * *",  # 每2小时
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "Healthline",
@@ -217,7 +217,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.healthline.com/rss.xml",
         "source_type": "rss",
         "crawl_frequency": "0 */2 * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "Mayo Clinic",
@@ -225,7 +225,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://news.mayoclinic.org/feed/",
         "source_type": "rss",
         "crawl_frequency": "0 */2 * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "丁香园",
@@ -233,7 +233,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.dxy.cn/rss",
         "source_type": "rss",
         "crawl_frequency": "0 */2 * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
 
     # ==================== 教育类 ====================
@@ -243,7 +243,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.jyb.cn/rss.html",
         "source_type": "rss",
         "crawl_frequency": "0 */2 * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "芥末堆",
@@ -251,7 +251,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.jiemodui.com/rss",
         "source_type": "rss",
         "crawl_frequency": "0 */2 * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "Education Week",
@@ -259,7 +259,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.edweek.org/feed",
         "source_type": "rss",
         "crawl_frequency": "0 */2 * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "Chronicle Higher Ed",
@@ -267,7 +267,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.chronicle.com/rss",
         "source_type": "rss",
         "crawl_frequency": "0 */2 * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
 
     # ==================== 科学类 ====================
@@ -277,7 +277,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.sciencedaily.com/rss/all.xml",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "Nature",
@@ -285,7 +285,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.nature.com/nature.rss",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "Scientific American",
@@ -293,7 +293,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.scientificamerican.com/rss/",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "NASA News",
@@ -301,7 +301,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.nasa.gov/rss/dyn/breaking_news.rss",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
 
     # ==================== 娱乐类 ====================
@@ -311,7 +311,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://variety.com/feed/",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "Entertainment Weekly",
@@ -319,7 +319,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://ew.com/feed/",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": "Rolling Stone",
@@ -327,7 +327,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.rollingstone.com/feed/",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
 
     # ==================== 生活类 ====================
@@ -337,7 +337,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://lifehacker.com/rss",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
     {
         "name": " Apartment Therapy",
@@ -345,7 +345,7 @@ PRESET_RSS_SOURCES = [
         "source_url": "https://www.apartmenttherapy.com/feed",
         "source_type": "rss",
         "crawl_frequency": "0 * * * *",
-        "crawl_config": {}
+        "crawl_config": {"fetch_full_content": True}
     },
 ]
 

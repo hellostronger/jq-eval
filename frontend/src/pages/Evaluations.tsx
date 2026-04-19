@@ -154,7 +154,7 @@ const Evaluations: React.FC = () => {
             <Select
               placeholder="选择RAG系统（可选）"
               allowClear
-              options={ragSystems.map(r => ({ value: r.id, label: r.display_name }))}
+              options={ragSystems.map(r => ({ value: r.id, label: r.name }))}
             />
           </Form.Item>
           <Form.Item name="llm_model_id" label="LLM模型" rules={[{ required: true }]}>

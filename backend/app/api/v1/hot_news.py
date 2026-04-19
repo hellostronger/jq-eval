@@ -1,17 +1,28 @@
 # 热点新闻路由
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from pydantic import BaseModel
 from datetime import datetime
+from langdetect import detect, LangDetectException
 
 from ...core.database import get_db
 from ...models.hot_news import HotNewsSource, HotArticle
 from ...services.crawler import CrawlerFactory
 
 router = APIRouter()
+
+
+def detect_language(text: str) -> Optional[str]:
+    """检测文本语言"""
+    if not text or len(text) < 50:
+        return None
+    try:
+        return detect(text[:500])
+    except LangDetectException:
+        return None
 
 
 # Pydantic Schemas
@@ -62,6 +73,8 @@ class ArticleResponse(BaseModel):
     source_url: Optional[str]
     category: Optional[str]
     tags: List[str]
+    content_length: Optional[int] = None
+    language: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -295,6 +308,7 @@ async def test_source(
 @router.post("/sources/{source_id}/crawl")
 async def trigger_crawl(
     source_id: UUID,
+    force_full: bool = False,  # 是否强制全量爬取
     db: AsyncSession = Depends(get_db)
 ):
     """手动触发爬取"""
@@ -314,8 +328,8 @@ async def trigger_crawl(
         }
     )
 
-    # 执行爬取
-    crawl_result = await crawler.crawl(since=source.last_crawl_at)
+    # 执行爬取：强制全量时不传since参数
+    crawl_result = await crawler.crawl(since=None if force_full else source.last_crawl_at)
 
     # 存储文章
     new_count = 0
@@ -395,7 +409,9 @@ async def list_articles(
         crawled_at=a.crawled_at,
         source_url=a.source_url,
         category=a.category,
-        tags=a.tags or []
+        tags=a.tags or [],
+        content_length=len(a.content) if a.content else 0,
+        language=detect_language(a.content) if a.content else None,
     ) for a in articles]
 
 
@@ -444,3 +460,60 @@ async def get_stats(
         },
         "by_domain": domain_counts
     }
+
+
+@router.delete("/articles/{article_id}")
+async def delete_article(
+    article_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """删除单篇文章"""
+    result = await db.execute(
+        select(HotArticle).where(HotArticle.id == article_id)
+    )
+    article = result.scalar_one_or_none()
+    if not article:
+        raise HTTPException(status_code=404, detail="文章不存在")
+
+    await db.execute(delete(HotArticle).where(HotArticle.id == article_id))
+    await db.commit()
+    return {"message": "删除成功", "article_id": str(article_id)}
+
+
+class BatchDeleteRequest(BaseModel):
+    article_ids: List[str]  # 接收字符串，内部转换
+
+
+@router.post("/articles/batch-delete")
+async def batch_delete_articles(
+    data: BatchDeleteRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """批量删除文章"""
+    if not data.article_ids:
+        raise HTTPException(status_code=400, detail="请选择要删除的文章")
+
+    # 转换字符串ID为UUID
+    uuid_ids = []
+    for id_str in data.article_ids:
+        try:
+            uuid_ids.append(UUID(id_str))
+        except ValueError:
+            continue
+
+    if not uuid_ids:
+        raise HTTPException(status_code=400, detail="无效的文章ID")
+
+    # 先查询要删除的数量
+    count_result = await db.execute(
+        select(func.count(HotArticle.id)).where(HotArticle.id.in_(uuid_ids))
+    )
+    deleted_count = count_result.scalar() or 0
+
+    # 执行批量删除
+    await db.execute(
+        delete(HotArticle).where(HotArticle.id.in_(uuid_ids))
+    )
+    await db.commit()
+
+    return {"message": "批量删除成功", "deleted_count": deleted_count}

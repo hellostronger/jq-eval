@@ -9,6 +9,7 @@ import {
   LineChartOutlined,
   BarChartOutlined,
   DatabaseOutlined,
+  FireOutlined,
 } from '@ant-design/icons'
 import Dashboard from './pages/Dashboard'
 import Models from './pages/Models'
@@ -19,6 +20,7 @@ import Evaluations from './pages/Evaluations'
 import EvaluationDetail from './pages/EvaluationDetail'
 import Metrics from './pages/Metrics'
 import DataSources from './pages/DataSources'
+import HotNews from './pages/HotNews'
 
 const { Sider, Content } = Layout
 
@@ -30,6 +32,7 @@ const menuItems = [
   { key: '/evaluations', icon: <LineChartOutlined />, label: '评估任务' },
   { key: '/metrics', icon: <BarChartOutlined />, label: '指标市场' },
   { key: '/data-sources', icon: <DatabaseOutlined />, label: '数据源' },
+  { key: '/hot-news', icon: <FireOutlined />, label: '热点新闻' },
 ]
 
 const App: React.FC = () => {
@@ -63,6 +66,7 @@ const App: React.FC = () => {
           <Route path="/evaluations/:id" element={<EvaluationDetail />} />
           <Route path="/metrics" element={<Metrics />} />
           <Route path="/data-sources" element={<DataSources />} />
+          <Route path="/hot-news" element={<HotNews />} />
         </Routes>
       </Content>
     </Layout>
