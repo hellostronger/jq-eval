@@ -29,6 +29,10 @@ class Evaluation(BaseModel):
     llm_model_id = Column(UUID(as_uuid=True), ForeignKey("models.id"), nullable=True, index=True)
     embedding_model_id = Column(UUID(as_uuid=True), ForeignKey("models.id"), nullable=True, index=True)
 
+    # 关联调用结果批次
+    invocation_batch_id = Column(UUID(as_uuid=True), ForeignKey("invocation_batches.id"), nullable=True, index=True)
+    reuse_invocation = Column(Boolean, default=False)  # 是否复用存量调用结果
+
     # 评估配置
     metrics = Column(ARRAY(String), nullable=False)
     batch_size = Column(Integer, default=10)
@@ -47,6 +51,7 @@ class Evaluation(BaseModel):
 
     # 关系
     dataset = relationship("Dataset", back_populates="evaluations")
+    invocation_batch = relationship("InvocationBatch", back_populates="evaluations")
     results = relationship("EvalResult", back_populates="evaluation", cascade="all, delete-orphan")
     metric_configs = relationship("EvaluationMetricConfig", back_populates="evaluation", cascade="all, delete-orphan")
 
@@ -73,6 +78,7 @@ class EvalResult(BaseModel):
 
     eval_id = Column(UUID(as_uuid=True), ForeignKey("evaluations.id"), nullable=False, index=True)
     qa_record_id = Column(UUID(as_uuid=True), ForeignKey("qa_records.id"), nullable=False, index=True)
+    invocation_result_id = Column(UUID(as_uuid=True), ForeignKey("invocation_results.id"), nullable=True, index=True)
 
     # 评估时的检索结果快照
     retrieved_chunks_snapshot = Column(JSONB, nullable=True)
@@ -86,3 +92,4 @@ class EvalResult(BaseModel):
     # 关系
     evaluation = relationship("Evaluation", back_populates="results")
     qa_record = relationship("QARecord", back_populates="eval_results")
+    invocation_result = relationship("InvocationResult", back_populates="eval_results")

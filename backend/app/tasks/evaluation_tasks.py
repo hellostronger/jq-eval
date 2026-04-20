@@ -3,13 +3,16 @@ import asyncio
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 import logging
-from sqlalchemy import text
+from sqlalchemy import text, select
+from uuid import UUID
 
 from app.core.celery_app import celery_app
 from app.core.database import get_db_context
 from app.models.evaluation import Evaluation, EvaluationStatus, EvalResult
 from app.models.dataset import Dataset, QARecord
 from app.models.model import Model
+from app.models.invocation import InvocationBatch, InvocationResult
+from app.models.rag_system import RAGSystem
 from app.services.metrics import MetricEngine, get_metric_engine, METRIC_REGISTRY
 from app.services.adapters import AdapterFactory
 
@@ -27,12 +30,16 @@ def run_async(coro):
 
 
 @celery_app.task(bind=True, name="evaluation_task")
-def evaluation_task(self, evaluation_id: int) -> Dict[str, Any]:
-    """执行单个评估任务"""
-    return run_async(_run_evaluation(self, evaluation_id))
+def evaluation_task(self, evaluation_id: str) -> Dict[str, Any]:
+    """执行单个评估任务
+
+    Args:
+        evaluation_id: 评估任务ID (UUID字符串格式)
+    """
+    return run_async(_run_evaluation(self, UUID(evaluation_id)))
 
 
-async def _run_evaluation(task, evaluation_id: int) -> Dict[str, Any]:
+async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
     """异步执行评估"""
     async with get_db_context() as db:
         # 获取评估配置
@@ -54,33 +61,44 @@ async def _run_evaluation(task, evaluation_id: int) -> Dict[str, Any]:
             # 获取QA记录
             qa_records = await db.execute(
                 text("""
-                SELECT qr.*, ds.snapshot_version
-                FROM qa_records qr
-                JOIN dataset_snapshots ds ON qr.snapshot_id = ds.id
-                WHERE ds.dataset_id = :dataset_id
-                ORDER BY qr.created_at
+                SELECT * FROM qa_records
+                WHERE dataset_id = :dataset_id
+                ORDER BY created_at
                 """),
                 {"dataset_id": dataset.id}
             )
-            qa_list = [dict(r) for r in qa_records.fetchall()]
+            qa_list = [dict(r._mapping) for r in qa_records.fetchall()]
+
+            # 获取调用结果（如果指定了 invocation_batch_id）
+            invocation_results_map = {}
+            if evaluation.invocation_batch_id:
+                invocation_results = await db.execute(
+                    select(InvocationResult)
+                    .where(InvocationResult.batch_id == evaluation.invocation_batch_id)
+                )
+                for ir in invocation_results.scalars().all():
+                    invocation_results_map[str(ir.qa_record_id)] = ir
 
             # 获取模型配置
-            llm_config = await db.get(Model, evaluation.llm_model_id)
+            logger.info(f"评估任务模型配置: llm_model_id={evaluation.llm_model_id}, embedding_model_id={evaluation.embedding_model_id}")
+
+            llm_config = await db.get(Model, evaluation.llm_model_id) if evaluation.llm_model_id else None
             embedding_config = await db.get(Model, evaluation.embedding_model_id) if evaluation.embedding_model_id else None
 
+            logger.info(f"获取到的模型配置: llm_config={llm_config}, embedding_config={embedding_config}")
+
             # 初始化模型
-            llm = await _init_model(llm_config)
+            llm = await _init_model(llm_config) if llm_config else None
             embedding_model = await _init_model(embedding_config) if embedding_config else None
 
-            # 获取指标配置
-            metric_configs = await db.execute(
-                text("""
-                SELECT * FROM evaluation_metric_configs
-                WHERE evaluation_id = :eval_id AND enabled = true
-                """),
-                {"eval_id": evaluation_id}
-            )
-            metric_names = [r.metric_name for r in metric_configs.fetchall()]
+            logger.info(f"初始化后的模型: llm={llm}, embedding_model={embedding_model}")
+
+            # 检查是否有必要的模型配置
+            if not llm:
+                raise ValueError("评估任务需要配置 LLM 模型")
+
+            # 直接使用 evaluation.metrics 数组中的指标名称
+            metric_names = evaluation.metrics or []
 
             # 创建评估引擎
             engine = get_metric_engine(
@@ -88,6 +106,33 @@ async def _run_evaluation(task, evaluation_id: int) -> Dict[str, Any]:
                 embedding_model=embedding_model,
                 metric_names=metric_names
             )
+
+            # 准备评估数据：根据 reuse_invocation 决定数据来源
+            eval_data = []
+            for qa in qa_list:
+                qa_id = str(qa["id"])
+                # 如果有调用结果且 reuse_invocation=True，使用调用结果
+                if evaluation.reuse_invocation and qa_id in invocation_results_map:
+                    ir = invocation_results_map[qa_id]
+                    eval_item = {
+                        "id": qa["id"],
+                        "question": qa["question"],
+                        "answer": ir.answer or qa.get("answer"),
+                        "contexts": ir.contexts or qa.get("contexts"),
+                        "ground_truth": qa.get("ground_truth"),
+                        "invocation_result_id": ir.id,
+                    }
+                else:
+                    # 使用 QARecord 的原始数据
+                    eval_item = {
+                        "id": qa["id"],
+                        "question": qa["question"],
+                        "answer": qa.get("answer"),
+                        "contexts": qa.get("contexts"),
+                        "ground_truth": qa.get("ground_truth"),
+                        "invocation_result_id": None,
+                    }
+                eval_data.append(eval_item)
 
             # 执行评估
             def progress_callback(progress, current, total):
@@ -97,19 +142,27 @@ async def _run_evaluation(task, evaluation_id: int) -> Dict[str, Any]:
                 )
 
             results = await engine.evaluate_batch(
-                qa_records=qa_list,
+                qa_records=eval_data,
                 batch_size=evaluation.batch_size or 10,
                 progress_callback=progress_callback
             )
 
-            # 保存结果
+            # 保存结果 - 将 MetricResult 转换成字典
             for i, result_dict in enumerate(results):
-                qa_record = qa_list[i]
+                eval_item = eval_data[i]
+                # 转换 MetricResult 对象为可序列化的字典
+                scores_dict = {}
+                for metric_name, metric_result in result_dict.items():
+                    scores_dict[metric_name] = {
+                        "score": metric_result.score,
+                        "details": metric_result.details,
+                        "error": metric_result.error
+                    }
                 eval_result = EvalResult(
-                    evaluation_id=evaluation_id,
-                    qa_record_id=qa_record["id"],
-                    metric_scores=result_dict,
-                    created_at=datetime.utcnow()
+                    eval_id=evaluation_id,
+                    qa_record_id=eval_item["id"],
+                    invocation_result_id=eval_item.get("invocation_result_id"),
+                    scores=scores_dict,
                 )
                 db.add(eval_result)
 
@@ -129,16 +182,25 @@ async def _run_evaluation(task, evaluation_id: int) -> Dict[str, Any]:
 
         except Exception as e:
             logger.error(f"评估任务 {evaluation_id} 失败: {e}")
-            evaluation.status = EvaluationStatus.FAILED
-            evaluation.error_message = str(e)
-            evaluation.completed_at = datetime.utcnow()
-            await db.commit()
+            # 回滚失败的事务
+            await db.rollback()
+            # 重新获取 evaluation 对象并更新状态
+            evaluation = await db.get(Evaluation, evaluation_id)
+            if evaluation:
+                evaluation.status = EvaluationStatus.FAILED
+                evaluation.error = str(e)
+                evaluation.completed_at = datetime.utcnow()
+                await db.commit()
             return {"error": str(e)}
 
 
 @celery_app.task(bind=True, name="batch_evaluation_task")
-def batch_evaluation_task(self, evaluation_ids: List[int]) -> Dict[str, Any]:
-    """批量执行评估任务"""
+def batch_evaluation_task(self, evaluation_ids: List[str]) -> Dict[str, Any]:
+    """批量执行评估任务
+
+    Args:
+        evaluation_ids: 评估任务ID列表 (UUID字符串格式)
+    """
     results = []
     for eval_id in evaluation_ids:
         result = evaluation_task(eval_id)
@@ -149,7 +211,11 @@ def batch_evaluation_task(self, evaluation_ids: List[int]) -> Dict[str, Any]:
 async def _init_model(model_config: Model) -> Any:
     """初始化模型"""
     params = model_config.params or {}
-    if model_config.model_type == "llm":
+    model_type = model_config.model_type.lower() if model_config.model_type else ""
+
+    logger.info(f"初始化模型: id={model_config.id}, name={model_config.name}, type={model_type}")
+
+    if model_type == "llm":
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(
             model=model_config.model_name,
@@ -157,11 +223,13 @@ async def _init_model(model_config: Model) -> Any:
             base_url=model_config.endpoint,
             temperature=params.get("temperature", 0.7),
         )
-    elif model_config.model_type == "embedding":
+    elif model_type == "embedding":
         from langchain_openai import OpenAIEmbeddings
         return OpenAIEmbeddings(
             model=model_config.model_name,
             api_key=model_config.api_key_encrypted,
             base_url=model_config.endpoint,
         )
-    return None
+    else:
+        logger.warning(f"未知的模型类型: {model_config.model_type}, 模型ID: {model_config.id}")
+        return None

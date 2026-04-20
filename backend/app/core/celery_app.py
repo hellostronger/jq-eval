@@ -1,5 +1,6 @@
 # Celery配置
 from celery import Celery
+from celery.signals import worker_process_init, worker_process_shutdown
 from celery.schedules import crontab
 from app.core.config import settings
 
@@ -9,6 +10,27 @@ celery_app = Celery(
     backend=f"redis://:{settings.REDIS_PASSWORD}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/2",
 )
 
+
+@worker_process_init.connect
+def on_worker_process_init(**kwargs):
+    """在 worker 进程初始化时创建数据库引擎
+
+    这解决了 prefork 模式下 asyncpg 连接池的问题：
+    - prefork 模式会在父进程 fork 出子进程
+    - asyncpg 连接不能跨进程使用
+    - 需要在每个子进程初始化时重新创建连接池
+    """
+    from app.core.database import _create_celery_engine
+    _create_celery_engine()
+
+
+@worker_process_shutdown.connect
+def on_worker_process_shutdown(**kwargs):
+    """在 worker 进程退出时清理数据库连接"""
+    from app.core.database import dispose_celery_engine
+    dispose_celery_engine()
+
+
 # Celery配置
 celery_app.conf.update(
     task_serializer="json",
@@ -17,6 +39,8 @@ celery_app.conf.update(
     timezone="Asia/Shanghai",
     enable_utc=True,
     task_track_started=True,
+    task_acks_late=True,  # 任务完成后再确认，避免worker崩溃时任务丢失
+    task_reject_on_worker_lost=True,  # worker丢失时拒绝任务，使其重新入队
     task_time_limit=30 * 60,  # 30分钟超时
     task_soft_time_limit=25 * 60,  # 25分钟软超时
     worker_prefetch_multiplier=1,  # 每次只取一个任务

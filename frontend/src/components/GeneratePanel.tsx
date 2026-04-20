@@ -111,8 +111,9 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
   const handleUpload = async (file: File) => {
     try {
       const result = await uploadDatasetFile(datasetId, file)
-      if (result.object_name || result.file_path) {
-        setUploadedFiles([...uploadedFiles, result.object_name || result.file_path])
+      const filePath = result.object_name || result.file_path
+      if (filePath) {
+        setUploadedFiles([...uploadedFiles, filePath])
         message.success('文件上传成功')
       }
     } catch (e) {

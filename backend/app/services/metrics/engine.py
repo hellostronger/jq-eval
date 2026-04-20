@@ -116,7 +116,7 @@ class MetricEngine:
             # 进度回调
             if progress_callback:
                 progress = min((i + batch_size) / total * 100, 100)
-                await progress_callback(progress, i + len(batch), total)
+                progress_callback(progress, i + len(batch), total)
 
         return results
 

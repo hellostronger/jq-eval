@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Upload, Button, message, Tabs, Input, Tag, Space, Divider, Popconfirm } from 'antd'
-import { UploadOutlined, PlusOutlined, DownloadOutlined, DeleteOutlined } from '@ant-design/icons'
+import { Card, Table, Upload, Button, message, Tabs, Tag, Space, Divider, Popconfirm } from 'antd'
+import { UploadOutlined, DownloadOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { getDataset, getQARecords, uploadDatasetFile, downloadTemplate, deleteQARecord, batchDeleteQARecords } from '@/api'

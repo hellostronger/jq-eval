@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Button, Tag, Modal, Form, Input, Select, InputNumber, message } from 'antd'
-import { PlusOutlined, PlayCircleOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Tag, Modal, Form, Input, Select, InputNumber, message, Space, Switch, Divider } from 'antd'
+import { PlusOutlined, PlayCircleOutlined, SwitcherOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
-import { getEvaluations, createEvaluation, startEvaluation, getDatasets, getRAGSystems, getModels } from '@/api'
-import type { Evaluation, Dataset, RAGSystem, ModelConfig } from '@/types'
+import { getEvaluations, createEvaluation, startEvaluation, getDatasets, getRAGSystems, getModels, getInvocationBatches } from '@/api'
+import type { Evaluation, Dataset, RAGSystem, ModelConfig, InvocationBatch } from '@/types'
 
 const Evaluations: React.FC = () => {
   const navigate = useNavigate()
@@ -12,24 +12,28 @@ const Evaluations: React.FC = () => {
   const [datasets, setDatasets] = useState<Dataset[]>([])
   const [ragSystems, setRAGSystems] = useState<RAGSystem[]>([])
   const [llmModels, setLLMModels] = useState<ModelConfig[]>([])
+  const [invocationBatches, setInvocationBatches] = useState<InvocationBatch[]>([])
   const [loading, setLoading] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
   const [form] = Form.useForm()
 
   const fetchData = async () => {
     setLoading(true)
     try {
-      const [evalData, datasetData, ragData, modelData] = await Promise.all([
+      const [evalData, datasetData, ragData, modelData, batchData] = await Promise.all([
         getEvaluations(),
         getDatasets(),
         getRAGSystems(),
         getModels('llm'),
+        getInvocationBatches({ status: 'completed' }),
       ])
       setEvaluations(evalData)
       setDatasets(datasetData)
-      setRAGSystems(ragData)
+      setRagSystems(ragData)
       setLLMModels(modelData)
+      setInvocationBatches(batchData)
     } finally {
       setLoading(false)
     }
@@ -43,6 +47,7 @@ const Evaluations: React.FC = () => {
     form.resetFields()
     form.setFieldsValue({
       batch_size: 10,
+      reuse_invocation: true,
     })
     setModalVisible(true)
   }
@@ -70,6 +75,18 @@ const Evaluations: React.FC = () => {
     }
   }
 
+  const handleCompare = () => {
+    // 只允许对比已完成的评估任务
+    const selectedEvals = evaluations.filter(e => selectedRowKeys.includes(e.id))
+    const completedEvals = selectedEvals.filter(e => e.status === 'completed')
+    if (completedEvals.length < 2) {
+      message.warning('请至少选择2个已完成的评估任务进行对比')
+      return
+    }
+    const ids = completedEvals.map(e => e.id).join(',')
+    navigate(`/evaluations/compare?ids=${ids}`)
+  }
+
   const getStatusType = (status: string) => {
     const types: Record<string, 'success' | 'warning' | 'processing' | 'error' | 'default'> = {
       completed: 'success',
@@ -88,6 +105,16 @@ const Evaluations: React.FC = () => {
       dataIndex: 'status',
       key: 'status',
       render: (status: string) => <Tag color={getStatusType(status)}>{status}</Tag>,
+    },
+    {
+      title: '调用批次',
+      dataIndex: 'invocation_batch_id',
+      key: 'invocation_batch_id',
+      render: (id?: string) => {
+        if (!id) return '-'
+        const batch = invocationBatches.find(b => b.id === id)
+        return batch ? <Tag color="blue">{batch.name}</Tag> : id
+      },
     },
     {
       title: '创建时间',
@@ -118,16 +145,42 @@ const Evaluations: React.FC = () => {
     },
   ]
 
+  const rowSelection = {
+    selectedRowKeys,
+    onChange: (newSelectedRowKeys: React.Key[]) => {
+      setSelectedRowKeys(newSelectedRowKeys)
+    },
+    getCheckboxProps: (record: Evaluation) => ({
+      disabled: record.status !== 'completed',
+    }),
+  }
+
   return (
     <Card
       title="评估任务"
       extra={
-        <Button type="primary" icon={<PlusOutlined />} onClick={showCreateDialog}>
-          新建评估
-        </Button>
+        <Space>
+          <Button
+            type="default"
+            icon={<SwitcherOutlined />}
+            onClick={handleCompare}
+            disabled={selectedRowKeys.length < 2}
+          >
+            对比 ({selectedRowKeys.filter(k => evaluations.find(e => e.id === k)?.status === 'completed').length})
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={showCreateDialog}>
+            新建评估
+          </Button>
+        </Space>
       }
     >
-      <Table dataSource={evaluations} columns={columns} rowKey="id" loading={loading} />
+      <Table
+        dataSource={evaluations}
+        columns={columns}
+        rowKey="id"
+        loading={loading}
+        rowSelection={rowSelection}
+      />
 
       <Modal
         title="新建评估任务"
@@ -150,13 +203,18 @@ const Evaluations: React.FC = () => {
               options={datasets.map(d => ({ value: d.id, label: d.name }))}
             />
           </Form.Item>
-          <Form.Item name="rag_system_id" label="RAG系统">
+          <Divider>调用结果设置</Divider>
+          <Form.Item name="invocation_batch_id" label="调用批次" extra="选择已完成的调用批次，将使用其调用结果进行评估">
             <Select
-              placeholder="选择RAG系统（可选）"
+              placeholder="选择调用批次（可选）"
               allowClear
-              options={ragSystems.map(r => ({ value: r.id, label: r.name }))}
+              options={invocationBatches.map(b => ({ value: b.id, label: `${b.name} (${b.completed_count}/${b.total_count})` }))}
             />
           </Form.Item>
+          <Form.Item name="reuse_invocation" label="复用调用结果" valuePropName="checked" extra="开启后将使用存量调用结果进行评估，关闭则重新调用RAG系统">
+            <Switch />
+          </Form.Item>
+          <Divider>评估配置</Divider>
           <Form.Item name="llm_model_id" label="LLM模型" rules={[{ required: true }]}>
             <Select
               placeholder="选择LLM模型"

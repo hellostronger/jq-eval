@@ -10,6 +10,7 @@ import {
   BarChartOutlined,
   DatabaseOutlined,
   FireOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons'
 import Dashboard from './pages/Dashboard'
 import Models from './pages/Models'
@@ -18,6 +19,8 @@ import Datasets from './pages/Datasets'
 import DatasetDetail from './pages/DatasetDetail'
 import Evaluations from './pages/Evaluations'
 import EvaluationDetail from './pages/EvaluationDetail'
+import EvaluationCompare from './pages/EvaluationCompare'
+import Invocations from './pages/Invocations'
 import Metrics from './pages/Metrics'
 import DataSources from './pages/DataSources'
 import HotNews from './pages/HotNews'
@@ -29,6 +32,7 @@ const menuItems = [
   { key: '/models', icon: <SettingOutlined />, label: '模型配置' },
   { key: '/rag-systems', icon: <ApiOutlined />, label: 'RAG系统' },
   { key: '/datasets', icon: <FolderOpenOutlined />, label: '数据集' },
+  { key: '/invocations', icon: <ThunderboltOutlined />, label: '调用批次' },
   { key: '/evaluations', icon: <LineChartOutlined />, label: '评估任务' },
   { key: '/metrics', icon: <BarChartOutlined />, label: '指标市场' },
   { key: '/data-sources', icon: <DatabaseOutlined />, label: '数据源' },
@@ -62,7 +66,9 @@ const App: React.FC = () => {
           <Route path="/rag-systems" element={<RAGSystems />} />
           <Route path="/datasets" element={<Datasets />} />
           <Route path="/datasets/:id" element={<DatasetDetail />} />
+          <Route path="/invocations" element={<Invocations />} />
           <Route path="/evaluations" element={<Evaluations />} />
+          <Route path="/evaluations/compare" element={<EvaluationCompare />} />
           <Route path="/evaluations/:id" element={<EvaluationDetail />} />
           <Route path="/metrics" element={<Metrics />} />
           <Route path="/data-sources" element={<DataSources />} />

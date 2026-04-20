@@ -63,12 +63,45 @@ export interface Evaluation {
   rag_system_id?: string
   llm_model_id: string
   embedding_model_id?: string
+  invocation_batch_id?: string  // 关联的调用批次
+  reuse_invocation?: boolean  // 是否复用存量调用结果
   metrics: string[]
   batch_size: number
   status: 'pending' | 'running' | 'completed' | 'failed'
   started_at?: string
   completed_at?: string
   summary?: Record<string, any>
+  created_at: string
+}
+
+// 调用批次类型
+export interface InvocationBatch {
+  id: string
+  name: string
+  dataset_id: string
+  rag_system_id: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  total_count: number
+  completed_count: number
+  failed_count: number
+  error?: string
+  started_at?: string
+  completed_at?: string
+  created_at: string
+}
+
+// 调用结果类型
+export interface InvocationResult {
+  id: string
+  batch_id: string
+  qa_record_id: string
+  rag_system_id: string
+  question: string
+  answer?: string
+  contexts?: string[]
+  latency?: number
+  status: 'pending' | 'success' | 'failed'
+  error?: string
   created_at: string
 }
 
@@ -97,6 +130,7 @@ export interface MetricDefinition {
 export interface DataSource {
   id: string
   name: string
+  source_type?: string
   system_type: string
   connection_config: Record<string, any>
   rag_system_id?: string

@@ -5,6 +5,11 @@ import asyncio
 from .base import BaseMetric, MetricResult
 
 
+async def _run_sync(func, *args, **kwargs):
+    """在异步环境中运行同步函数"""
+    return await asyncio.to_thread(func, *args, **kwargs)
+
+
 class RagasFaithfulness(BaseMetric):
     """忠实度 - Ragas实现"""
 
@@ -31,6 +36,13 @@ class RagasFaithfulness(BaseMetric):
         **kwargs
     ) -> MetricResult:
         """计算忠实度"""
+        if not answer:
+            return MetricResult(score=0.0, error="答案为空")
+
+        # 如果没有 contexts，无法计算忠实度
+        if not contexts or len(contexts) == 0:
+            return MetricResult(score=0.0, error="缺少contexts数据")
+
         try:
             # 尝试使用ragas库
             try:
@@ -41,20 +53,24 @@ class RagasFaithfulness(BaseMetric):
                 if self.llm:
                     faithfulness.llm = self.llm
 
+                # 确保 contexts 是字符串列表
+                contexts_list = [str(c) if c else "" for c in contexts]
+
                 data = Dataset.from_dict({
                     "question": [question],
                     "answer": [answer],
-                    "contexts": [contexts or []]
+                    "contexts": [contexts_list]
                 })
 
-                result = evaluate(data, metrics=[faithfulness])
+                # ragas.evaluate 是同步函数，需要在线程中执行
+                result = await _run_sync(evaluate, data, metrics=[faithfulness])
                 score = result['faithfulness'][0]
 
                 return MetricResult(score=float(score))
 
             except ImportError:
                 # ragas库未安装，使用简化计算
-                return await self._compute_simple(question, answer, contexts or [])
+                return await self._compute_simple(question, answer, contexts)
 
         except Exception as e:
             return MetricResult(score=0.0, error=str(e))
@@ -113,6 +129,10 @@ class RagasContextPrecision(BaseMetric):
         **kwargs
     ) -> MetricResult:
         """计算上下文精确度"""
+        # 如果没有 contexts，无法计算
+        if not contexts or len(contexts) == 0:
+            return MetricResult(score=0.0, error="缺少contexts数据")
+
         try:
             try:
                 from ragas import evaluate
@@ -122,12 +142,16 @@ class RagasContextPrecision(BaseMetric):
                 if self.llm:
                     context_precision.llm = self.llm
 
+                # 确保 contexts 是字符串列表
+                contexts_list = [str(c) if c else "" for c in contexts]
+
                 data = Dataset.from_dict({
                     "question": [question],
-                    "contexts": [contexts or []]
+                    "contexts": [contexts_list]
                 })
 
-                result = evaluate(data, metrics=[context_precision])
+                # ragas.evaluate 是同步函数，需要在线程中执行
+                result = await _run_sync(evaluate, data, metrics=[context_precision])
                 score = result['context_precision'][0]
 
                 return MetricResult(score=float(score))
@@ -191,6 +215,13 @@ class RagasContextRecall(BaseMetric):
         **kwargs
     ) -> MetricResult:
         """计算上下文召回率"""
+        if not ground_truth:
+            return MetricResult(score=0.0, error="缺少ground_truth")
+
+        # 如果没有 contexts，无法计算
+        if not contexts or len(contexts) == 0:
+            return MetricResult(score=0.0, error="缺少contexts数据")
+
         try:
             try:
                 from ragas import evaluate
@@ -200,19 +231,23 @@ class RagasContextRecall(BaseMetric):
                 if self.llm:
                     context_recall.llm = self.llm
 
+                # 确保 contexts 是字符串列表
+                contexts_list = [str(c) if c else "" for c in contexts]
+
                 data = Dataset.from_dict({
                     "question": [question],
                     "ground_truth": [ground_truth],
-                    "contexts": [contexts or []]
+                    "contexts": [contexts_list]
                 })
 
-                result = evaluate(data, metrics=[context_recall])
+                # ragas.evaluate 是同步函数，需要在线程中执行
+                result = await _run_sync(evaluate, data, metrics=[context_recall])
                 score = result['context_recall'][0]
 
                 return MetricResult(score=float(score))
 
             except ImportError:
-                return await self._compute_simple(ground_truth, contexts or [])
+                return await self._compute_simple(ground_truth, contexts)
 
         except Exception as e:
             return MetricResult(score=0.0, error=str(e))
@@ -244,7 +279,7 @@ class RagasContextRecall(BaseMetric):
         )
 
 
-class RagasAnswerRelevancy(BaseMetric):
+class RagasAnswerRelevance(BaseMetric):
     """答案相关性 - Ragas实现"""
 
     name = "answer_relevancy"
@@ -272,6 +307,9 @@ class RagasAnswerRelevancy(BaseMetric):
         **kwargs
     ) -> MetricResult:
         """计算答案相关性"""
+        if not answer:
+            return MetricResult(score=0.0, error="答案为空")
+
         try:
             try:
                 from ragas import evaluate
@@ -286,7 +324,8 @@ class RagasAnswerRelevancy(BaseMetric):
                     "answer": [answer]
                 })
 
-                result = evaluate(data, metrics=[answer_relevancy])
+                # ragas.evaluate 是同步函数，需要在线程中执行
+                result = await _run_sync(evaluate, data, metrics=[answer_relevancy])
                 score = result['answer_relevancy'][0]
 
                 return MetricResult(score=float(score))
@@ -328,5 +367,5 @@ RAGAS_METRICS = {
     "faithfulness": RagasFaithfulness,
     "context_precision": RagasContextPrecision,
     "context_recall": RagasContextRecall,
-    "answer_relevancy": RagasAnswerRelevancy,
+    "answer_relevancy": RagasAnswerRelevance,
 }

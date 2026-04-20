@@ -58,3 +58,7 @@ class RAGSystem(BaseModel):
 
     # 所属用户
     owner_id = Column(UUID(as_uuid=True), nullable=True)
+
+    # 关系
+    invocation_batches = relationship("InvocationBatch", back_populates="rag_system")
+    invocation_results = relationship("InvocationResult", back_populates="rag_system")

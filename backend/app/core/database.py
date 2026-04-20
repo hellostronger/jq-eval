@@ -85,6 +85,51 @@ async def close_db():
     await async_engine.dispose()
 
 
+# Celery 任务专用异步引擎（独立于 FastAPI 应用）
+# 注意：在 prefork 模式下，需要在每个 worker 进程中重新创建引擎
+# 所以这里初始化为 None，在 worker 进程初始化时创建
+celery_async_engine = None
+CeleryAsyncSessionLocal = None
+
+
+def _create_celery_engine():
+    """在 Celery worker 进程中创建数据库引擎"""
+    global celery_async_engine, CeleryAsyncSessionLocal
+    if celery_async_engine is None:
+        celery_async_engine = create_async_engine(
+            settings.DATABASE_URL,
+            echo=settings.APP_DEBUG,
+            pool_pre_ping=True,
+            pool_size=5,
+            max_overflow=10
+        )
+        CeleryAsyncSessionLocal = async_sessionmaker(
+            bind=celery_async_engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+            autocommit=False,
+            autoflush=False
+        )
+    return celery_async_engine
+
+
+def dispose_celery_engine():
+    """清理 Celery 数据库引擎（在 worker 进程退出时调用）"""
+    global celery_async_engine, CeleryAsyncSessionLocal
+    if celery_async_engine is not None:
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(celery_async_engine.dispose())
+            else:
+                loop.run_until_complete(celery_async_engine.dispose())
+        except Exception:
+            pass
+        celery_async_engine = None
+        CeleryAsyncSessionLocal = None
+
+
 from contextlib import asynccontextmanager
 
 
@@ -92,12 +137,17 @@ from contextlib import asynccontextmanager
 async def get_db_context():
     """异步数据库上下文管理器（用于 Celery 任务等场景）
 
+    Celery 任务使用独立的数据库引擎，避免 event loop 冲突。
+
     用法:
         async with get_db_context() as db:
             # 使用 db 进行数据库操作
             await db.commit()
     """
-    async with AsyncSessionLocal() as session:
+    # 确保引擎已创建
+    _create_celery_engine()
+
+    async with CeleryAsyncSessionLocal() as session:
         try:
             yield session
             await session.commit()

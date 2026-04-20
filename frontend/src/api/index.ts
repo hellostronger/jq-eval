@@ -1,5 +1,5 @@
 import { request } from './request'
-import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, DataSource, SyncTask, ModelConfig, SystemStats, NewsSource, HotArticle, NewsStats } from '@/types'
+import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, DataSource, SyncTask, ModelConfig, SystemStats, NewsSource, HotArticle, NewsStats, InvocationBatch, InvocationResult } from '@/types'
 
 // 模型API
 export const getModels = (modelType: string) => {
@@ -44,7 +44,7 @@ export const testRAGSystem = (id: string) => {
 }
 
 export const queryRAGSystem = (id: string, question: string) => {
-  return request.post(`/rag-systems/${id}/query`, { question })
+  return request.post<{ answer?: string; response?: string; content?: string }>(`/rag-systems/${id}/query`, { question })
 }
 
 // 数据集API
@@ -71,7 +71,7 @@ export const getQARecords = (datasetId: string, params?: { page?: number; size?:
 export const uploadDatasetFile = (datasetId: string, file: File) => {
   const formData = new FormData()
   formData.append('file', file)
-  return request.post(`/datasets/${datasetId}/import`, formData)
+  return request.post<{ object_name?: string; file_path?: string }>(`/datasets/${datasetId}/import`, formData)
 }
 
 // 删除QA记录
@@ -125,7 +125,11 @@ export const generateDataset = (datasetId: string, data: GenerateRequest) => {
 }
 
 export const getGenerateStatus = (datasetId: string, taskId: string) => {
-  return request.get(`/datasets/${datasetId}/generate/status/${taskId}`)
+  return request.get<{
+    status: string
+    progress?: { progress: number }
+    result?: { generated_count?: number; error?: string }
+  }>(`/datasets/${datasetId}/generate/status/${taskId}`)
 }
 
 export const getCurrentGenerateTask = (datasetId: string) => {
@@ -146,15 +150,80 @@ export const createEvaluation = (data: Partial<Evaluation>) => {
 }
 
 export const startEvaluation = (id: string) => {
-  return request.post(`/evaluations/${id}/start`)
+  return request.post(`/evaluations/${id}/run`)
+}
+
+export const retryEvaluation = (id: string) => {
+  return request.post(`/evaluations/${id}/retry`)
+}
+
+interface EvaluationResultsResponse {
+  results: Array<{
+    id: string
+    qa_record_id: string
+    question: string
+    answer?: string
+    ground_truth?: string
+    metric_scores: Record<string, { score: number; error?: string }>
+    details?: Record<string, any>
+    created_at?: string
+  }>
+  summary?: {
+    overall_score: number
+    metrics: Record<string, { mean: number; std: number; min: number; max: number }>
+  }
 }
 
 export const getEvaluationResults = (id: string) => {
-  return request.get(`/evaluations/${id}/results`)
+  return request.get<EvaluationResultsResponse>(`/evaluations/${id}/results`)
 }
 
 export const getEvaluationSummary = (id: string) => {
   return request.get(`/evaluations/${id}/summary`)
+}
+
+export const compareEvaluations = (evalIds: string[]) => {
+  return request.post<{
+    evaluations: Array<{ id: string; name: string; metrics: string[]; summary: Record<string, any> }>
+    comparison: Array<{
+      qa_record_id: string
+      question: string
+      ground_truth?: string
+      scores: Record<string, Record<string, { score: number; error?: string }>>
+    }>
+    summary: Record<string, Record<string, any>>
+  }>('/evaluations/compare', { eval_ids: evalIds })
+}
+
+export const retryEvaluationWithOption = (id: string, reuseInvocation: boolean = true) => {
+  return request.post<{ message: string; eval_id: string; task_id: string; reuse_invocation: boolean }>(
+    `/evaluations/${id}/retry?reuse_invocation=${reuseInvocation}`
+  )
+}
+
+// 调用批次API
+export const getInvocationBatches = (params?: { dataset_id?: string; rag_system_id?: string; status?: string }) => {
+  return request.get<InvocationBatch[]>('/invocations', { params })
+}
+
+export const getInvocationBatch = (id: string) => {
+  return request.get<InvocationBatch>(`/invocations/${id}`)
+}
+
+export const createInvocationBatch = (data: { name: string; dataset_id: string; rag_system_id: string }) => {
+  return request.post<InvocationBatch>('/invocations', data)
+}
+
+export const runInvocationBatch = (id: string) => {
+  return request.post<{ message: string; batch_id: string; task_id: string }>(`/invocations/${id}/run`)
+}
+
+export const getInvocationResults = (batchId: string, params?: { skip?: number; limit?: number }) => {
+  return request.get<InvocationResult[]>(`/invocations/${batchId}/results`, { params })
+}
+
+export const deleteInvocationBatch = (id: string) => {
+  return request.delete(`/invocations/${id}`)
 }
 
 // 统计API

@@ -32,6 +32,7 @@ class Dataset(BaseModel):
     # 关系
     qa_records = relationship("QARecord", back_populates="dataset", cascade="all, delete-orphan")
     evaluations = relationship("Evaluation", back_populates="dataset")
+    invocation_batches = relationship("InvocationBatch", back_populates="dataset")
     snapshots = relationship("DatasetSnapshot", back_populates="dataset")
 
 
@@ -61,6 +62,7 @@ class QARecord(BaseModel):
     # 关系
     dataset = relationship("Dataset", back_populates="qa_records")
     eval_results = relationship("EvalResult", back_populates="qa_record")
+    invocation_results = relationship("InvocationResult", back_populates="qa_record")
 
 
 class DatasetSnapshot(BaseModel):
