@@ -6,12 +6,14 @@ from datetime import datetime
 from .base import BaseMetric, MetricResult
 from .ragas_metrics import RAGAS_METRICS
 from .evalscope_metrics import EVALSCOPE_METRICS
+from .retrieval_metrics import RETRIEVAL_METRICS
 
 
 # 指标注册表
 METRIC_REGISTRY: Dict[str, Type[BaseMetric]] = {}
 METRIC_REGISTRY.update(RAGAS_METRICS)
 METRIC_REGISTRY.update(EVALSCOPE_METRICS)
+METRIC_REGISTRY.update(RETRIEVAL_METRICS)
 
 
 class MetricEngine:
@@ -105,7 +107,9 @@ class MetricEngine:
                     question=r['question'],
                     answer=r.get('answer'),
                     contexts=r.get('contexts'),
-                    ground_truth=r.get('ground_truth')
+                    ground_truth=r.get('ground_truth'),
+                    retrieval_ids=r.get('retrieval_ids'),
+                    target_chunk_ids=r.get('target_chunk_ids')
                 )
                 for r in batch
             ]

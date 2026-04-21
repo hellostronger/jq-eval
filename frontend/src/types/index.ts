@@ -229,3 +229,25 @@ export interface NewsStats {
   }
   by_domain: Record<string, number>
 }
+
+// 文档类型
+export interface DocumentInfo {
+  id: string
+  title?: string
+  content?: string
+  file_type?: string
+  source_type?: string
+  chunk_count?: number
+}
+
+// 分片类型
+export interface ChunkInfo {
+  id: string
+  doc_id: string
+  content: string
+  chunk_index: number
+  start_char?: number
+  end_char?: number
+  milvus_id?: string
+  document_title?: string
+}

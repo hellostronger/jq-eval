@@ -47,6 +47,7 @@ celery_app.conf.update(
     worker_max_tasks_per_child=100,  # 每个worker处理100个任务后重启
     imports=[
         "app.tasks.evaluation_tasks",
+        "app.tasks.invocation_tasks",
         "app.tasks.dataset_tasks",
         "app.tasks.sync_tasks",
         "app.tasks.health_tasks",

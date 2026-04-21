@@ -7,6 +7,7 @@ python-multipart==0.0.20
 sqlalchemy==2.0.40
 asyncpg==0.31.0
 psycopg2-binary==2.9.11
+greenlet==3.4.0
 
 # Redis
 redis==7.4.0

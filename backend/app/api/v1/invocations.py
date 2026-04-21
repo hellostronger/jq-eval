@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional
 from uuid import UUID
+from datetime import datetime
 from pydantic import BaseModel
 
 from ...core.database import get_db
@@ -29,9 +30,9 @@ class InvocationBatchResponse(BaseModel):
     completed_count: int
     failed_count: int
     error: Optional[str] = None
-    started_at: Optional[str] = None
-    completed_at: Optional[str] = None
-    created_at: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -48,7 +49,7 @@ class InvocationResultResponse(BaseModel):
     latency: Optional[float] = None
     status: str
     error: Optional[str] = None
-    created_at: Optional[str] = None
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

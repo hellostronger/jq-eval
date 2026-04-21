@@ -93,6 +93,7 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
                     # 解析响应
                     answer = response.get("answer") or response.get("response") or response.get("content", "")
                     contexts = response.get("contexts") or response.get("retrieved_chunks", [])
+                    retrieval_ids = response.get("retrieval_ids") or response.get("chunk_ids", [])
 
                     # 存储结果
                     result = InvocationResult(
@@ -102,6 +103,7 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
                         question=qa["question"],
                         answer=answer,
                         contexts=contexts,
+                        retrieval_ids=retrieval_ids,
                         latency=latency,
                         status="success"
                     )

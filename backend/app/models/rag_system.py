@@ -1,6 +1,7 @@
 # RAG系统配置模型
 from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, DateTime
 from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import relationship
 from datetime import datetime
 
 from .base import BaseModel

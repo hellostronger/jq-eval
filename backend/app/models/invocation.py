@@ -30,6 +30,7 @@ class InvocationBatch(BaseModel):
     dataset = relationship("Dataset", back_populates="invocation_batches")
     rag_system = relationship("RAGSystem", back_populates="invocation_batches")
     results = relationship("InvocationResult", back_populates="batch", cascade="all, delete-orphan")
+    evaluations = relationship("Evaluation", back_populates="invocation_batch")
 
 
 class InvocationResult(BaseModel):
@@ -46,6 +47,7 @@ class InvocationResult(BaseModel):
     # 调用结果
     answer = Column(Text, nullable=True)
     contexts = Column(JSONB, nullable=True)  # 检索到的上下文片段列表
+    retrieval_ids = Column(JSONB, nullable=True)  # 检索到的chunk ID列表（用于检索指标计算）
 
     # 性能指标
     latency = Column(Float, nullable=True)  # 响应耗时（秒）

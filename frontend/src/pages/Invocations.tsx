@@ -26,7 +26,7 @@ const Invocations: React.FC = () => {
       ])
       setBatches(batchData)
       setDatasets(datasetData)
-      setRagSystems(ragData)
+      setRAGSystems(ragData)
     } finally {
       setLoading(false)
     }
@@ -242,12 +242,18 @@ const Invocations: React.FC = () => {
           <Form.Item name="dataset_id" label="数据集" rules={[{ required: true }]}>
             <Select
               placeholder="选择数据集"
+              showSearch
+              optionFilterProp="label"
+              getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
               options={datasets.map(d => ({ value: d.id, label: d.name }))}
             />
           </Form.Item>
           <Form.Item name="rag_system_id" label="RAG系统" rules={[{ required: true }]}>
             <Select
               placeholder="选择RAG系统"
+              showSearch
+              optionFilterProp="label"
+              getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
               options={ragSystems.map(r => ({ value: r.id, label: r.name }))}
             />
           </Form.Item>

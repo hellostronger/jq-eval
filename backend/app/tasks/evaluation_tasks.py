@@ -61,7 +61,7 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
             # 获取QA记录
             qa_records = await db.execute(
                 text("""
-                SELECT * FROM qa_records
+                SELECT id, question, answer, ground_truth, target_chunk_ids FROM qa_records
                 WHERE dataset_id = :dataset_id
                 ORDER BY created_at
                 """),
@@ -120,6 +120,8 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
                         "answer": ir.answer or qa.get("answer"),
                         "contexts": ir.contexts or qa.get("contexts"),
                         "ground_truth": qa.get("ground_truth"),
+                        "retrieval_ids": ir.retrieval_ids or [],
+                        "target_chunk_ids": qa.get("target_chunk_ids") or [],
                         "invocation_result_id": ir.id,
                     }
                 else:
@@ -130,6 +132,8 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
                         "answer": qa.get("answer"),
                         "contexts": qa.get("contexts"),
                         "ground_truth": qa.get("ground_truth"),
+                        "retrieval_ids": [],
+                        "target_chunk_ids": qa.get("target_chunk_ids") or [],
                         "invocation_result_id": None,
                     }
                 eval_data.append(eval_item)

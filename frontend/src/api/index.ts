@@ -337,3 +337,92 @@ export const deleteArticle = (id: string) => {
 export const batchDeleteArticles = (ids: string[]) => {
   return request.post<{ deleted_count: number }>('/hot-news/articles/batch-delete', { article_ids: ids })
 }
+
+// 文档和分片API
+export interface DocumentInfo {
+  id: string
+  title?: string
+  content?: string
+  file_type?: string
+  source_type?: string
+  chunk_count?: number
+}
+
+export interface ChunkInfo {
+  id: string
+  doc_id: string
+  content: string
+  chunk_index: number
+  start_char?: number
+  end_char?: number
+  milvus_id?: string
+  document_title?: string
+}
+
+export const getDatasetDocuments = (datasetId: string, params?: { page?: number; size?: number }) => {
+  return request.get<{ items: DocumentInfo[]; total: number }>(`/datasets/${datasetId}/documents`, { params })
+}
+
+export const getDatasetDocument = (datasetId: string, docId: string) => {
+  return request.get<DocumentInfo>(`/datasets/${datasetId}/documents/${docId}`)
+}
+
+export const getDatasetChunks = (datasetId: string, params?: { page?: number; size?: number; doc_id?: string }) => {
+  return request.get<{ items: ChunkInfo[]; total: number }>(`/datasets/${datasetId}/chunks`, { params })
+}
+
+export const getDatasetChunk = (datasetId: string, chunkId: string) => {
+  return request.get<ChunkInfo>(`/datasets/${datasetId}/chunks/${chunkId}`)
+}
+
+// 上传文档并自动分片
+export const uploadDocument = (datasetId: string, file: File, chunkSize?: number, chunkOverlap?: number) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  const params = new URLSearchParams()
+  if (chunkSize) params.append('chunk_size', chunkSize.toString())
+  if (chunkOverlap) params.append('chunk_overlap', chunkOverlap.toString())
+  return request.post<{
+    document_id: string
+    title: string
+    content_length: number
+    chunk_count: number
+  }>(`/datasets/${datasetId}/documents/upload?${params.toString()}`, formData)
+}
+
+// 从文本创建文档
+export const createDocumentFromText = (datasetId: string, data: {
+  title?: string
+  content: string
+  source_type?: string
+  file_type?: string
+}, chunkData?: { chunk_size?: number; chunk_overlap?: number }) => {
+  return request.post<{
+    document_id: string
+    title: string
+    content_length: number
+    chunk_count: number
+  }>(`/datasets/${datasetId}/documents/text`, data, { params: chunkData })
+}
+
+// 从热点新闻创建文档
+export const createDocumentsFromNews = (datasetId: string, articleIds: string[], chunkSize?: number, chunkOverlap?: number) => {
+  const params = new URLSearchParams()
+  if (chunkSize) params.append('chunk_size', chunkSize.toString())
+  if (chunkOverlap) params.append('chunk_overlap', chunkOverlap.toString())
+  return request.post<{
+    created_count: number
+    documents: Array<{
+      document_id: string
+      title: string
+      content_length: number
+      chunk_count: number
+      article_id: string
+    }>
+  }>(`/datasets/${datasetId}/documents/from-news?${params.toString()}`, { article_ids: articleIds })
+}
+
+// 获取文档的所有分片
+export const getDocumentChunks = (datasetId: string, docId: string, params?: { page?: number; size?: number }) => {
+  return request.get<{ items: ChunkInfo[]; total: number }>(`/datasets/${datasetId}/documents/${docId}/chunks`, { params })
+}

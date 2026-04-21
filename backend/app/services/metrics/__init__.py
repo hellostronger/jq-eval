@@ -12,6 +12,11 @@ from .evalscope_metrics import (
     EvalScopeROUGE,
     SemanticSimilarity,
 )
+from .retrieval_metrics import (
+    MRRAtK,
+    HitRateAtK,
+    RecallAtK,
+)
 
 __all__ = [
     "BaseMetric",
@@ -26,4 +31,7 @@ __all__ = [
     "EvalScopeBLEU",
     "EvalScopeROUGE",
     "SemanticSimilarity",
+    "MRRAtK",
+    "HitRateAtK",
+    "RecallAtK",
 ]

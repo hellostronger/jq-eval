@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from pydantic import BaseModel
@@ -12,6 +12,7 @@ import json
 
 from ...core.database import get_db
 from ...models import Dataset, QARecord, Model
+from ...models.document import Document, Chunk
 
 router = APIRouter()
 
@@ -799,3 +800,644 @@ async def download_template(format: str):
 
     else:
         raise HTTPException(status_code=400, detail="不支持的格式，仅支持 json、jsonl、csv")
+
+
+# 文档和分片相关API
+
+class DocumentResponse(BaseModel):
+    """文档响应"""
+    id: UUID
+    title: Optional[str]
+    content: Optional[str]
+    file_type: Optional[str]
+    source_type: Optional[str]
+    chunk_count: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ChunkResponse(BaseModel):
+    """分片响应"""
+    id: UUID
+    doc_id: UUID
+    content: str
+    chunk_index: int
+    start_char: Optional[int]
+    end_char: Optional[int]
+    milvus_id: Optional[str]
+    document_title: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ChunkListResponse(BaseModel):
+    """分片列表响应"""
+    items: List[ChunkResponse]
+    total: int
+
+
+class DocumentListResponse(BaseModel):
+    """文档列表响应"""
+    items: List[DocumentResponse]
+    total: int
+
+
+class DocumentCreate(BaseModel):
+    """创建文档请求"""
+    title: Optional[str] = None
+    content: str
+    source_type: Optional[str] = "upload"
+    file_type: Optional[str] = None
+
+
+class ChunkDocumentRequest(BaseModel):
+    """分片文档请求"""
+    chunk_size: int = 500
+    chunk_overlap: int = 50
+    chunk_strategy: str = "recursive"  # recursive/fixed/sentence
+
+
+class CreateFromNewsRequest(BaseModel):
+    """从热点新闻创建文档请求"""
+    article_ids: List[UUID]
+
+
+@router.get("/{dataset_id}/documents", response_model=DocumentListResponse)
+async def list_dataset_documents(
+    dataset_id: UUID,
+    page: int = 1,
+    size: int = 10,
+    db: AsyncSession = Depends(get_db)
+):
+    """获取数据集关联的文档列表"""
+    # 获取数据集的所有 QARecord 的 doc_ids
+    qa_records_result = await db.execute(
+        select(QARecord.doc_ids).where(QARecord.dataset_id == dataset_id)
+    )
+    doc_ids_lists = qa_records_result.scalars().all()
+
+    # 收集所有唯一的 doc_ids
+    all_doc_ids = set()
+    for doc_ids in doc_ids_lists:
+        if doc_ids:
+            for doc_id in doc_ids:
+                all_doc_ids.add(doc_id)
+
+    if not all_doc_ids:
+        return DocumentListResponse(items=[], total=0)
+
+    # 查询总数
+    total = len(all_doc_ids)
+
+    # 分页查询文档
+    skip = (page - 1) * size
+    paginated_ids = list(all_doc_ids)[skip:skip + size]
+
+    if not paginated_ids:
+        return DocumentListResponse(items=[], total=total)
+
+    # 查询文档
+    docs_result = await db.execute(
+        select(Document).where(Document.id.in_(paginated_ids))
+    )
+    documents = docs_result.scalars().all()
+
+    # 查询每个文档的 chunk 数量
+    doc_chunk_counts = {}
+    for doc in documents:
+        count_result = await db.execute(
+            select(func.count(Chunk.id)).where(Chunk.doc_id == doc.id)
+        )
+        doc_chunk_counts[str(doc.id)] = count_result.scalar() or 0
+
+    items = []
+    for doc in documents:
+        items.append(DocumentResponse(
+            id=doc.id,
+            title=doc.title,
+            content=doc.content[:500] if doc.content and len(doc.content) > 500 else doc.content,
+            file_type=doc.file_type,
+            source_type=doc.source_type,
+            chunk_count=doc_chunk_counts.get(str(doc.id), 0)
+        ))
+
+    return DocumentListResponse(items=items, total=total)
+
+
+@router.get("/{dataset_id}/documents/{doc_id}", response_model=DocumentResponse)
+async def get_document_detail(
+    dataset_id: UUID,
+    doc_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """获取文档详情"""
+    result = await db.execute(select(Document).where(Document.id == doc_id))
+    document = result.scalar_one_or_none()
+
+    if not document:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    # 查询 chunk 数量
+    count_result = await db.execute(
+        select(func.count(Chunk.id)).where(Chunk.doc_id == doc_id)
+    )
+    chunk_count = count_result.scalar() or 0
+
+    return DocumentResponse(
+        id=document.id,
+        title=document.title,
+        content=document.content,
+        file_type=document.file_type,
+        source_type=document.source_type,
+        chunk_count=chunk_count
+    )
+
+
+@router.get("/{dataset_id}/chunks", response_model=ChunkListResponse)
+async def list_dataset_chunks(
+    dataset_id: UUID,
+    page: int = 1,
+    size: int = 10,
+    doc_id: Optional[UUID] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """获取数据集关联的分片列表"""
+    # 如果指定了 doc_id，直接查询该文档的分片
+    if doc_id:
+        # 查询总数
+        total_result = await db.execute(
+            select(func.count(Chunk.id)).where(Chunk.doc_id == doc_id)
+        )
+        total = total_result.scalar() or 0
+
+        # 分页查询
+        skip = (page - 1) * size
+        chunks_result = await db.execute(
+            select(Chunk)
+            .where(Chunk.doc_id == doc_id)
+            .order_by(Chunk.chunk_index)
+            .offset(skip)
+            .limit(size)
+        )
+        chunks = chunks_result.scalars().all()
+
+        # 获取文档标题
+        doc_result = await db.execute(select(Document.title).where(Document.id == doc_id))
+        doc_title = doc_result.scalar()
+
+        items = [
+            ChunkResponse(
+                id=c.id,
+                doc_id=c.doc_id,
+                content=c.content,
+                chunk_index=c.chunk_index,
+                start_char=c.start_char,
+                end_char=c.end_char,
+                milvus_id=c.milvus_id,
+                document_title=doc_title
+            )
+            for c in chunks
+        ]
+
+        return ChunkListResponse(items=items, total=total)
+
+    # 否则从 QARecord 的 target_chunk_ids 获取
+    qa_records_result = await db.execute(
+        select(QARecord.target_chunk_ids).where(QARecord.dataset_id == dataset_id)
+    )
+    chunk_ids_lists = qa_records_result.scalars().all()
+
+    # 收集所有唯一的 chunk_ids
+    all_chunk_ids = set()
+    for chunk_ids in chunk_ids_lists:
+        if chunk_ids:
+            for chunk_id in chunk_ids:
+                all_chunk_ids.add(chunk_id)
+
+    if not all_chunk_ids:
+        return ChunkListResponse(items=[], total=0)
+
+    total = len(all_chunk_ids)
+
+    # 分页
+    skip = (page - 1) * size
+    paginated_ids = list(all_chunk_ids)[skip:skip + size]
+
+    if not paginated_ids:
+        return ChunkListResponse(items=[], total=total)
+
+    # 查询分片
+    chunks_result = await db.execute(
+        select(Chunk).where(Chunk.id.in_(paginated_ids))
+    )
+    chunks = chunks_result.scalars().all()
+
+    # 获取文档信息
+    doc_ids = set(c.doc_id for c in chunks)
+    docs_result = await db.execute(
+        select(Document.id, Document.title).where(Document.id.in_(doc_ids))
+    )
+    doc_titles = {str(row.id): row.title for row in docs_result.fetchall()}
+
+    items = [
+        ChunkResponse(
+            id=c.id,
+            doc_id=c.doc_id,
+            content=c.content[:300] if c.content and len(c.content) > 300 else c.content,
+            chunk_index=c.chunk_index,
+            start_char=c.start_char,
+            end_char=c.end_char,
+            milvus_id=c.milvus_id,
+            document_title=doc_titles.get(str(c.doc_id))
+        )
+        for c in chunks
+    ]
+
+    return ChunkListResponse(items=items, total=total)
+
+
+@router.get("/{dataset_id}/chunks/{chunk_id}", response_model=ChunkResponse)
+async def get_chunk_detail(
+    dataset_id: UUID,
+    chunk_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """获取分片详情"""
+    result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
+    chunk = result.scalar_one_or_none()
+
+    if not chunk:
+        raise HTTPException(status_code=404, detail="分片不存在")
+
+    # 获取文档标题
+    doc_result = await db.execute(
+        select(Document.title).where(Document.id == chunk.doc_id)
+    )
+    doc_title = doc_result.scalar()
+
+    return ChunkResponse(
+        id=chunk.id,
+        doc_id=chunk.doc_id,
+        content=chunk.content,
+        chunk_index=chunk.chunk_index,
+        start_char=chunk.start_char,
+        end_char=chunk.end_char,
+        milvus_id=chunk.milvus_id,
+        document_title=doc_title
+    )
+
+
+@router.post("/{dataset_id}/documents/upload")
+async def upload_document(
+    dataset_id: UUID,
+    file: UploadFile = File(...),
+    chunk_size: int = 500,
+    chunk_overlap: int = 50,
+    db: AsyncSession = Depends(get_db)
+):
+    """上传文档并自动分片
+
+    支持上传 txt、md、pdf 等文档，自动进行分片处理
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # 检查数据集是否存在
+    dataset_result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
+    dataset = dataset_result.scalar_one_or_none()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="数据集不存在")
+
+    # 读取文件内容
+    file_content = await file.read()
+
+    # 根据文件类型处理
+    file_ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename else "txt"
+
+    content = ""
+    if file_ext == "txt" or file_ext == "md":
+        content = file_content.decode("utf-8", errors="ignore")
+    elif file_ext == "pdf":
+        # PDF处理
+        try:
+            import fitz  # PyMuPDF
+            pdf_doc = fitz.open(stream=file_content, filetype="pdf")
+            content = ""
+            for page in pdf_doc:
+                content += page.get_text()
+            pdf_doc.close()
+        except ImportError:
+            raise HTTPException(status_code=400, detail="PDF处理库未安装，请安装 PyMuPDF")
+    else:
+        # 尝试作为文本处理
+        content = file_content.decode("utf-8", errors="ignore")
+
+    if not content:
+        raise HTTPException(status_code=400, detail="文档内容为空")
+
+    # 创建文档
+    document = Document(
+        title=file.filename or f"文档_{len(content)}字符",
+        content=content,
+        file_type=file_ext,
+        source_type="upload",
+        doc_metadata={"original_filename": file.filename, "size": len(file_content)}
+    )
+    db.add(document)
+    await db.flush()  # 获取文档ID
+
+    # 分片处理
+    chunks = _split_text(content, chunk_size, chunk_overlap)
+
+    # 创建分片记录
+    chunk_records = []
+    for i, chunk_text in enumerate(chunks):
+        chunk_record = Chunk(
+            doc_id=document.id,
+            content=chunk_text["content"],
+            chunk_index=i,
+            start_char=chunk_text["start"],
+            end_char=chunk_text["end"]
+        )
+        db.add(chunk_record)
+        chunk_records.append(chunk_record)
+
+    await db.commit()
+
+    logger.info(f"上传文档成功: doc_id={document.id}, chunks={len(chunk_records)}")
+
+    return {
+        "document_id": str(document.id),
+        "title": document.title,
+        "content_length": len(content),
+        "chunk_count": len(chunk_records),
+        "chunk_size": chunk_size,
+        "chunk_overlap": chunk_overlap
+    }
+
+
+@router.post("/{dataset_id}/documents/from-news")
+async def create_documents_from_news(
+    dataset_id: UUID,
+    data: CreateFromNewsRequest,
+    chunk_size: int = 500,
+    chunk_overlap: int = 50,
+    db: AsyncSession = Depends(get_db)
+):
+    """从热点新闻创建文档
+
+    选择热点新闻文章，创建为文档并自动分片
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    from ...models.hot_news import HotArticle
+
+    # 检查数据集是否存在
+    dataset_result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
+    dataset = dataset_result.scalar_one_or_none()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="数据集不存在")
+
+    if not data.article_ids:
+        raise HTTPException(status_code=400, detail="请选择至少一篇新闻文章")
+
+    # 查询新闻文章
+    articles_result = await db.execute(
+        select(HotArticle).where(HotArticle.id.in_(data.article_ids))
+    )
+    articles = articles_result.scalars().all()
+
+    if not articles:
+        raise HTTPException(status_code=404, detail="未找到指定的新闻文章")
+
+    created_docs = []
+    for article in articles:
+        # 使用文章标题和内容创建文档
+        content = article.content or ""
+        if not content and article.title:
+            content = article.title  # 至少有标题
+
+        if not content:
+            continue
+
+        document = Document(
+            title=article.title or f"新闻_{article.id}",
+            content=content,
+            file_type="news",
+            source_type="hot_news",
+            doc_metadata={
+                "article_id": str(article.id),
+                "source_url": article.source_url,
+                "published_at": article.published_at,
+                "author": article.author,
+                "tags": article.tags
+            }
+        )
+        db.add(document)
+        await db.flush()
+
+        # 分片处理
+        chunks = _split_text(content, chunk_size, chunk_overlap)
+
+        chunk_records = []
+        for i, chunk_text in enumerate(chunks):
+            chunk_record = Chunk(
+                doc_id=document.id,
+                content=chunk_text["content"],
+                chunk_index=i,
+                start_char=chunk_text["start"],
+                end_char=chunk_text["end"]
+            )
+            db.add(chunk_record)
+            chunk_records.append(chunk_record)
+
+        created_docs.append({
+            "document_id": str(document.id),
+            "title": document.title,
+            "content_length": len(content),
+            "chunk_count": len(chunk_records),
+            "article_id": str(article.id)
+        })
+
+    await db.commit()
+
+    logger.info(f"从新闻创建文档成功: 共 {len(created_docs)} 个文档")
+
+    return {
+        "created_count": len(created_docs),
+        "documents": created_docs
+    }
+
+
+@router.post("/{dataset_id}/documents/text")
+async def create_document_from_text(
+    dataset_id: UUID,
+    data: DocumentCreate,
+    chunk_data: ChunkDocumentRequest = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """从文本内容创建文档并自动分片"""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # 检查数据集是否存在
+    dataset_result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
+    dataset = dataset_result.scalar_one_or_none()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="数据集不存在")
+
+    if not data.content:
+        raise HTTPException(status_code=400, detail="文档内容不能为空")
+
+    # 创建文档
+    document = Document(
+        title=data.title or f"文档_{len(data.content)}字符",
+        content=data.content,
+        file_type=data.file_type or "text",
+        source_type=data.source_type or "text_input"
+    )
+    db.add(document)
+    await db.flush()
+
+    # 分片参数
+    chunk_size = chunk_data.chunk_size if chunk_data else 500
+    chunk_overlap = chunk_data.chunk_overlap if chunk_data else 50
+
+    # 分片处理
+    chunks = _split_text(data.content, chunk_size, chunk_overlap)
+
+    chunk_records = []
+    for i, chunk_text in enumerate(chunks):
+        chunk_record = Chunk(
+            doc_id=document.id,
+            content=chunk_text["content"],
+            chunk_index=i,
+            start_char=chunk_text["start"],
+            end_char=chunk_text["end"]
+        )
+        db.add(chunk_record)
+        chunk_records.append(chunk_record)
+
+    await db.commit()
+
+    return {
+        "document_id": str(document.id),
+        "title": document.title,
+        "content_length": len(data.content),
+        "chunk_count": len(chunk_records),
+        "chunk_size": chunk_size,
+        "chunk_overlap": chunk_overlap
+    }
+
+
+def _split_text(text: str, chunk_size: int = 500, chunk_overlap: int = 50) -> List[Dict[str, Any]]:
+    """文本分片函数
+
+    Args:
+        text: 要分片的文本
+        chunk_size: 每个分片的最大字符数
+        chunk_overlap: 分片之间的重叠字符数
+
+    Returns:
+        分片列表，每个分片包含 content、start、end
+    """
+    if not text:
+        return []
+
+    chunks = []
+    start = 0
+    text_len = len(text)
+
+    while start < text_len:
+        end = start + chunk_size
+
+        if end >= text_len:
+            # 最后一个分片
+            chunks.append({
+                "content": text[start:].strip(),
+                "start": start,
+                "end": text_len
+            })
+            break
+
+        # 寻找合适的分割点（优先在句子结尾）
+        # 向前查找最近的句子结束符
+        split_pos = end
+        for i in range(end, max(start, end - 100), -1):
+            if text[i] in ['。', '！', '？', '.', '!', '?', '\n', '；', ';']:
+                split_pos = i + 1
+                break
+
+        # 如果没找到合适的分割点，尝试在空格处分割
+        if split_pos == end and end < text_len:
+            for i in range(end, max(start, end - 50), -1):
+                if text[i] in [' ', '　', '\t']:
+                    split_pos = i + 1
+                    break
+
+        chunk_content = text[start:split_pos].strip()
+        if chunk_content:
+            chunks.append({
+                "content": chunk_content,
+                "start": start,
+                "end": split_pos
+            })
+
+        # 下一个分片的起始位置（考虑重叠）
+        start = split_pos - chunk_overlap
+        if start < 0:
+            start = 0
+
+    return chunks
+
+
+@router.get("/{dataset_id}/documents/{doc_id}/chunks", response_model=ChunkListResponse)
+async def list_document_chunks(
+    dataset_id: UUID,
+    doc_id: UUID,
+    page: int = 1,
+    size: int = 20,
+    db: AsyncSession = Depends(get_db)
+):
+    """获取指定文档的所有分片（带原文位置标注）"""
+    # 查询总数
+    total_result = await db.execute(
+        select(func.count(Chunk.id)).where(Chunk.doc_id == doc_id)
+    )
+    total = total_result.scalar() or 0
+
+    # 分页查询
+    skip = (page - 1) * size
+    chunks_result = await db.execute(
+        select(Chunk)
+        .where(Chunk.doc_id == doc_id)
+        .order_by(Chunk.chunk_index)
+        .offset(skip)
+        .limit(size)
+    )
+    chunks = chunks_result.scalars().all()
+
+    # 获取文档标题
+    doc_result = await db.execute(select(Document.title, Document.content).where(Document.id == doc_id))
+    doc_row = doc_result.fetchone()
+    doc_title = doc_row.title if doc_row else None
+    doc_content = doc_row.content if doc_row else None
+
+    items = [
+        ChunkResponse(
+            id=c.id,
+            doc_id=c.doc_id,
+            content=c.content,
+            chunk_index=c.chunk_index,
+            start_char=c.start_char,
+            end_char=c.end_char,
+            milvus_id=c.milvus_id,
+            document_title=doc_title
+        )
+        for c in chunks
+    ]
+
+    return ChunkListResponse(items=items, total=total)
