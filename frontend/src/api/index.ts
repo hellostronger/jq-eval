@@ -218,12 +218,35 @@ export const runInvocationBatch = (id: string) => {
   return request.post<{ message: string; batch_id: string; task_id: string }>(`/invocations/${id}/run`)
 }
 
-export const getInvocationResults = (batchId: string, params?: { skip?: number; limit?: number }) => {
+export const getInvocationResults = (batchId: string, params?: { skip?: number; limit?: number; status?: string }) => {
   return request.get<InvocationResult[]>(`/invocations/${batchId}/results`, { params })
 }
 
 export const deleteInvocationBatch = (id: string) => {
   return request.delete(`/invocations/${id}`)
+}
+
+export const retryInvocationBatch = (batchId: string, resultIds?: string[]) => {
+  return request.post<{ message: string; batch_id: string; task_id: string; retry_count?: number }>(
+    `/invocations/${batchId}/retry`,
+    resultIds ? { result_ids: resultIds } : {}
+  )
+}
+
+export const retrySingleResult = (batchId: string, resultId: string) => {
+  return request.post<{ message: string; batch_id: string; result_id: string; task_id: string }>(
+    `/invocations/${batchId}/results/${resultId}/retry`
+  )
+}
+
+export const getInvocationStats = (batchId: string) => {
+  return request.get<{
+    batch_id: string
+    total: number
+    completed: number
+    failed: number
+    status_counts: Record<string, number>
+  }>(`/invocations/${batchId}/stats`)
 }
 
 // 统计API

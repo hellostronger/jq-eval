@@ -22,18 +22,22 @@ const Evaluations: React.FC = () => {
   const fetchData = async () => {
     setLoading(true)
     try {
+      // 独立请求，避免某个失败导致整体失败
       const [evalData, datasetData, ragData, modelData, batchData] = await Promise.all([
-        getEvaluations(),
-        getDatasets(),
-        getRAGSystems(),
-        getModels('llm'),
-        getInvocationBatches({ status: 'completed' }),
+        getEvaluations().catch((e) => { console.error('getEvaluations failed:', e); return [] }),
+        getDatasets().catch((e) => { console.error('getDatasets failed:', e); return [] }),
+        getRAGSystems().catch((e) => { console.error('getRAGSystems failed:', e); return [] }),
+        getModels('llm').catch((e) => { console.error('getModels failed:', e); return [] }),
+        getInvocationBatches({ status: 'completed' }).catch((e) => { console.error('getInvocationBatches failed:', e); return [] }),
       ])
+      console.log('Loaded data:', { evalData, datasetData, ragData, modelData, batchData })
       setEvaluations(evalData)
       setDatasets(datasetData)
-      setRagSystems(ragData)
+      setRAGSystems(ragData)
       setLLMModels(modelData)
       setInvocationBatches(batchData)
+    } catch (e) {
+      console.error('加载数据失败:', e)
     } finally {
       setLoading(false)
     }
@@ -197,18 +201,25 @@ const Evaluations: React.FC = () => {
           <Form.Item name="description" label="描述">
             <Input.TextArea placeholder="评估任务描述" />
           </Form.Item>
-          <Form.Item name="dataset_id" label="数据集" rules={[{ required: true }]}>
+          <Form.Item name="dataset_id" label="数据集" extra="可选。如果不选择，则使用调用批次关联的数据集">
             <Select
-              placeholder="选择数据集"
+              placeholder="选择数据集（可选）"
+              allowClear
               options={datasets.map(d => ({ value: d.id, label: d.name }))}
             />
           </Form.Item>
           <Divider>调用结果设置</Divider>
           <Form.Item name="invocation_batch_id" label="调用批次" extra="选择已完成的调用批次，将使用其调用结果进行评估">
             <Select
-              placeholder="选择调用批次（可选）"
+              placeholder="选择调用批次"
               allowClear
-              options={invocationBatches.map(b => ({ value: b.id, label: `${b.name} (${b.completed_count}/${b.total_count})` }))}
+              options={invocationBatches.map(b => {
+                const datasetName = datasets.find(d => d.id === b.dataset_id)?.name || ''
+                return {
+                  value: b.id,
+                  label: `${b.name} - ${datasetName} (${b.completed_count}/${b.total_count})`
+                }
+              })}
             />
           </Form.Item>
           <Form.Item name="reuse_invocation" label="复用调用结果" valuePropName="checked" extra="开启后将使用存量调用结果进行评估，关闭则重新调用RAG系统">
@@ -227,7 +238,7 @@ const Evaluations: React.FC = () => {
               placeholder="选择评估指标"
               options={[
                 { value: 'faithfulness', label: 'Faithfulness' },
-                { value: 'answer_relevance', label: 'Answer Relevance' },
+                { value: 'answer_relevancy', label: 'Answer Relevance' },
                 { value: 'context_precision', label: 'Context Precision' },
                 { value: 'context_recall', label: 'Context Recall' },
                 { value: 'answer_correctness', label: 'Answer Correctness' },

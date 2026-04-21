@@ -99,6 +99,7 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
 
             # 直接使用 evaluation.metrics 数组中的指标名称
             metric_names = evaluation.metrics or []
+            logger.info(f"评估指标列表: metric_names={metric_names}")
 
             # 创建评估引擎
             engine = get_metric_engine(
@@ -106,6 +107,7 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
                 embedding_model=embedding_model,
                 metric_names=metric_names
             )
+            logger.info(f"评估引擎初始化后的指标: engine.metrics={list(engine.metrics.keys())}")
 
             # 准备评估数据：根据 reuse_invocation 决定数据来源
             eval_data = []

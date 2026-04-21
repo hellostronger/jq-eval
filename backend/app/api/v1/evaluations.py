@@ -21,7 +21,7 @@ router = APIRouter()
 class EvaluationCreate(BaseModel):
     name: str
     description: Optional[str] = None
-    dataset_id: UUID
+    dataset_id: Optional[UUID] = None  # 可选，如果选择调用批次可从中获取
     rag_system_id: Optional[UUID] = None
     llm_model_id: Optional[UUID] = None
     embedding_model_id: Optional[UUID] = None
@@ -35,7 +35,7 @@ class EvaluationResponse(BaseModel):
     id: UUID
     name: str
     description: Optional[str]
-    dataset_id: UUID
+    dataset_id: Optional[UUID]
     rag_system_id: Optional[UUID]
     llm_model_id: Optional[UUID]
     embedding_model_id: Optional[UUID]
@@ -135,18 +135,18 @@ async def compare_evaluations(
         "comparison": comparison_data,
         "summary": summary_data,
     }
+
+
+@router.post("", response_model=EvaluationResponse)
 async def create_evaluation(
     data: EvaluationCreate,
     db: AsyncSession = Depends(get_db)
 ):
     """创建评估任务"""
-    # 检查数据集是否存在
-    result = await db.execute(select(Dataset).where(Dataset.id == data.dataset_id))
-    dataset = result.scalar_one_or_none()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="数据集不存在")
+    # 确定数据集ID：优先使用传入的，否则从调用批次获取
+    dataset_id = data.dataset_id
 
-    # 如果指定了调用批次，检查是否存在
+    # 如果指定了调用批次，检查是否存在并获取数据集
     if data.invocation_batch_id:
         from ...models import InvocationBatch
         result = await db.execute(select(InvocationBatch).where(InvocationBatch.id == data.invocation_batch_id))
@@ -155,11 +155,24 @@ async def create_evaluation(
             raise HTTPException(status_code=404, detail="调用批次不存在")
         if batch.status != "completed":
             raise HTTPException(status_code=400, detail="调用批次尚未完成，无法用于评估")
+        # 如果没有指定数据集，使用调用批次的数据集
+        if not dataset_id:
+            dataset_id = batch.dataset_id
+
+    # 数据集ID必须存在
+    if not dataset_id:
+        raise HTTPException(status_code=400, detail="必须指定数据集或选择已完成的调用批次")
+
+    # 检查数据集是否存在
+    result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
+    dataset = result.scalar_one_or_none()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="数据集不存在")
 
     evaluation = Evaluation(
         name=data.name,
         description=data.description,
-        dataset_id=data.dataset_id,
+        dataset_id=dataset_id,
         rag_system_id=data.rag_system_id,
         llm_model_id=data.llm_model_id,
         embedding_model_id=data.embedding_model_id,

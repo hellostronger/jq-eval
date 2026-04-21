@@ -12,6 +12,7 @@ from app.models.invocation import InvocationBatch, InvocationResult
 from app.models.dataset import Dataset, QARecord
 from app.models.rag_system import RAGSystem
 from app.services.adapters import AdapterFactory
+from sqlalchemy import select, func
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,129 @@ def invocation_task(self, batch_id: str) -> Dict[str, Any]:
         batch_id: 调用批次ID (UUID字符串格式)
     """
     return run_async(_run_invocation(self, UUID(batch_id)))
+
+
+@celery_app.task(bind=True, name="retry_invocation_task")
+def retry_invocation_task(self, batch_id: str, result_ids: List[str]) -> Dict[str, Any]:
+    """重试调用批次中指定的结果
+
+    Args:
+        batch_id: 调用批次ID
+        result_ids: 要重试的结果ID列表
+    """
+    return run_async(_run_retry(self, UUID(batch_id), [UUID(rid) for rid in result_ids]))
+
+
+async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, Any]:
+    """异步执行重试"""
+    async with get_db_context() as db:
+        batch = await db.get(InvocationBatch, batch_id)
+        if not batch:
+            return {"error": f"调用批次 {batch_id} 不存在"}
+
+        rag_system = await db.get(RAGSystem, batch.rag_system_id)
+        if not rag_system:
+            return {"error": f"RAG系统 {batch.rag_system_id} 不存在"}
+
+        # 获取要重试的结果
+        from sqlalchemy import select
+        results = await db.execute(
+            select(InvocationResult).where(InvocationResult.id.in_(result_ids))
+        )
+        retry_results = results.scalars().all()
+
+        if not retry_results:
+            return {"error": "没有找到要重试的结果"}
+
+        # 创建RAG适配器
+        adapter = AdapterFactory.create(
+            rag_system.system_type,
+            rag_system.connection_config
+        )
+
+        batch.status = "running"
+        await db.commit()
+
+        success_count = 0
+        fail_count = 0
+
+        for inv_result in retry_results:
+            try:
+                # 删除旧结果
+                await db.delete(inv_result)
+                await db.flush()
+
+                # 获取原始问题
+                qa_record = await db.get(QARecord, inv_result.qa_record_id)
+                if not qa_record:
+                    fail_count += 1
+                    continue
+
+                start_time = time.time()
+                response = await adapter.query(qa_record.question)
+                latency = time.time() - start_time
+
+                # 从 RAGResponse 对象获取数据
+                answer = response.answer or ""
+                contexts = response.contexts or []
+                retrieval_ids = response.retrieval_ids or []
+
+                # 创建新结果
+                new_result = InvocationResult(
+                    batch_id=batch_id,
+                    qa_record_id=qa_record.id,
+                    rag_system_id=rag_system.id,
+                    question=qa_record.question,
+                    answer=answer,
+                    contexts=contexts,
+                    retrieval_ids=retrieval_ids,
+                    latency=latency,
+                    status="success"
+                )
+                db.add(new_result)
+                success_count += 1
+
+            except Exception as e:
+                logger.error(f"重试调用 {inv_result.id} 失败: {e}")
+                # 创建失败结果
+                new_result = InvocationResult(
+                    batch_id=batch_id,
+                    qa_record_id=inv_result.qa_record_id,
+                    rag_system_id=rag_system.id,
+                    question=inv_result.question,
+                    status="failed",
+                    error=str(e)
+                )
+                db.add(new_result)
+                fail_count += 1
+
+            await db.commit()
+
+        # 更新批次统计
+        batch.completed_count += success_count
+        batch.failed_count = batch.failed_count - len(retry_results) + fail_count
+
+        # 检查是否所有失败都已重试完成
+        remaining_failed = await db.execute(
+            select(func.count(InvocationResult.id)).where(
+                InvocationResult.batch_id == batch_id,
+                InvocationResult.status == "failed"
+            )
+        )
+        if remaining_failed.scalar() == 0 and batch.completed_count == batch.total_count:
+            batch.status = "completed"
+            batch.completed_at = datetime.utcnow()
+        else:
+            batch.status = "completed"  # 重试完成也算完成，只是可能还有失败
+
+        await db.commit()
+
+        return {
+            "batch_id": str(batch_id),
+            "retried": len(retry_results),
+            "success": success_count,
+            "failed": fail_count
+        }
 
 
 async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
@@ -75,7 +199,7 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
             await db.commit()
 
             # 创建RAG适配器
-            adapter = AdapterFactory.create_adapter(
+            adapter = AdapterFactory.create(
                 rag_system.system_type,
                 rag_system.connection_config
             )
@@ -90,10 +214,10 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
                     response = await adapter.query(qa["question"])
                     latency = time.time() - start_time
 
-                    # 解析响应
-                    answer = response.get("answer") or response.get("response") or response.get("content", "")
-                    contexts = response.get("contexts") or response.get("retrieved_chunks", [])
-                    retrieval_ids = response.get("retrieval_ids") or response.get("chunk_ids", [])
+                    # 从 RAGResponse 对象获取数据
+                    answer = response.answer or ""
+                    contexts = response.contexts or []
+                    retrieval_ids = response.retrieval_ids or []
 
                     # 存储结果
                     result = InvocationResult(

@@ -21,6 +21,7 @@ import Evaluations from './pages/Evaluations'
 import EvaluationDetail from './pages/EvaluationDetail'
 import EvaluationCompare from './pages/EvaluationCompare'
 import Invocations from './pages/Invocations'
+import InvocationDetail from './pages/InvocationDetail'
 import Metrics from './pages/Metrics'
 import DataSources from './pages/DataSources'
 import HotNews from './pages/HotNews'
@@ -67,6 +68,7 @@ const App: React.FC = () => {
           <Route path="/datasets" element={<Datasets />} />
           <Route path="/datasets/:id" element={<DatasetDetail />} />
           <Route path="/invocations" element={<Invocations />} />
+          <Route path="/invocations/:id" element={<InvocationDetail />} />
           <Route path="/evaluations" element={<Evaluations />} />
           <Route path="/evaluations/compare" element={<EvaluationCompare />} />
           <Route path="/evaluations/:id" element={<EvaluationDetail />} />

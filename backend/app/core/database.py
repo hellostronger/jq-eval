@@ -79,6 +79,64 @@ async def init_db():
         # 创建所有表
         await conn.run_sync(Base.metadata.create_all)
 
+        # 添加新列（如果不存在）
+        from sqlalchemy import text
+
+        # metric_definitions.eval_stage
+        result = await conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'metric_definitions' AND column_name = 'eval_stage'
+        """))
+        if result.fetchone() is None:
+            await conn.execute(text("""
+                ALTER TABLE metric_definitions
+                ADD COLUMN eval_stage VARCHAR(20) NOT NULL DEFAULT 'result'
+            """))
+
+        # evaluations.invocation_batch_id
+        result = await conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'evaluations' AND column_name = 'invocation_batch_id'
+        """))
+        if result.fetchone() is None:
+            await conn.execute(text("""
+                ALTER TABLE evaluations
+                ADD COLUMN invocation_batch_id UUID
+            """))
+
+        # evaluations.reuse_invocation
+        result = await conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'evaluations' AND column_name = 'reuse_invocation'
+        """))
+        if result.fetchone() is None:
+            await conn.execute(text("""
+                ALTER TABLE evaluations
+                ADD COLUMN reuse_invocation BOOLEAN DEFAULT true
+            """))
+
+        # invocation_results.retrieval_ids
+        result = await conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'invocation_results' AND column_name = 'retrieval_ids'
+        """))
+        if result.fetchone() is None:
+            await conn.execute(text("""
+                ALTER TABLE invocation_results
+                ADD COLUMN retrieval_ids JSONB
+            """))
+
+        # eval_results.invocation_result_id
+        result = await conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'eval_results' AND column_name = 'invocation_result_id'
+        """))
+        if result.fetchone() is None:
+            await conn.execute(text("""
+                ALTER TABLE eval_results
+                ADD COLUMN invocation_result_id UUID
+            """))
+
 
 async def close_db():
     """关闭数据库连接"""

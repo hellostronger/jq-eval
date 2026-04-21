@@ -38,10 +38,13 @@ export interface RAGSystem {
 export interface Dataset {
   id: string
   name: string
-  description: string
-  rag_system_id?: string
-  total_records: number
-  created_at: string
+  description?: string
+  source_type?: string
+  record_count: number
+  has_ground_truth: boolean
+  has_contexts: boolean
+  status: string
+  created_at?: string
 }
 
 export interface QARecord {
@@ -59,9 +62,9 @@ export interface Evaluation {
   id: string
   name: string
   description?: string
-  dataset_id: string
+  dataset_id?: string  // 可选，如果选择调用批次可从中获取
   rag_system_id?: string
-  llm_model_id: string
+  llm_model_id?: string
   embedding_model_id?: string
   invocation_batch_id?: string  // 关联的调用批次
   reuse_invocation?: boolean  // 是否复用存量调用结果

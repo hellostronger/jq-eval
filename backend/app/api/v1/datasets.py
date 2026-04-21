@@ -1,4 +1,5 @@
 # 数据集管理路由
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +35,7 @@ class DatasetResponse(BaseModel):
     has_ground_truth: bool
     has_contexts: bool
     status: str
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

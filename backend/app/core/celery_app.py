@@ -10,6 +10,36 @@ celery_app = Celery(
     backend=f"redis://:{settings.REDIS_PASSWORD}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/2",
 )
 
+# Redis 连接池配置 - 提高连接稳定性（Windows 平台优化）
+celery_app.conf.broker_transport_options = {
+    "socket_timeout": 120,  # socket 操作超时时间(秒)
+    "socket_connect_timeout": 30,  # 连接超时时间(秒)
+    "visibility_timeout": 7200,  # 消息可见性超时(秒)，应大于最长任务执行时间
+    "max_connections": 50,  # 连接池最大连接数
+    "health_check_interval": 15,  # 健康检查间隔(秒) - 更频繁检查
+    "socket_keepalive": True,  # 启用 TCP keepalive（基础选项）
+}
+
+# Redis backend 连接配置
+celery_app.conf.result_backend_transport_options = {
+    "socket_timeout": 120,
+    "socket_connect_timeout": 30,
+    "retry_on_timeout": True,  # 超时时自动重试
+    "max_connections": 50,
+    "socket_keepalive": True,
+}
+
+# Broker 连接重试配置
+celery_app.conf.broker_connection_retry = True  # 启用连接重试
+celery_app.conf.broker_connection_max_retries = None  # 无限重试，避免长时间空闲后连接丢失
+celery_app.conf.broker_connection_retry_delay = 5  # 重试延迟(秒)，会指数增长
+celery_app.conf.broker_connection_retry_on_startup = True  # 启动时连接重试
+
+# 结果后端重试配置
+celery_app.conf.result_backend_connection_retry = True
+celery_app.conf.result_backend_connection_max_retries = None  # 无限重试
+celery_app.conf.result_backend_connection_retry_delay = 5
+
 
 @worker_process_init.connect
 def on_worker_process_init(**kwargs):
@@ -45,6 +75,8 @@ celery_app.conf.update(
     task_soft_time_limit=25 * 60,  # 25分钟软超时
     worker_prefetch_multiplier=1,  # 每次只取一个任务
     worker_max_tasks_per_child=100,  # 每个worker处理100个任务后重启
+    # Windows 平台建议使用 solo 模式，启动命令：
+    # celery -A app.core.celery_app worker --pool=solo -l info
     imports=[
         "app.tasks.evaluation_tasks",
         "app.tasks.invocation_tasks",

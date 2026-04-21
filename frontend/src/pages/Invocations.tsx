@@ -1,18 +1,18 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Button, Tag, Modal, Form, Input, Select, message, Space, Progress } from 'antd'
-import { PlusOutlined, PlayCircleOutlined, EyeOutlined, DeleteOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Tag, Modal, Form, Input, Select, message, Space, Progress, Popconfirm } from 'antd'
+import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, ReloadOutlined, FileSearchOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
-import { getInvocationBatches, createInvocationBatch, runInvocationBatch, getInvocationResults, deleteInvocationBatch, getDatasets, getRAGSystems } from '@/api'
-import type { InvocationBatch, InvocationResult, Dataset, RAGSystem } from '@/types'
+import { getInvocationBatches, createInvocationBatch, runInvocationBatch, retryInvocationBatch, deleteInvocationBatch, getDatasets, getRAGSystems } from '@/api'
+import type { InvocationBatch, Dataset, RAGSystem } from '@/types'
 
 const Invocations: React.FC = () => {
+  const navigate = useNavigate()
   const [batches, setBatches] = useState<InvocationBatch[]>([])
   const [datasets, setDatasets] = useState<Dataset[]>([])
   const [ragSystems, setRAGSystems] = useState<RAGSystem[]>([])
   const [loading, setLoading] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)
-  const [resultsModalVisible, setResultsModalVisible] = useState(false)
-  const [results, setResults] = useState<InvocationResult[]>([])
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm()
 
@@ -20,9 +20,9 @@ const Invocations: React.FC = () => {
     setLoading(true)
     try {
       const [batchData, datasetData, ragData] = await Promise.all([
-        getInvocationBatches(),
-        getDatasets(),
-        getRAGSystems(),
+        getInvocationBatches().catch(() => []),
+        getDatasets().catch(() => []),
+        getRAGSystems().catch(() => []),
       ])
       setBatches(batchData)
       setDatasets(datasetData)
@@ -64,11 +64,11 @@ const Invocations: React.FC = () => {
     }
   }
 
-  const handleViewResults = async (batch: InvocationBatch) => {
+  const handleRetryBatch = async (batch: InvocationBatch) => {
     try {
-      const data = await getInvocationResults(batch.id, { limit: 100 })
-      setResults(data)
-      setResultsModalVisible(true)
+      const res = await retryInvocationBatch(batch.id)
+      message.success(`重试任务已启动，将重试 ${res.retry_count || batch.failed_count} 条失败记录`)
+      fetchData()
     } catch (e) {
       // 错误已在拦截器处理
     }
@@ -146,6 +146,14 @@ const Invocations: React.FC = () => {
       key: 'action',
       render: (_: unknown, record: InvocationBatch) => (
         <Space>
+          <Button
+            type="link"
+            size="small"
+            icon={<FileSearchOutlined />}
+            onClick={() => navigate(`/invocations/${record.id}`)}
+          >
+            详情
+          </Button>
           {record.status === 'pending' && (
             <Button
               type="link"
@@ -156,15 +164,20 @@ const Invocations: React.FC = () => {
               启动
             </Button>
           )}
-          {record.status === 'completed' && (
-            <Button
-              type="link"
-              size="small"
-              icon={<EyeOutlined />}
-              onClick={() => handleViewResults(record)}
+          {(record.status === 'completed' || record.status === 'failed') && record.failed_count > 0 && (
+            <Popconfirm
+              title="重试失败记录"
+              description={`确定重试 ${record.failed_count} 条失败记录？`}
+              onConfirm={() => handleRetryBatch(record)}
             >
-              查看结果
-            </Button>
+              <Button
+                type="link"
+                size="small"
+                icon={<ReloadOutlined />}
+              >
+                重试
+              </Button>
+            </Popconfirm>
           )}
           <Button
             type="link"
@@ -177,42 +190,6 @@ const Invocations: React.FC = () => {
           </Button>
         </Space>
       ),
-    },
-  ]
-
-  const resultColumns = [
-    {
-      title: '问题',
-      dataIndex: 'question',
-      key: 'question',
-      ellipsis: true,
-      width: 200,
-    },
-    {
-      title: '答案',
-      dataIndex: 'answer',
-      key: 'answer',
-      ellipsis: true,
-      width: 300,
-    },
-    {
-      title: '耗时(ms)',
-      dataIndex: 'latency',
-      key: 'latency',
-      render: (latency?: number) => latency ? Math.round(latency * 1000) : '-',
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: string) => <Tag color={getStatusType(status)}>{status}</Tag>,
-    },
-    {
-      title: '错误',
-      dataIndex: 'error',
-      key: 'error',
-      ellipsis: true,
-      render: (error?: string) => error || '-',
     },
   ]
 
@@ -258,21 +235,6 @@ const Invocations: React.FC = () => {
             />
           </Form.Item>
         </Form>
-      </Modal>
-
-      <Modal
-        title="调用结果"
-        open={resultsModalVisible}
-        onCancel={() => setResultsModalVisible(false)}
-        footer={null}
-        width={900}
-      >
-        <Table
-          dataSource={results}
-          columns={resultColumns}
-          rowKey="id"
-          scroll={{ x: 'max-content' }}
-        />
       </Modal>
     </Card>
   )

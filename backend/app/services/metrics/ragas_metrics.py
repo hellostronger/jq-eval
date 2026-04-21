@@ -290,7 +290,7 @@ class RagasAnswerRelevance(BaseMetric):
 
     requires_llm = True
     requires_embedding = True
-    requires_contexts = False
+    requires_contexts = True  # ragas 0.1.7 需要 contexts
     requires_ground_truth = False
 
     def __init__(self, llm=None, embedding_model=None, params: Dict[str, Any] = None):
@@ -310,6 +310,10 @@ class RagasAnswerRelevance(BaseMetric):
         if not answer:
             return MetricResult(score=0.0, error="答案为空")
 
+        # ragas 0.1.7 需要 contexts
+        if not contexts or len(contexts) == 0:
+            return MetricResult(score=0.0, error="缺少contexts数据")
+
         try:
             try:
                 from ragas import evaluate
@@ -319,9 +323,13 @@ class RagasAnswerRelevance(BaseMetric):
                 if self.llm:
                     answer_relevancy.llm = self.llm
 
+                # 确保 contexts 是字符串列表
+                contexts_list = [str(c) if c else "" for c in contexts]
+
                 data = Dataset.from_dict({
                     "question": [question],
-                    "answer": [answer]
+                    "answer": [answer],
+                    "contexts": [contexts_list]  # ragas 0.1.7 需要此字段
                 })
 
                 # ragas.evaluate 是同步函数，需要在线程中执行
@@ -362,10 +370,99 @@ class RagasAnswerRelevance(BaseMetric):
         )
 
 
+class RagasAnswerCorrectness(BaseMetric):
+    """答案正确性 - Ragas实现"""
+
+    name = "answer_correctness"
+    display_name = "答案正确性"
+    category = "generation"
+    framework = "ragas"
+    eval_stage = "result"
+
+    requires_llm = True
+    requires_embedding = False
+    requires_contexts = False
+    requires_ground_truth = True
+
+    def __init__(self, llm=None, embedding_model=None, params: Dict[str, Any] = None):
+        super().__init__(params)
+        self.llm = llm
+        self.embedding_model = embedding_model
+
+    async def compute(
+        self,
+        question: str,
+        answer: str,
+        contexts: Optional[List[str]] = None,
+        ground_truth: Optional[str] = None,
+        **kwargs
+    ) -> MetricResult:
+        """计算答案正确性"""
+        if not answer:
+            return MetricResult(score=0.0, error="答案为空")
+
+        if not ground_truth:
+            return MetricResult(score=0.0, error="缺少ground_truth")
+
+        try:
+            try:
+                from ragas import evaluate
+                from ragas.metrics import answer_correctness
+                from datasets import Dataset
+
+                if self.llm:
+                    answer_correctness.llm = self.llm
+
+                data = Dataset.from_dict({
+                    "question": [question],
+                    "answer": [answer],
+                    "ground_truth": [ground_truth]
+                })
+
+                result = await _run_sync(evaluate, data, metrics=[answer_correctness])
+                score = result['answer_correctness'][0]
+
+                return MetricResult(score=float(score))
+
+            except ImportError:
+                return await self._compute_simple(answer, ground_truth)
+
+        except Exception as e:
+            return MetricResult(score=0.0, error=str(e))
+
+    async def _compute_simple(
+        self,
+        answer: str,
+        ground_truth: str
+    ) -> MetricResult:
+        """简化版正确性计算"""
+        if not answer or not ground_truth:
+            return MetricResult(score=0.0)
+
+        a_words = set(answer.lower().split())
+        gt_words = set(ground_truth.lower().split())
+        common_words = {"的", "是", "在", "和", "了", "有", "不", "这", "我", "他"}
+
+        a_words = a_words - common_words
+        gt_words = gt_words - common_words
+
+        if not gt_words:
+            return MetricResult(score=1.0)
+
+        overlap = len(a_words & gt_words)
+        score = overlap / len(gt_words)
+
+        return MetricResult(
+            score=min(score, 1.0),
+            details={"method": "keyword_overlap", "overlap_ratio": score}
+        )
+
+
 # 导出所有Ragas指标
 RAGAS_METRICS = {
     "faithfulness": RagasFaithfulness,
     "context_precision": RagasContextPrecision,
     "context_recall": RagasContextRecall,
     "answer_relevancy": RagasAnswerRelevance,
+    "answer_correctness": RagasAnswerCorrectness,
 }

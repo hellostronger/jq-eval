@@ -154,8 +154,8 @@ const Datasets: React.FC = () => {
     { title: '描述', dataIndex: 'description', key: 'description' },
     {
       title: '记录数',
-      dataIndex: 'total_records',
-      key: 'total_records',
+      dataIndex: 'record_count',
+      key: 'record_count',
       render: (v: number) => <Tag color="blue">{v}</Tag>,
     },
     {
