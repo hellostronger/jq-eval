@@ -114,6 +114,14 @@ const InvocationDetail: React.FC = () => {
       width: 250,
     },
     {
+      title: '标准答案',
+      dataIndex: 'ground_truth',
+      key: 'ground_truth',
+      ellipsis: true,
+      width: 200,
+      render: (truth?: string) => truth ? (truth.length > 50 ? truth.slice(0, 50) + '...' : truth) : '-',
+    },
+    {
       title: '答案',
       dataIndex: 'answer',
       key: 'answer',
@@ -220,7 +228,7 @@ const InvocationDetail: React.FC = () => {
       }
     >
       <div style={{ marginBottom: 16 }}>
-        <Space size="large">
+        <Space size="large}>
           <span>数据集: <Tag color="blue">{datasetName}</Tag></span>
           <span>RAG系统: <Tag color="green">{ragSystemName}</Tag></span>
           <span>状态: <Tag color={getStatusType(batch.status)}>{batch.status}</Tag></span>
@@ -304,6 +312,14 @@ const InvocationDetail: React.FC = () => {
                 {selectedResult.question}
               </div>
             </div>
+            {selectedResult.ground_truth && (
+              <div style={{ marginBottom: 16 }}>
+                <strong>标准答案:</strong>
+                <div style={{ padding: 8, background: '#e6f7ff', borderRadius: 4, marginTop: 8 }}>
+                  {selectedResult.ground_truth}
+                </div>
+              </div>
+            )}
             {selectedResult.answer && (
               <div style={{ marginBottom: 16 }}>
                 <strong>答案:</strong>

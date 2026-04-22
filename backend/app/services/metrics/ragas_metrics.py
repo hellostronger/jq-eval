@@ -1,8 +1,11 @@
 # Ragas评估指标实现
 from typing import Optional, List, Dict, Any
 import asyncio
+import logging
 
 from .base import BaseMetric, MetricResult
+
+logger = logging.getLogger(__name__)
 
 
 async def _run_sync(func, *args, **kwargs):
@@ -398,10 +401,14 @@ class RagasAnswerCorrectness(BaseMetric):
         **kwargs
     ) -> MetricResult:
         """计算答案正确性"""
+        logger.info(f"[answer_correctness] 开始计算 | question={question[:50]}... | answer={answer[:50] if answer else None}... | ground_truth={ground_truth[:50] if ground_truth else None}...")
+
         if not answer:
+            logger.warning("[answer_correctness] 答案为空")
             return MetricResult(score=0.0, error="答案为空")
 
         if not ground_truth:
+            logger.warning("[answer_correctness] 缺少ground_truth")
             return MetricResult(score=0.0, error="缺少ground_truth")
 
         try:
@@ -409,6 +416,8 @@ class RagasAnswerCorrectness(BaseMetric):
                 from ragas import evaluate
                 from ragas.metrics import answer_correctness
                 from datasets import Dataset
+
+                logger.info(f"[answer_correctness] llm={self.llm}, embedding_model={self.embedding_model}")
 
                 if self.llm:
                     answer_correctness.llm = self.llm
@@ -419,15 +428,19 @@ class RagasAnswerCorrectness(BaseMetric):
                     "ground_truth": [ground_truth]
                 })
 
+                logger.info(f"[answer_correctness] 调用ragas evaluate")
                 result = await _run_sync(evaluate, data, metrics=[answer_correctness])
                 score = result['answer_correctness'][0]
 
+                logger.info(f"[answer_correctness] 计算完成, score={score}")
                 return MetricResult(score=float(score))
 
             except ImportError:
+                logger.warning("[answer_correctness] ragas未安装，使用简化计算")
                 return await self._compute_simple(answer, ground_truth)
 
         except Exception as e:
+            logger.error(f"[answer_correctness] 计算失败: {e}")
             return MetricResult(score=0.0, error=str(e))
 
     async def _compute_simple(

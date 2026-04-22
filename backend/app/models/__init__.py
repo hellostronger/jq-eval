@@ -9,6 +9,7 @@ from .rag_system import RAGSystem, RAGSystemType
 from .metric import MetricDefinition, MetricTag
 from .sync import DataSource, SyncTask, SchemaMapping, DataSourceType
 from .hot_news import HotNewsSource, HotArticle
+from .load_test import LoadTest, LoadTestStatus, LoadTestType
 
 __all__ = [
     "BaseModel",
@@ -32,4 +33,7 @@ __all__ = [
     "DataSourceType",
     "HotNewsSource",
     "HotArticle",
+    "LoadTest",
+    "LoadTestStatus",
+    "LoadTestType",
 ]

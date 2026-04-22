@@ -1,6 +1,7 @@
 # Coze 适配器
 import httpx
 import time
+import json
 from typing import Optional, List, Dict, Any
 from .base import BaseRAGAdapter, RAGResponse
 
@@ -93,6 +94,96 @@ class CozeAdapter(BaseRAGAdapter):
             return RAGResponse(
                 answer="",
                 response_time=response_time,
+                error=str(e),
+                success=False
+            )
+
+    except Exception as e:
+            response_time = time.time() - start_time
+            return RAGResponse(
+                answer="",
+                response_time=response_time,
+                error=str(e),
+                success=False
+            )
+
+    async def query_stream(
+        self,
+        question: str,
+        contexts: Optional[List[str]] = None,
+        conversation_id: Optional[str] = None,
+        **kwargs
+    ) -> RAGResponse:
+        """流式查询Coze Bot，返回首token延迟"""
+        start_time = time.time()
+        first_token_time = None
+
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json"
+            }
+
+            payload = {
+                "bot_id": self.bot_id,
+                "user_id": kwargs.get("user_id", "eval-user"),
+                "stream": True,
+                "auto_save_history": True,
+                "additional_messages": [
+                    {
+                        "role": "user",
+                        "content": question,
+                        "content_type": "text"
+                    }
+                ]
+            }
+
+            if conversation_id:
+                payload["conversation_id"] = conversation_id
+
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                async with client.stream("POST", f"{self.api_url}/chat", headers=headers, json=payload) as response:
+                    response.raise_for_status()
+                    answer_chunks = []
+                    contexts = []
+
+                    async for line in response.aiter_lines():
+                        if line.strip():
+                            try:
+                                data = json.loads(line)
+                                # Coze流式响应处理
+                                event = data.get("event")
+                                if event == "message":
+                                    msg_data = data.get("data", {})
+                                    if msg_data.get("type") == "answer":
+                                        content = msg_data.get("content", "")
+                                        if content:
+                                            if first_token_time is None:
+                                                first_token_time = time.time() - start_time
+                                            answer_chunks.append(content)
+                                elif event == "done":
+                                    break
+                            except json.JSONDecodeError:
+                                continue
+
+                    response_time = time.time() - start_time
+                    answer = "".join(answer_chunks)
+
+                    return RAGResponse(
+                        answer=answer,
+                        contexts=contexts,
+                        response_time=response_time,
+                        first_token_latency=first_token_time,
+                        metadata={"streaming": True},
+                        success=True
+                    )
+
+        except Exception as e:
+            response_time = time.time() - start_time
+            return RAGResponse(
+                answer="",
+                response_time=response_time,
+                first_token_latency=first_token_time,
                 error=str(e),
                 success=False
             )

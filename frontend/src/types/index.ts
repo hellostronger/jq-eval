@@ -106,6 +106,7 @@ export interface InvocationResult {
   status: 'pending' | 'success' | 'failed'
   error?: string
   created_at: string
+  ground_truth?: string  // 标准答案
 }
 
 export interface EvalResult {
@@ -253,4 +254,46 @@ export interface ChunkInfo {
   end_char?: number
   milvus_id?: string
   document_title?: string
+}
+
+// 压测任务类型
+export interface LoadTest {
+  id: string
+  name: string
+  description?: string
+  rag_system_id: string
+  test_type: 'first_token' | 'full_response'
+  latency_threshold: number
+  concurrency: number
+  dataset_id?: string
+  questions?: string[]
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  progress: number
+  error?: string
+  result?: LoadTestResult
+  started_at?: string
+  completed_at?: string
+  created_at: string
+}
+
+// 压测结果类型
+export interface LoadTestResult {
+  total_requests: number
+  success_count: number
+  failed_count: number
+  qps: number
+  overall_time: number
+  latency_threshold: number
+  test_type: string
+  concurrency: number
+  latency_stats: {
+    mean: number
+    median: number
+    min: number
+    max: number
+    p50: number
+    p90: number
+    p99: number
+  }
+  errors: string[]
 }

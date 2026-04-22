@@ -168,16 +168,19 @@ class MetricEngine:
                 if metric in r and r[metric].error is None
             ]
 
-            if scores:
+            # 过滤掉 NaN 和 None 值
+            valid_scores = [s for s in scores if s is not None and not (isinstance(s, float) and np.isnan(s))]
+
+            if valid_scores:
                 summary["metrics_summary"][metric] = {
-                    "mean": float(np.mean(scores)),
-                    "std": float(np.std(scores)),
-                    "min": float(np.min(scores)),
-                    "max": float(np.max(scores)),
-                    "median": float(np.median(scores)),
-                    "p25": float(np.percentile(scores, 25)),
-                    "p75": float(np.percentile(scores, 75)),
-                    "count": len(scores)
+                    "mean": float(np.mean(valid_scores)),
+                    "std": float(np.std(valid_scores)),
+                    "min": float(np.min(valid_scores)),
+                    "max": float(np.max(valid_scores)),
+                    "median": float(np.median(valid_scores)),
+                    "p25": float(np.percentile(valid_scores, 25)),
+                    "p75": float(np.percentile(valid_scores, 75)),
+                    "count": len(valid_scores)
                 }
 
         return summary

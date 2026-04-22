@@ -2,6 +2,7 @@
 import httpx
 import time
 import base64
+import json
 from typing import Optional, List, Dict, Any
 from .base import BaseRAGAdapter, RAGResponse
 
@@ -87,6 +88,76 @@ class N8nAdapter(BaseRAGAdapter):
             return RAGResponse(
                 answer="",
                 response_time=response_time,
+                error=str(e),
+                success=False
+            )
+
+    except Exception as e:
+            response_time = time.time() - start_time
+            return RAGResponse(
+                answer="",
+                response_time=response_time,
+                error=str(e),
+                success=False
+            )
+
+    async def query_stream(
+        self,
+        question: str,
+        contexts: Optional[List[str]] = None,
+        conversation_id: Optional[str] = None,
+        **kwargs
+    ) -> RAGResponse:
+        """流式查询n8n Webhook，返回首token延迟"""
+        start_time = time.time()
+        first_token_time = None
+
+        try:
+            headers = self._get_auth_headers()
+
+            payload = {
+                "question": question,
+                "conversation_id": conversation_id,
+                "contexts": contexts,
+                **kwargs
+            }
+
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                async with client.stream("POST", self.webhook_url, headers=headers, json=payload) as response:
+                    response.raise_for_status()
+                    answer_chunks = []
+
+                    async for line in response.aiter_lines():
+                        if line.strip():
+                            try:
+                                data = json.loads(line)
+                                # 提取答案
+                                answer = data.get("answer", data.get("response", ""))
+                                if answer:
+                                    if first_token_time is None:
+                                        first_token_time = time.time() - start_time
+                                    answer_chunks.append(answer)
+                            except json.JSONDecodeError:
+                                continue
+
+                    response_time = time.time() - start_time
+                    answer = "".join(answer_chunks)
+
+                    return RAGResponse(
+                        answer=answer,
+                        contexts=[],
+                        response_time=response_time,
+                        first_token_latency=first_token_time,
+                        metadata={"streaming": True},
+                        success=True
+                    )
+
+        except Exception as e:
+            response_time = time.time() - start_time
+            return RAGResponse(
+                answer="",
+                response_time=response_time,
+                first_token_latency=first_token_time,
                 error=str(e),
                 success=False
             )

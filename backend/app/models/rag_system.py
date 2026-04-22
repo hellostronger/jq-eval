@@ -63,3 +63,4 @@ class RAGSystem(BaseModel):
     # 关系
     invocation_batches = relationship("InvocationBatch", back_populates="rag_system")
     invocation_results = relationship("InvocationResult", back_populates="rag_system")
+    load_tests = relationship("LoadTest", back_populates="rag_system")

@@ -12,6 +12,7 @@ const Evaluations: React.FC = () => {
   const [datasets, setDatasets] = useState<Dataset[]>([])
   const [ragSystems, setRAGSystems] = useState<RAGSystem[]>([])
   const [llmModels, setLLMModels] = useState<ModelConfig[]>([])
+  const [embeddingModels, setEmbeddingModels] = useState<ModelConfig[]>([])
   const [invocationBatches, setInvocationBatches] = useState<InvocationBatch[]>([])
   const [loading, setLoading] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)
@@ -23,18 +24,20 @@ const Evaluations: React.FC = () => {
     setLoading(true)
     try {
       // 独立请求，避免某个失败导致整体失败
-      const [evalData, datasetData, ragData, modelData, batchData] = await Promise.all([
+      const [evalData, datasetData, ragData, llmData, embData, batchData] = await Promise.all([
         getEvaluations().catch((e) => { console.error('getEvaluations failed:', e); return [] }),
         getDatasets().catch((e) => { console.error('getDatasets failed:', e); return [] }),
         getRAGSystems().catch((e) => { console.error('getRAGSystems failed:', e); return [] }),
-        getModels('llm').catch((e) => { console.error('getModels failed:', e); return [] }),
+        getModels('llm').catch((e) => { console.error('getModels llm failed:', e); return [] }),
+        getModels('embedding').catch((e) => { console.error('getModels embedding failed:', e); return [] }),
         getInvocationBatches({ status: 'completed' }).catch((e) => { console.error('getInvocationBatches failed:', e); return [] }),
       ])
-      console.log('Loaded data:', { evalData, datasetData, ragData, modelData, batchData })
+      console.log('Loaded data:', { evalData, datasetData, ragData, llmData, embData, batchData })
       setEvaluations(evalData)
       setDatasets(datasetData)
       setRAGSystems(ragData)
-      setLLMModels(modelData)
+      setLLMModels(llmData)
+      setEmbeddingModels(embData)
       setInvocationBatches(batchData)
     } catch (e) {
       console.error('加载数据失败:', e)
@@ -105,15 +108,11 @@ const Evaluations: React.FC = () => {
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
     {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
+      title: '状态', dataIndex: 'status', key: 'status',
       render: (status: string) => <Tag color={getStatusType(status)}>{status}</Tag>,
     },
     {
-      title: '调用批次',
-      dataIndex: 'invocation_batch_id',
-      key: 'invocation_batch_id',
+      title: '调用批次', dataIndex: 'invocation_batch_id', key: 'invocation_batch_id',
       render: (id?: string) => {
         if (!id) return '-'
         const batch = invocationBatches.find(b => b.id === id)
@@ -121,14 +120,11 @@ const Evaluations: React.FC = () => {
       },
     },
     {
-      title: '创建时间',
-      dataIndex: 'created_at',
-      key: 'created_at',
+      title: '创建时间', dataIndex: 'created_at', key: 'created_at',
       render: (date: string) => dayjs(date).format('YYYY-MM-DD HH:mm'),
     },
     {
-      title: '操作',
-      key: 'action',
+      title: '操作', key: 'action',
       render: (_: unknown, record: Evaluation) => (
         <>
           {record.status === 'pending' && (
@@ -230,6 +226,13 @@ const Evaluations: React.FC = () => {
             <Select
               placeholder="选择LLM模型"
               options={llmModels.map(m => ({ value: m.id, label: m.name }))}
+            />
+          </Form.Item>
+          <Form.Item name="embedding_model_id" label="Embedding模型" extra="部分评估指标需要（如answer_relevancy）">
+            <Select
+              placeholder="选择Embedding模型（可选）"
+              allowClear
+              options={embeddingModels.map(m => ({ value: m.id, label: m.name }))}
             />
           </Form.Item>
           <Form.Item name="metrics" label="评估指标" rules={[{ required: true }]}>

@@ -50,6 +50,7 @@ class InvocationResultResponse(BaseModel):
     status: str
     error: Optional[str] = None
     created_at: Optional[datetime] = None
+    ground_truth: Optional[str] = None  # 标准答案（从QA记录关联获取）
 
     class Config:
         from_attributes = True
@@ -250,11 +251,41 @@ async def get_invocation_results(
     if not batch:
         raise HTTPException(status_code=404, detail="调用批次不存在")
 
-    query = select(InvocationResult).where(InvocationResult.batch_id == batch_id)
+    # 关联QA记录获取ground_truth
+    query = (
+        select(InvocationResult, QARecord.ground_truth)
+        .join(QARecord, InvocationResult.qa_record_id == QARecord.id)
+        .where(InvocationResult.batch_id == batch_id)
+    )
     if status:
         query = query.where(InvocationResult.status == status)
-    results = await db.execute(query.offset(skip).limit(limit))
-    return results.scalars().all()
+
+    query = query.offset(skip).limit(limit)
+    results = await db.execute(query)
+    rows = results.all()
+
+    # 转换结果
+    response_items = []
+    for row in rows:
+        inv_result = row[0]
+        ground_truth = row[1]
+        item = {
+            "id": inv_result.id,
+            "batch_id": inv_result.batch_id,
+            "qa_record_id": inv_result.qa_record_id,
+            "rag_system_id": inv_result.rag_system_id,
+            "question": inv_result.question,
+            "answer": inv_result.answer,
+            "contexts": inv_result.contexts,
+            "latency": inv_result.latency,
+            "status": inv_result.status,
+            "error": inv_result.error,
+            "created_at": inv_result.created_at,
+            "ground_truth": ground_truth,
+        }
+        response_items.append(item)
+
+    return response_items
 
 
 @router.get("/{batch_id}/stats")

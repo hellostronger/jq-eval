@@ -1,5 +1,5 @@
 import { request } from './request'
-import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, DataSource, SyncTask, ModelConfig, SystemStats, NewsSource, HotArticle, NewsStats, InvocationBatch, InvocationResult } from '@/types'
+import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, DataSource, SyncTask, ModelConfig, SystemStats, NewsSource, HotArticle, NewsStats, InvocationBatch, InvocationResult, LoadTest } from '@/types'
 
 // 模型API
 export const getModels = (modelType: string) => {
@@ -448,4 +448,40 @@ export const createDocumentsFromNews = (datasetId: string, articleIds: string[],
 // 获取文档的所有分片
 export const getDocumentChunks = (datasetId: string, docId: string, params?: { page?: number; size?: number }) => {
   return request.get<{ items: ChunkInfo[]; total: number }>(`/datasets/${datasetId}/documents/${docId}/chunks`, { params })
+}
+
+// 压测任务API
+export interface LoadTestCreateParams {
+  name: string
+  description?: string
+  rag_system_id: string
+  test_type: 'first_token' | 'full_response'
+  latency_threshold: number
+  concurrency: number
+  dataset_id?: string
+  questions?: string[]
+}
+
+export const getLoadTests = (params?: { rag_system_id?: string; status?: string }) => {
+  return request.get<LoadTest[]>('/load-tests', { params })
+}
+
+export const getLoadTest = (id: string) => {
+  return request.get<LoadTest>(`/load-tests/${id}`)
+}
+
+export const createLoadTest = (data: LoadTestCreateParams) => {
+  return request.post<LoadTest>('/load-tests', data)
+}
+
+export const updateLoadTest = (id: string, data: Partial<LoadTestCreateParams>) => {
+  return request.put<LoadTest>(`/load-tests/${id}`, data)
+}
+
+export const deleteLoadTest = (id: string) => {
+  return request.delete(`/load-tests/${id}`)
+}
+
+export const runLoadTest = (id: string) => {
+  return request.post<{ message: string; load_test_id: string; task_id: string }>(`/load-tests/${id}/run`)
 }

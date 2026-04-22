@@ -145,6 +145,81 @@ class CustomAdapter(BaseRAGAdapter):
                 success=False
             )
 
+    except Exception as e:
+            response_time = time.time() - start_time
+            return RAGResponse(
+                answer="",
+                response_time=response_time,
+                error=str(e),
+                success=False
+            )
+
+    async def query_stream(
+        self,
+        question: str,
+        contexts: Optional[List[str]] = None,
+        conversation_id: Optional[str] = None,
+        **kwargs
+    ) -> RAGResponse:
+        """流式查询自定义API，返回首token延迟"""
+        start_time = time.time()
+        first_token_time = None
+
+        try:
+            payload = self._build_request(
+                question=question,
+                contexts=contexts,
+                conversation_id=conversation_id,
+                **kwargs
+            )
+
+            headers = self._get_headers()
+
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                if self.request_method == "POST":
+                    async with client.stream("POST", self.api_url, headers=headers, json=payload) as response:
+                        response.raise_for_status()
+                        answer_chunks = []
+
+                        async for line in response.aiter_lines():
+                            if line.strip():
+                                try:
+                                    data = json.loads(line)
+                                    # 根据响应解析器提取答案
+                                    answer, _ = self._parse_response(data)
+                                    if answer:
+                                        # 记录首token时间
+                                        if first_token_time is None:
+                                            first_token_time = time.time() - start_time
+                                        answer_chunks.append(answer)
+                                except json.JSONDecodeError:
+                                    continue
+                else:
+                    # GET 方法不支持流式，回退到普通查询
+                    return await self.query(question, contexts, conversation_id, **kwargs)
+
+                response_time = time.time() - start_time
+                answer = "".join(answer_chunks)
+
+                return RAGResponse(
+                    answer=answer,
+                    contexts=[],
+                    response_time=response_time,
+                    first_token_latency=first_token_time,
+                    metadata={"streaming": True},
+                    success=True
+                )
+
+        except Exception as e:
+            response_time = time.time() - start_time
+            return RAGResponse(
+                answer="",
+                response_time=response_time,
+                first_token_latency=first_token_time,
+                error=str(e),
+                success=False
+            )
+
     async def health_check(self) -> bool:
         """健康检查"""
         try:

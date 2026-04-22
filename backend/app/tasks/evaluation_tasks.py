@@ -1,5 +1,6 @@
 # 评估相关异步任务
 import asyncio
+import os
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 import logging
@@ -86,6 +87,14 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
             embedding_config = await db.get(Model, evaluation.embedding_model_id) if evaluation.embedding_model_id else None
 
             logger.info(f"获取到的模型配置: llm_config={llm_config}, embedding_config={embedding_config}")
+
+            # 设置环境变量供ragas内部创建LLM/Embedding使用
+            if llm_config:
+                if llm_config.api_key_encrypted:
+                    os.environ["OPENAI_API_KEY"] = llm_config.api_key_encrypted
+                if llm_config.endpoint:
+                    os.environ["OPENAI_API_BASE"] = llm_config.endpoint
+                logger.info(f"设置环境变量: OPENAI_API_KEY={'已设置' if llm_config.api_key_encrypted else '未设置'}, OPENAI_API_BASE={llm_config.endpoint}")
 
             # 初始化模型
             llm = await _init_model(llm_config) if llm_config else None
@@ -220,22 +229,28 @@ async def _init_model(model_config: Model) -> Any:
     model_type = model_config.model_type.lower() if model_config.model_type else ""
 
     logger.info(f"初始化模型: id={model_config.id}, name={model_config.name}, type={model_type}")
+    logger.info(f"模型配置详情: endpoint={model_config.endpoint}, model_name={model_config.model_name}, api_key={'已设置' if model_config.api_key_encrypted else '未设置'}")
 
     if model_type == "llm":
         from langchain_openai import ChatOpenAI
-        return ChatOpenAI(
+        llm = ChatOpenAI(
             model=model_config.model_name,
             api_key=model_config.api_key_encrypted,
             base_url=model_config.endpoint,
             temperature=params.get("temperature", 0.7),
         )
+        # 验证 LLM 是否正确初始化
+        logger.info(f"ChatOpenAI 初始化完成: model={llm.model_name}, api_base={llm.openai_api_base}, has_api_key={bool(llm.openai_api_key)}")
+        return llm
     elif model_type == "embedding":
         from langchain_openai import OpenAIEmbeddings
-        return OpenAIEmbeddings(
+        emb = OpenAIEmbeddings(
             model=model_config.model_name,
             api_key=model_config.api_key_encrypted,
             base_url=model_config.endpoint,
         )
+        logger.info(f"OpenAIEmbeddings 初始化完成: model={emb.model}, has_api_key={bool(emb.openai_api_key)}")
+        return emb
     else:
         logger.warning(f"未知的模型类型: {model_config.model_type}, 模型ID: {model_config.id}")
         return None
