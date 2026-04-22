@@ -2,12 +2,21 @@ import React, { useEffect, useState } from 'react'
 import { Card, Table, Button, Tag, Modal, Form, Input, Select, Switch, message, Popconfirm, Spin, List } from 'antd'
 import { PlusOutlined, MessageOutlined, SendOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { getRAGSystems, createRAGSystem, updateRAGSystem, deleteRAGSystem, testRAGSystem, queryRAGSystem } from '@/api'
+import { getRAGSystems, createRAGSystem, updateRAGSystem, deleteRAGSystem, testRAGSystem, queryRAGSystem, getLLMModels } from '@/api'
 import type { RAGSystem } from '@/types'
 
 interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
+}
+
+interface LLMModel {
+  id: string
+  name: string
+  provider?: string
+  model_name?: string
+  endpoint?: string
+  has_api_key: boolean
 }
 
 const RAGSystems: React.FC = () => {
@@ -17,6 +26,10 @@ const RAGSystems: React.FC = () => {
   const [editingSystem, setEditingSystem] = useState<RAGSystem | null>(null)
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm()
+
+  // LLM模型列表（用于直连LLM类型）
+  const [llmModels, setLLMModels] = useState<LLMModel[]>([])
+  const [selectedSystemType, setSelectedSystemType] = useState<string>('dify')
 
   // 聊天状态
   const [chatModalVisible, setChatModalVisible] = useState(false)
@@ -35,6 +48,15 @@ const RAGSystems: React.FC = () => {
     }
   }
 
+  const fetchLLMModels = async () => {
+    try {
+      const data = await getLLMModels()
+      setLLMModels(data)
+    } catch (e) {
+      // 错误已在拦截器处理
+    }
+  }
+
   useEffect(() => {
     fetchSystems()
   }, [])
@@ -46,6 +68,8 @@ const RAGSystems: React.FC = () => {
       system_type: 'dify',
       is_active: true,
     })
+    setSelectedSystemType('dify')
+    fetchLLMModels()
     setModalVisible(true)
   }
 
@@ -53,12 +77,17 @@ const RAGSystems: React.FC = () => {
     setEditingSystem(system)
     // 从 connection_config 中提取字段
     const config = system.connection_config || {}
+    setSelectedSystemType(system.system_type)
+    fetchLLMModels()
     form.setFieldsValue({
       name: system.name,
       display_name: config.display_name || system.name,
       system_type: system.system_type,
       api_endpoint: config.api_endpoint || '',
       api_key: config.api_key || '',
+      llm_model_id: config.llm_model_id || '',
+      model_name: config.model_name || '',
+      provider: config.provider || 'openai',
       is_active: config.is_active ?? true,
     })
     setModalVisible(true)
@@ -68,17 +97,42 @@ const RAGSystems: React.FC = () => {
     try {
       const values = await form.validateFields()
       setSaving(true)
+
+      // 构建connection_config
+      let connectionConfig: Record<string, any> = {}
+
+      if (values.system_type === 'direct_llm') {
+        // 直连LLM类型 - 从选中的LLM模型获取配置
+        const selectedModel = llmModels.find(m => m.id === values.llm_model_id)
+        if (selectedModel) {
+          connectionConfig = {
+            api_endpoint: selectedModel.endpoint,
+            api_key: selectedModel.has_api_key ? 'use_model_config' : '', // 标记使用模型配置的key
+            model_name: selectedModel.model_name || selectedModel.name,
+            provider: selectedModel.provider || 'openai',
+            llm_model_id: selectedModel.id,
+            display_name: values.display_name,
+            is_active: values.is_active,
+            temperature: values.temperature ?? 0.7,
+            max_tokens: values.max_tokens ?? 2048,
+          }
+        }
+      } else {
+        // 其他系统类型
+        connectionConfig = {
+          api_endpoint: values.api_endpoint,
+          api_key: values.api_key,
+          display_name: values.display_name,
+          is_active: values.is_active,
+        }
+      }
+
       // 转换数据格式以匹配后端API
       const payload = {
         name: values.name,
         system_type: values.system_type,
         description: values.display_name,
-        connection_config: {
-          api_endpoint: values.api_endpoint,
-          api_key: values.api_key,
-          display_name: values.display_name,
-          is_active: values.is_active,
-        },
+        connection_config: connectionConfig,
         llm_config: {},
         retrieval_config: {},
       }
@@ -212,6 +266,16 @@ const RAGSystems: React.FC = () => {
     { value: 'fastgpt', label: 'FastGPT' },
     { value: 'n8n', label: 'n8n' },
     { value: 'custom', label: '自定义' },
+    { value: 'direct_llm', label: '直连LLM' },
+  ]
+
+  const providerOptions = [
+    { value: 'openai', label: 'OpenAI' },
+    { value: 'azure', label: 'Azure OpenAI' },
+    { value: 'zhipuai', label: '智谱AI' },
+    { value: 'baidu', label: '百度千帆' },
+    { value: 'aliyun', label: '阿里云百炼' },
+    { value: 'volcengine', label: '火山引擎' },
   ]
 
   return (
@@ -241,14 +305,55 @@ const RAGSystems: React.FC = () => {
             <Input placeholder="展示名称" />
           </Form.Item>
           <Form.Item name="system_type" label="系统类型" rules={[{ required: true }]}>
-            <Select options={systemTypes} disabled={editingSystem !== null} />
+            <Select
+              options={systemTypes}
+              disabled={editingSystem !== null}
+              onChange={(value) => {
+                setSelectedSystemType(value)
+                if (value === 'direct_llm') {
+                  fetchLLMModels()
+                }
+              }}
+            />
           </Form.Item>
-          <Form.Item name="api_endpoint" label="API地址" rules={[{ required: true }]}>
-            <Input placeholder="API Endpoint URL" />
-          </Form.Item>
-          <Form.Item name="api_key" label="API Key" rules={[{ required: true }]}>
-            <Input.Password placeholder="API Key" />
-          </Form.Item>
+
+          {/* 直连LLM类型的表单字段 */}
+          {selectedSystemType === 'direct_llm' && (
+            <>
+              <Form.Item name="llm_model_id" label="LLM模型" rules={[{ required: true, message: '请选择LLM模型' }]}>
+                <Select
+                  placeholder="选择已配置的LLM模型"
+                  options={llmModels.map(m => ({
+                    value: m.id,
+                    label: `${m.name} (${m.provider || 'openai'} - ${m.model_name || m.name})`,
+                    disabled: !m.has_api_key
+                  }))}
+                />
+              </Form.Item>
+              <Form.Item name="provider" label="供应商">
+                <Select options={providerOptions} placeholder="默认使用模型配置的供应商" />
+              </Form.Item>
+              <Form.Item name="temperature" label="Temperature">
+                <Input type="number" placeholder="0.7" min={0} max={2} step={0.1} />
+              </Form.Item>
+              <Form.Item name="max_tokens" label="Max Tokens">
+                <Input type="number" placeholder="2048" min={1} />
+              </Form.Item>
+            </>
+          )}
+
+          {/* 其他系统类型的表单字段 */}
+          {selectedSystemType !== 'direct_llm' && (
+            <>
+              <Form.Item name="api_endpoint" label="API地址" rules={[{ required: true }]}>
+                <Input placeholder="API Endpoint URL" />
+              </Form.Item>
+              <Form.Item name="api_key" label="API Key" rules={[{ required: true }]}>
+                <Input.Password placeholder="API Key" />
+              </Form.Item>
+            </>
+          )}
+
           <Form.Item name="is_active" label="启用状态" valuePropName="checked">
             <Switch />
           </Form.Item>

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Card, Table, Button, Tag, Space, Progress, message, Popconfirm, Modal, Input, Pagination, Spin } from 'antd'
-import { ReloadOutlined, PlayCircleOutlined, ArrowLeftOutlined, EyeOutlined, DeleteOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Tag, Space, Progress, message, Popconfirm, Modal, Input, Pagination, Spin, Select, Descriptions, Divider, Alert } from 'antd'
+import { ReloadOutlined, PlayCircleOutlined, ArrowLeftOutlined, EyeOutlined, DeleteOutlined, CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import {
   getInvocationBatch,
@@ -11,8 +11,12 @@ import {
   retrySingleResult,
   getDatasets,
   getRAGSystems,
+  getModels,
+  analyzeSingleCorrection,
+  getCorrectionByInvocation,
+  confirmCorrection,
 } from '@/api'
-import type { InvocationBatch, InvocationResult, Dataset, RAGSystem } from '@/types'
+import type { InvocationBatch, InvocationResult, Dataset, RAGSystem, ModelConfig, AnnotationCorrection } from '@/types'
 
 const InvocationDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>()
@@ -21,6 +25,7 @@ const InvocationDetail: React.FC = () => {
   const [results, setResults] = useState<InvocationResult[]>([])
   const [datasets, setDatasets] = useState<Dataset[]>([])
   const [ragSystems, setRAGSystems] = useState<RAGSystem[]>([])
+  const [llmModels, setLlmModels] = useState<ModelConfig[]>([])
   const [loading, setLoading] = useState(false)
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
   const [page, setPage] = useState(1)
@@ -29,21 +34,28 @@ const InvocationDetail: React.FC = () => {
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
   const [detailModalVisible, setDetailModalVisible] = useState(false)
   const [selectedResult, setSelectedResult] = useState<InvocationResult | null>(null)
+  const [correctionModalVisible, setCorrectionModalVisible] = useState(false)
+  const [selectedLlmModel, setSelectedLlmModel] = useState<string | undefined>(undefined)
+  const [correctionLoading, setCorrectionLoading] = useState(false)
+  const [correctionResult, setCorrectionResult] = useState<AnnotationCorrection | null>(null)
+  const [correctionDetailVisible, setCorrectionDetailVisible] = useState(false)
 
   const fetchData = async () => {
     if (!id) return
     setLoading(true)
     try {
-      const [batchData, resultsData, datasetData, ragData] = await Promise.all([
+      const [batchData, resultsData, datasetData, ragData, llmData] = await Promise.all([
         getInvocationBatch(id),
         getInvocationResults(id, { skip: (page - 1) * pageSize, limit: pageSize, status: statusFilter }),
         getDatasets(),
         getRAGSystems(),
+        getModels('llm'),
       ])
       setBatch(batchData)
       setResults(resultsData)
       setDatasets(datasetData)
       setRagSystems(ragData)
+      setLlmModels(llmData)
       setTotal(batchData.total_count)
     } finally {
       setLoading(false)
@@ -91,6 +103,56 @@ const InvocationDetail: React.FC = () => {
   const handleViewDetail = (result: InvocationResult) => {
     setSelectedResult(result)
     setDetailModalVisible(true)
+  }
+
+  const handleOpenCorrection = (result: InvocationResult) => {
+    setSelectedResult(result)
+    setCorrectionModalVisible(true)
+  }
+
+  const handleRunCorrection = async () => {
+    if (!selectedResult || !selectedLlmModel) {
+      message.error('请选择LLM模型')
+      return
+    }
+    setCorrectionLoading(true)
+    try {
+      const res = await analyzeSingleCorrection({
+        invocation_result_id: selectedResult.id,
+        qa_record_id: selectedResult.qa_record_id,
+        batch_id: id,
+        llm_model_id: selectedLlmModel,
+      })
+      setCorrectionResult(res)
+      setCorrectionModalVisible(false)
+      setCorrectionDetailVisible(true)
+      message.success('矫正分析完成')
+    } catch (e) {
+      message.error('矫正分析失败')
+    } finally {
+      setCorrectionLoading(false)
+    }
+  }
+
+  const handleConfirmCorrection = async (isDoubtful: boolean) => {
+    if (!correctionResult) return
+    try {
+      await confirmCorrection(correctionResult.id, { is_doubtful: isDoubtful })
+      message.success('确认成功')
+      setCorrectionDetailVisible(false)
+    } catch (e) {
+      message.error('确认失败')
+    }
+  }
+
+  const handleViewExistingCorrection = async (resultId: string) => {
+    try {
+      const res = await getCorrectionByInvocation(resultId)
+      setCorrectionResult(res)
+      setCorrectionDetailVisible(true)
+    } catch (e) {
+      message.error('未找到矫正记录')
+    }
   }
 
   const getStatusType = (status: string) => {
@@ -154,7 +216,7 @@ const InvocationDetail: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 120,
+      width: 200,
       render: (_: unknown, record: InvocationResult) => (
         <Space>
           <Button
@@ -165,6 +227,16 @@ const InvocationDetail: React.FC = () => {
           >
             详情
           </Button>
+          {record.status === 'success' && (
+            <Button
+              type="link"
+              size="small"
+              icon={<ExclamationCircleOutlined />}
+              onClick={() => handleOpenCorrection(record)}
+            >
+              矫正
+            </Button>
+          )}
           {record.status === 'failed' && (
             <Button
               type="link"
@@ -228,7 +300,7 @@ const InvocationDetail: React.FC = () => {
       }
     >
       <div style={{ marginBottom: 16 }}>
-        <Space size="large}>
+        <Space size="large">
           <span>数据集: <Tag color="blue">{datasetName}</Tag></span>
           <span>RAG系统: <Tag color="green">{ragSystemName}</Tag></span>
           <span>状态: <Tag color={getStatusType(batch.status)}>{batch.status}</Tag></span>
@@ -354,6 +426,166 @@ const InvocationDetail: React.FC = () => {
                 重试此条
               </Button>
             )}
+            {selectedResult.status === 'success' && selectedResult.ground_truth && (
+              <Button icon={<ExclamationCircleOutlined />} onClick={() => {
+                setDetailModalVisible(false)
+                handleOpenCorrection(selectedResult)
+              }}>
+                矫正标注
+              </Button>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* 矫正分析配置Modal */}
+      <Modal
+        title="矫正标注分析"
+        open={correctionModalVisible}
+        onCancel={() => setCorrectionModalVisible(false)}
+        onOk={handleRunCorrection}
+        confirmLoading={correctionLoading}
+        okText="开始分析"
+      >
+        {selectedResult && (
+          <div>
+            <Alert
+              message="矫正标注分析将对比系统回复和标准答案的差异，并验证分片是否支持这些差异"
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+            <div style={{ marginBottom: 16 }}>
+              <strong>问题:</strong>
+              <div style={{ padding: 8, background: '#f5f5f5', borderRadius: 4, marginTop: 8 }}>
+                {selectedResult.question}
+              </div>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <strong>选择LLM模型:</strong>
+              <Select
+                style={{ width: '100%', marginTop: 8 }}
+                placeholder="选择用于分析差异的LLM模型"
+                value={selectedLlmModel}
+                onChange={setSelectedLlmModel}
+                options={llmModels.map(m => ({ label: m.name, value: m.id }))}
+              />
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* 矫正结果详情Modal */}
+      <Modal
+        title="矫正分析结果"
+        open={correctionDetailVisible}
+        onCancel={() => setCorrectionDetailVisible(false)}
+        footer={null}
+        width={900}
+      >
+        {correctionResult && (
+          <div>
+            {correctionResult.is_doubtful && (
+              <Alert
+                message="该QA数据存疑"
+                description={correctionResult.doubt_reason}
+                type="warning"
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
+            )}
+            {!correctionResult.is_doubtful && (
+              <Alert
+                message="该QA数据正常"
+                description={correctionResult.summary}
+                type="success"
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
+            )}
+
+            <Divider>差异声明</Divider>
+            {correctionResult.different_statements.length > 0 ? (
+              correctionResult.different_statements.map((diff, idx) => (
+                <Card key={idx} size="small" style={{ marginBottom: 8 }}>
+                  <Descriptions column={2} size="small">
+                    <Descriptions.Item label="声明">{diff.statement}</Descriptions.Item>
+                    <Descriptions.Item label="来源">
+                      <Tag color={diff.source === 'system' ? 'blue' : 'green'}>
+                        {diff.source === 'system' ? '系统回复' : '标准答案'}
+                      </Tag>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="类型">
+                      <Tag color={diff.type === 'unique' ? 'orange' : 'red'}>
+                        {diff.type === 'unique' ? '独有' : '冲突'}
+                      </Tag>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="证据支持">
+                      <Tag color={diff.supported ? 'success' : 'error'}>
+                        {diff.supported ? '有证据' : '无证据'}
+                      </Tag>
+                    </Descriptions.Item>
+                  </Descriptions>
+                  {diff.verification_question && (
+                    <div style={{ marginTop: 8 }}>
+                      <strong>验证问题:</strong> {diff.verification_question}
+                    </div>
+                  )}
+                </Card>
+              ))
+            ) : (
+              <div style={{ textAlign: 'center', padding: 16, color: '#999' }}>
+                未发现显著差异
+              </div>
+            )}
+
+            <Divider>证据验证</Divider>
+            {correctionResult.evidence_results.length > 0 ? (
+              correctionResult.evidence_results.map((evidence, idx) => (
+                <Card key={idx} size="small" style={{ marginBottom: 8 }}>
+                  <Descriptions column={1} size="small">
+                    <Descriptions.Item label="声明">{evidence.statement}</Descriptions.Item>
+                    <Descriptions.Item label="验证问题">{evidence.question}</Descriptions.Item>
+                    <Descriptions.Item label="是否支持">
+                      <Tag color={evidence.supported ? 'success' : 'error'}>
+                        {evidence.supported ? '支持' : '不支持'}
+                      </Tag>
+                    </Descriptions.Item>
+                  </Descriptions>
+                  {evidence.supporting_chunks && evidence.supporting_chunks.length > 0 && (
+                    <div style={{ marginTop: 8 }}>
+                      <strong>支持证据 ({evidence.supporting_chunks.length} 条):</strong>
+                      {evidence.supporting_chunks.map((chunk, cIdx) => (
+                        <div key={cIdx} style={{ padding: 8, background: '#f6ffed', borderRadius: 4, marginTop: 4, border: '1px solid #b7eb8f' }}>
+                          {chunk.content}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              ))
+            ) : (
+              <div style={{ textAlign: 'center', padding: 16, color: '#999' }}>
+                无证据验证结果
+              </div>
+            )}
+
+            <Divider>操作</Divider>
+            <Space>
+              <Button
+                type="primary"
+                icon={<CheckCircleOutlined />}
+                onClick={() => handleConfirmCorrection(true)}
+              >
+                确认存疑
+              </Button>
+              <Button
+                icon={<CheckCircleOutlined />}
+                onClick={() => handleConfirmCorrection(false)}
+              >
+                标记正常
+              </Button>
+            </Space>
           </div>
         )}
       </Modal>

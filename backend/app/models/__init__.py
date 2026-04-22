@@ -6,10 +6,13 @@ from .evaluation import Evaluation, EvaluationMetricConfig, EvalResult
 from .invocation import InvocationBatch, InvocationResult
 from .model import Model
 from .rag_system import RAGSystem, RAGSystemType
-from .metric import MetricDefinition, MetricTag
+from .metric import MetricDefinition, Tag, EntityTag
 from .sync import DataSource, SyncTask, SchemaMapping, DataSourceType
 from .hot_news import HotNewsSource, HotArticle
-from .load_test import LoadTest, LoadTestStatus, LoadTestType
+from .load_test import LoadTest, LoadTestStatus, LoadTestType, LoadTestMode
+from .doc_explanation import DocExplanation, DocExplanationEvaluation, DocExplanationEvalResult, DocExplanationEvalStatus
+from .open_source_dataset import OpenSourceDataset
+from .annotation_correction import AnnotationCorrection
 
 __all__ = [
     "BaseModel",
@@ -26,7 +29,8 @@ __all__ = [
     "RAGSystem",
     "RAGSystemType",
     "MetricDefinition",
-    "MetricTag",
+    "Tag",
+    "EntityTag",
     "DataSource",
     "SyncTask",
     "SchemaMapping",
@@ -36,4 +40,11 @@ __all__ = [
     "LoadTest",
     "LoadTestStatus",
     "LoadTestType",
+    "LoadTestMode",
+    "DocExplanation",
+    "DocExplanationEvaluation",
+    "DocExplanationEvalResult",
+    "DocExplanationEvalStatus",
+    "OpenSourceDataset",
+    "AnnotationCorrection",
 ]

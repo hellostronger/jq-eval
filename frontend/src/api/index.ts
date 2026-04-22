@@ -1,5 +1,5 @@
 import { request } from './request'
-import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, DataSource, SyncTask, ModelConfig, SystemStats, NewsSource, HotArticle, NewsStats, InvocationBatch, InvocationResult, LoadTest } from '@/types'
+import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, DataSource, SyncTask, ModelConfig, SystemStats, NewsSource, HotArticle, NewsStats, InvocationBatch, InvocationResult, LoadTest, DocExplanation, DocExplanationEvaluation, DocExplanationEvalResult, DocumentInfo, OpenSourceDataset, AnnotationCorrection } from '@/types'
 
 // 模型API
 export const getModels = (modelType: string) => {
@@ -45,6 +45,14 @@ export const testRAGSystem = (id: string) => {
 
 export const queryRAGSystem = (id: string, question: string) => {
   return request.post<{ answer?: string; response?: string; content?: string }>(`/rag-systems/${id}/query`, { question })
+}
+
+export const getRAGSystemTypes = () => {
+  return request.get<{ type_code: string; display_name: string; description?: string }[]>('/rag-systems/types')
+}
+
+export const getLLMModels = () => {
+  return request.get<{ id: string; name: string; provider?: string; model_name?: string; endpoint?: string; has_api_key: boolean }[]>('/rag-systems/llm-models')
 }
 
 // 数据集API
@@ -455,9 +463,13 @@ export interface LoadTestCreateParams {
   name: string
   description?: string
   rag_system_id: string
+  test_mode: 'qps_limit' | 'latency_dist'
   test_type: 'first_token' | 'full_response'
-  latency_threshold: number
-  concurrency: number
+  latency_threshold?: number
+  initial_concurrency?: number
+  step?: number
+  max_concurrency?: number
+  concurrency_levels?: number[]
   dataset_id?: string
   questions?: string[]
 }
@@ -484,4 +496,135 @@ export const deleteLoadTest = (id: string) => {
 
 export const runLoadTest = (id: string) => {
   return request.post<{ message: string; load_test_id: string; task_id: string }>(`/load-tests/${id}/run`)
+}
+
+// 文档解释API
+export const getDocExplanations = (params?: { doc_id?: string; status?: string }) => {
+  return request.get<DocExplanation[]>('/doc-explanations', { params })
+}
+
+export const getDocExplanation = (id: string) => {
+  return request.get<DocExplanation>(`/doc-explanations/${id}`)
+}
+
+export const createDocExplanation = (data: { doc_id: string; explanation: string; source?: string }) => {
+  return request.post<DocExplanation>('/doc-explanations', data)
+}
+
+export const updateDocExplanation = (id: string, data: { explanation?: string; source?: string; status?: string }) => {
+  return request.put<DocExplanation>(`/doc-explanations/${id}`, data)
+}
+
+export const deleteDocExplanation = (id: string) => {
+  return request.delete(`/doc-explanations/${id}`)
+}
+
+// 文档解释评估API
+export const getDocExplanationEvaluations = (params?: { status?: string }) => {
+  return request.get<DocExplanationEvaluation[]>('/doc-explanation-evaluations', { params })
+}
+
+export const getDocExplanationEvaluation = (id: string) => {
+  return request.get<DocExplanationEvaluation>(`/doc-explanation-evaluations/${id}`)
+}
+
+export const createDocExplanationEvaluation = (data: {
+  name: string
+  description?: string
+  llm_model_id: string
+  dataset_id?: string
+  doc_ids?: string[]
+  metrics?: string[]
+  batch_size?: number
+}) => {
+  return request.post<DocExplanationEvaluation>('/doc-explanation-evaluations', data)
+}
+
+export const runDocExplanationEvaluation = (id: string) => {
+  return request.post<{ message: string; eval_id: string; task_id: string }>(`/doc-explanation-evaluations/${id}/run`)
+}
+
+export const getDocExplanationEvalResults = (id: string) => {
+  return request.get<DocExplanationEvalResult[]>(`/doc-explanation-evaluations/${id}/results`)
+}
+
+export const deleteDocExplanationEvaluation = (id: string) => {
+  return request.delete(`/doc-explanation-evaluations/${id}`)
+}
+
+// 获取所有文档（用于选择）
+export const getDocuments = () => {
+  return request.get<{ items: DocumentInfo[]; total: number }>('/datasets/documents')
+}
+
+// 开源数据集API
+export const getOpenSourceDatasets = (params?: { page?: number; size?: number; dataset_type?: string; language?: string; status?: string; is_public?: boolean; search?: string }) => {
+  return request.get<{ items: OpenSourceDataset[]; total: number }>('/open-source-datasets', { params })
+}
+
+export const getOpenSourceDataset = (id: string) => {
+  return request.get<OpenSourceDataset>(`/open-source-datasets/${id}`)
+}
+
+export const createOpenSourceDataset = (data: Partial<OpenSourceDataset>) => {
+  return request.post<OpenSourceDataset>('/open-source-datasets', data)
+}
+
+export const updateOpenSourceDataset = (id: string, data: Partial<OpenSourceDataset>) => {
+  return request.put<OpenSourceDataset>(`/open-source-datasets/${id}`, data)
+}
+
+export const deleteOpenSourceDataset = (id: string) => {
+  return request.delete(`/open-source-datasets/${id}`)
+}
+
+// 标注矫正API
+export interface SingleCorrectionRequest {
+  invocation_result_id: string
+  qa_record_id: string
+  batch_id?: string
+  llm_model_id: string
+}
+
+export interface BatchCorrectionRequest {
+  llm_model_id: string
+}
+
+export const analyzeSingleCorrection = (data: SingleCorrectionRequest) => {
+  return request.post<AnnotationCorrection>('/annotation-corrections/single', data)
+}
+
+export const analyzeBatchCorrection = (batchId: string, data: BatchCorrectionRequest) => {
+  return request.post<{ items: AnnotationCorrection[]; total: number; doubtful_count: number }>(
+    `/annotation-corrections/batch/${batchId}`,
+    data
+  )
+}
+
+export const getAnnotationCorrection = (correctionId: string) => {
+  return request.get<AnnotationCorrection>(`/annotation-corrections/${correctionId}`)
+}
+
+export const getBatchCorrections = (
+  batchId: string,
+  params?: { status?: string; is_doubtful?: boolean; page?: number; size?: number }
+) => {
+  return request.get<{ items: AnnotationCorrection[]; total: number; doubtful_count: number }>(
+    `/annotation-corrections/batch/${batchId}`,
+    { params }
+  )
+}
+
+export const getCorrectionByInvocation = (invocationResultId: string) => {
+  return request.get<AnnotationCorrection>(`/annotation-corrections/invocation/${invocationResultId}`)
+}
+
+export const confirmCorrection = (
+  correctionId: string,
+  data: { is_doubtful: boolean; doubt_reason?: string }
+) => {
+  return request.put<{ message: string; correction_id: string }>(
+    `/annotation-corrections/${correctionId}/confirm`,
+    data
+  )
 }

@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from ...core.database import get_db
-from ...models import MetricDefinition, MetricTag
+from ...models import MetricDefinition
 
 router = APIRouter()
 
@@ -30,7 +30,6 @@ class MetricCreate(BaseModel):
     range_min: float = 0.0
     range_max: float = 1.0
     higher_is_better: bool = True
-    tags: List[str] = []
 
 
 class MetricResponse(BaseModel):
@@ -48,7 +47,6 @@ class MetricResponse(BaseModel):
     requires_contexts: bool
     usage_count: int
     is_builtin: bool
-    tags: List[str]
 
     class Config:
         from_attributes = True
@@ -84,33 +82,7 @@ async def list_metrics(
     result = await db.execute(query)
     metrics = result.scalars().all()
 
-    # 获取每个指标的标签
-    response = []
-    for m in metrics:
-        tags_result = await db.execute(
-            select(MetricTag.tag).where(MetricTag.metric_id == m.id)
-        )
-        tags = [t[0] for t in tags_result.fetchall()]
-
-        response.append(MetricResponse(
-            id=m.id,
-            name=m.name,
-            display_name=m.display_name,
-            display_name_en=m.display_name_en,
-            description=m.description,
-            category=m.category,
-            framework=m.framework,
-            eval_stage=m.eval_stage,
-            requires_llm=m.requires_llm,
-            requires_embedding=m.requires_embedding,
-            requires_ground_truth=m.requires_ground_truth,
-            requires_contexts=m.requires_contexts,
-            usage_count=m.usage_count,
-            is_builtin=m.is_builtin,
-            tags=tags
-        ))
-
-    return response
+    return [MetricResponse.model_validate(m) for m in metrics]
 
 
 @router.get("/categories")
@@ -138,27 +110,7 @@ async def get_metric(
     if not metric:
         raise HTTPException(status_code=404, detail="指标不存在")
 
-    tags_result = await db.execute(
-        select(MetricTag.tag).where(MetricTag.metric_id == metric.id)
-    )
-    tags = [t[0] for t in tags_result.fetchall()]
-
-    return MetricResponse(
-        id=metric.id,
-        name=metric.name,
-        display_name=metric.display_name,
-        display_name_en=metric.display_name_en,
-        description=metric.description,
-        category=metric.category,
-        framework=metric.framework,
-        requires_llm=metric.requires_llm,
-        requires_embedding=metric.requires_embedding,
-        requires_ground_truth=metric.requires_ground_truth,
-        requires_contexts=metric.requires_contexts,
-        usage_count=metric.usage_count,
-        is_builtin=metric.is_builtin,
-        tags=tags
-    )
+    return MetricResponse.model_validate(metric)
 
 
 @router.post("", response_model=MetricResponse)
@@ -195,32 +147,10 @@ async def create_metric(
         is_public=True
     )
     db.add(metric)
-    await db.flush()
-
-    # 添加标签
-    for tag in data.tags:
-        metric_tag = MetricTag(metric_id=metric.id, tag=tag)
-        db.add(metric_tag)
-
     await db.commit()
     await db.refresh(metric)
 
-    return MetricResponse(
-        id=metric.id,
-        name=metric.name,
-        display_name=metric.display_name,
-        display_name_en=metric.display_name_en,
-        description=metric.description,
-        category=metric.category,
-        framework=metric.framework,
-        requires_llm=metric.requires_llm,
-        requires_embedding=metric.requires_embedding,
-        requires_ground_truth=metric.requires_ground_truth,
-        requires_contexts=metric.requires_contexts,
-        usage_count=metric.usage_count,
-        is_builtin=metric.is_builtin,
-        tags=data.tags
-    )
+    return MetricResponse.model_validate(metric)
 
 
 @router.post("/{metric_id}/rate")

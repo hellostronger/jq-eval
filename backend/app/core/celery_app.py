@@ -75,6 +75,7 @@ celery_app.conf.update(
     task_soft_time_limit=25 * 60,  # 25分钟软超时
     worker_prefetch_multiplier=1,  # 每次只取一个任务
     worker_max_tasks_per_child=100,  # 每个worker处理100个任务后重启
+    worker_cancel_long_running_tasks_on_connection_loss=True,  # 连接丢失时取消长时间运行的任务
     # Windows 平台建议使用 solo 模式，启动命令：
     # celery -A app.core.celery_app worker --pool=solo -l info
     imports=[
@@ -84,6 +85,7 @@ celery_app.conf.update(
         "app.tasks.sync_tasks",
         "app.tasks.health_tasks",
         "app.tasks.crawler_tasks",
+        "app.tasks.load_test_tasks",
     ],
 )
 

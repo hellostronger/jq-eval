@@ -18,9 +18,19 @@ class LoadTestCreate(BaseModel):
     name: str
     description: Optional[str] = None
     rag_system_id: UUID
+    test_mode: str  # qps_limit / latency_dist
     test_type: str  # first_token / full_response
-    latency_threshold: float  # 时延阈值（秒）
-    concurrency: int  # 并发数
+    latency_threshold: Optional[float] = None  # 时延阈值（秒），latency_dist模式下可选
+
+    # QPS上限测试参数
+    initial_concurrency: Optional[int] = 10  # 起始并发数
+    step: Optional[int] = 10  # 递增步长
+    max_concurrency: Optional[int] = 100  # 最大并发上限
+
+    # 响应时间分布测试参数
+    concurrency_levels: Optional[List[int]] = None  # 并发级别数组
+
+    # 测试数据来源
     dataset_id: Optional[UUID] = None
     questions: Optional[List[str]] = None
 
@@ -28,9 +38,13 @@ class LoadTestCreate(BaseModel):
 class LoadTestUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    test_mode: Optional[str] = None
     test_type: Optional[str] = None
     latency_threshold: Optional[float] = None
-    concurrency: Optional[int] = None
+    initial_concurrency: Optional[int] = None
+    step: Optional[int] = None
+    max_concurrency: Optional[int] = None
+    concurrency_levels: Optional[List[int]] = None
     dataset_id: Optional[UUID] = None
     questions: Optional[List[str]] = None
 
@@ -40,9 +54,13 @@ class LoadTestResponse(BaseModel):
     name: str
     description: Optional[str] = None
     rag_system_id: UUID
+    test_mode: str
     test_type: str
-    latency_threshold: float
-    concurrency: int
+    latency_threshold: Optional[float] = None
+    initial_concurrency: Optional[int] = None
+    step: Optional[int] = None
+    max_concurrency: Optional[int] = None
+    concurrency_levels: Optional[List[int]] = None
     dataset_id: Optional[UUID] = None
     questions: Optional[List[str]] = None
     status: str
@@ -80,9 +98,13 @@ async def create_load_test(
         name=data.name,
         description=data.description,
         rag_system_id=data.rag_system_id,
+        test_mode=data.test_mode,
         test_type=data.test_type,
         latency_threshold=data.latency_threshold,
-        concurrency=data.concurrency,
+        initial_concurrency=data.initial_concurrency,
+        step=data.step,
+        max_concurrency=data.max_concurrency,
+        concurrency_levels=data.concurrency_levels,
         dataset_id=data.dataset_id,
         questions=data.questions,
         status=LoadTestStatus.PENDING.value

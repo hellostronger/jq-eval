@@ -262,9 +262,13 @@ export interface LoadTest {
   name: string
   description?: string
   rag_system_id: string
+  test_mode: 'qps_limit' | 'latency_dist'
   test_type: 'first_token' | 'full_response'
-  latency_threshold: number
-  concurrency: number
+  latency_threshold?: number  // latency_dist模式下可选
+  initial_concurrency?: number  // qps_limit模式
+  step?: number  // qps_limit模式
+  max_concurrency?: number  // qps_limit模式
+  concurrency_levels?: number[]  // latency_dist模式
   dataset_id?: string
   questions?: string[]
   status: 'pending' | 'running' | 'completed' | 'failed'
@@ -277,23 +281,143 @@ export interface LoadTest {
 }
 
 // 压测结果类型
-export interface LoadTestResult {
-  total_requests: number
-  success_count: number
-  failed_count: number
-  qps: number
-  overall_time: number
+export type LoadTestResult = LoadTestQpsLimitResult | LoadTestLatencyDistResult
+
+// QPS上限测试结果
+export interface LoadTestQpsLimitResult {
+  test_mode: 'qps_limit'
+  max_qps: number
+  max_concurrency: number
   latency_threshold: number
   test_type: string
-  concurrency: number
-  latency_stats: {
-    mean: number
-    median: number
-    min: number
-    max: number
-    p50: number
-    p90: number
-    p99: number
-  }
-  errors: string[]
+  step_results: Array<{
+    concurrency: number
+    qps: number
+    success_rate: number
+    latency_stats: LatencyStats
+    meets_threshold: boolean
+  }>
+}
+
+// 响应时间分布测试结果
+export interface LoadTestLatencyDistResult {
+  test_mode: 'latency_dist'
+  test_type: string
+  latency_threshold?: number
+  levels: Array<{
+    concurrency: number
+    qps: number
+    success_rate: number
+    latency_stats: LatencyStats
+    meets_threshold?: boolean
+  }>
+}
+
+// 延迟统计
+export interface LatencyStats {
+  mean: number
+  median: number
+  min: number
+  max: number
+  p50: number
+  p90: number
+  p99: number
+}
+
+// 文档解释类型
+export interface DocExplanation {
+  id: string
+  doc_id: string
+  explanation: string
+  source: string
+  status: string
+  document_title?: string
+  document_content?: string
+  created_at?: string
+}
+
+// 文档解释评估任务类型
+export interface DocExplanationEvaluation {
+  id: string
+  name: string
+  description?: string
+  llm_model_id: string
+  dataset_id?: string
+  doc_ids?: string[]
+  metrics: string[]
+  batch_size: number
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  progress: number
+  error?: string
+  summary?: Record<string, any>
+  started_at?: string
+  completed_at?: string
+  created_at?: string
+}
+
+// 文档解释评估结果类型
+export interface DocExplanationEvalResult {
+  id: string
+  eval_id: string
+  doc_id: string
+  explanation_id: string
+  document_title?: string
+  document_content?: string
+  explanation?: string
+  scores: Record<string, number | string>
+  details?: Record<string, any>
+  created_at?: string
+}
+
+// 开源数据集类型
+export interface OpenSourceDataset {
+  id: string
+  name: string
+  url: string
+  description?: string
+  dataset_type?: string
+  size_info?: string
+  language?: string
+  is_public: boolean
+  tags: string[]
+  status: string
+  created_at: string
+  updated_at: string
+}
+
+// 标注矫正类型
+export interface AnnotationCorrection {
+  id: string
+  invocation_result_id?: string
+  qa_record_id?: string
+  batch_id?: string
+  status: 'pending' | 'analyzing' | 'completed' | 'failed'
+  different_statements: Array<{
+    statement: string
+    source: 'system' | 'ground_truth'
+    type: 'unique' | 'conflicting'
+    verification_question?: string
+    supported?: boolean
+    conflict_with?: string
+    conflict_description?: string
+  }>
+  evidence_results: Array<{
+    statement: string
+    question: string
+    supported: boolean
+    supporting_chunks: Array<{
+      chunk_id?: string
+      content: string
+      relevance_score?: number
+    }>
+    reason?: string
+  }>
+  is_doubtful: boolean
+  doubt_reason?: string
+  is_confirmed: boolean
+  confirmed_at?: string
+  summary?: string
+  analysis_duration?: string
+  error?: string
+  created_at?: string
 }

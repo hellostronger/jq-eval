@@ -6,11 +6,47 @@ from sqlalchemy import select
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from pydantic import BaseModel
+import logging
 
 from ...core.database import get_db
-from ...models import RAGSystem, RAGSystemType
+from ...models import RAGSystem, RAGSystemType, Model
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+async def _prepare_direct_llm_config(
+    connection_config: Dict[str, Any],
+    db: AsyncSession
+) -> Dict[str, Any]:
+    """为直连LLM类型准备完整的连接配置（从数据库获取API Key）"""
+    llm_model_id = connection_config.get("llm_model_id")
+    if not llm_model_id:
+        return connection_config
+
+    try:
+        result = await db.execute(select(Model).where(Model.id == UUID(llm_model_id)))
+        model = result.scalar_one_or_none()
+        if not model:
+            logger.warning(f"LLM模型 {llm_model_id} 不存在")
+            return connection_config
+
+        # 使用模型配置覆盖connection_config中的API信息
+        config = connection_config.copy()
+        config["api_endpoint"] = model.endpoint
+        config["api_key"] = model.api_key_encrypted or ""
+        config["model_name"] = model.model_name or model.name
+        config["provider"] = connection_config.get("provider") or model.provider or "openai"
+
+        # 合并参数
+        if model.params:
+            config["temperature"] = connection_config.get("temperature") or model.params.get("temperature", 0.7)
+            config["max_tokens"] = connection_config.get("max_tokens") or model.params.get("max_tokens", 2048)
+
+        return config
+    except Exception as e:
+        logger.error(f"获取LLM模型配置失败: {e}")
+        return connection_config
 
 
 # Pydantic Schemas
@@ -61,6 +97,25 @@ async def get_system_types(db: AsyncSession = Depends(get_db)):
         "capabilities": t.capabilities,
         "api_doc_url": t.api_doc_url
     } for t in types]
+
+
+@router.get("/llm-models")
+async def get_llm_models(db: AsyncSession = Depends(get_db)):
+    """获取可用的LLM模型列表（用于直连LLM类型）"""
+    result = await db.execute(
+        select(Model).where(Model.model_type == "llm", Model.status == "active")
+    )
+    models = result.scalars().all()
+    return [{
+        "id": str(m.id),
+        "name": m.name,
+        "provider": m.provider,
+        "model_name": m.model_name,
+        "endpoint": m.endpoint,
+        # 不返回完整的API Key，只返回确认存在
+        "has_api_key": bool(m.api_key_encrypted),
+        "params": m.params,
+    } for m in models]
 
 
 @router.post("", response_model=RAGSystemResponse)
@@ -164,9 +219,14 @@ async def query_rag_system(
         raise HTTPException(status_code=404, detail="RAG系统不存在")
 
     try:
+        # 为直连LLM类型准备完整配置
+        config = rag_system.connection_config
+        if rag_system.system_type == "direct_llm":
+            config = await _prepare_direct_llm_config(config, db)
+
         adapter = AdapterFactory.create(
             rag_system.system_type,
-            rag_system.connection_config
+            config
         )
         response = await adapter.query(
             question=data.question,
@@ -191,7 +251,6 @@ async def health_check(
 ):
     """健康检查"""
     from ...services.adapters import AdapterFactory
-    from datetime import datetime
 
     result = await db.execute(select(RAGSystem).where(RAGSystem.id == system_id))
     rag_system = result.scalar_one_or_none()
@@ -199,9 +258,14 @@ async def health_check(
         raise HTTPException(status_code=404, detail="RAG系统不存在")
 
     try:
+        # 为直连LLM类型准备完整配置
+        config = rag_system.connection_config
+        if rag_system.system_type == "direct_llm":
+            config = await _prepare_direct_llm_config(config, db)
+
         adapter = AdapterFactory.create(
             rag_system.system_type,
-            rag_system.connection_config
+            config
         )
         is_healthy = await adapter.health_check()
 

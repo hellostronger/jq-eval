@@ -11,10 +11,39 @@ from app.core.database import get_db_context
 from app.models.invocation import InvocationBatch, InvocationResult
 from app.models.dataset import Dataset, QARecord
 from app.models.rag_system import RAGSystem
+from app.models.model import Model
 from app.services.adapters import AdapterFactory
 from sqlalchemy import select, func
 
 logger = logging.getLogger(__name__)
+
+
+async def _prepare_direct_llm_config(connection_config: Dict[str, Any], db) -> Dict[str, Any]:
+    """为直连LLM类型准备完整配置"""
+    llm_model_id = connection_config.get("llm_model_id")
+    if not llm_model_id:
+        return connection_config
+
+    try:
+        result = await db.execute(select(Model).where(Model.id == UUID(llm_model_id)))
+        model = result.scalar_one_or_none()
+        if not model:
+            return connection_config
+
+        config = connection_config.copy()
+        config["api_endpoint"] = model.endpoint
+        config["api_key"] = model.api_key_encrypted or ""
+        config["model_name"] = model.model_name or model.name
+        config["provider"] = connection_config.get("provider") or model.provider or "openai"
+
+        if model.params:
+            config["temperature"] = connection_config.get("temperature") or model.params.get("temperature", 0.7)
+            config["max_tokens"] = connection_config.get("max_tokens") or model.params.get("max_tokens", 2048)
+
+        return config
+    except Exception as e:
+        logger.error(f"获取LLM模型配置失败: {e}")
+        return connection_config
 
 
 def run_async(coro):
@@ -70,9 +99,12 @@ async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, 
             return {"error": "没有找到要重试的结果"}
 
         # 创建RAG适配器
+        config = rag_system.connection_config
+        if rag_system.system_type == "direct_llm":
+            config = await _prepare_direct_llm_config(config, db)
         adapter = AdapterFactory.create(
             rag_system.system_type,
-            rag_system.connection_config
+            config
         )
 
         batch.status = "running"
@@ -199,9 +231,12 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
             await db.commit()
 
             # 创建RAG适配器
+            config = rag_system.connection_config
+            if rag_system.system_type == "direct_llm":
+                config = await _prepare_direct_llm_config(config, db)
             adapter = AdapterFactory.create(
                 rag_system.system_type,
-                rag_system.connection_config
+                config
             )
 
             # 执行调用

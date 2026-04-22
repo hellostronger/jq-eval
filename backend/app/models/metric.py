@@ -55,20 +55,42 @@ class MetricDefinition(BaseModel):
     rating_avg = Column(Float, nullable=True)
     rating_count = Column(Integer, default=0)
 
+
+class Tag(BaseModel):
+    """标签维护表 - 通用标签，支持多种使用场景"""
+    __tablename__ = "tags"
+
+    name = Column(String(50), unique=True, nullable=False)
+    display_name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    color = Column(String(20), nullable=True)  # 标签颜色
+    icon = Column(String(50), nullable=True)  # 标签图标
+
+    # 使用场景：qa_record/dataset/invocation_batch
+    usage_scenario = Column(String(50), nullable=False, index=True)
+
+    # 是否内置标签（内置标签不可删除）
+    is_builtin = Column(Boolean, default=False)
+
+    # 排序
+    sort_order = Column(Integer, default=0)
+
+
+class EntityTag(BaseModel):
+    """实体标签绑定表 - 用于给各种实体打标签"""
+    __tablename__ = "entity_tags"
+
+    # 实体类型：qa_record/dataset/invocation_batch
+    entity_type = Column(String(50), nullable=False, index=True)
+    # 实体ID
+    entity_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    # 标签ID
+    tag_id = Column(UUID(as_uuid=True), ForeignKey("tags.id", ondelete="CASCADE"), nullable=False, index=True)
+
     # 关系
-    tags = relationship("MetricTag", back_populates="metric", cascade="all, delete-orphan")
-
-
-class MetricTag(BaseModel):
-    """指标标签表"""
-    __tablename__ = "metric_tags"
-
-    metric_id = Column(UUID(as_uuid=True), ForeignKey("metric_definitions.id", ondelete="CASCADE"), nullable=False, index=True)
-    tag = Column(String(50), nullable=False)
-
-    # 关系
-    metric = relationship("MetricDefinition", back_populates="tags")
+    tag = relationship("Tag")
 
     __table_args__ = (
-        # UniqueConstraint('metric_id', 'tag', name='uq_metric_tag'),
+        # 同一实体同一标签只能绑定一次
+        # UniqueConstraint('entity_type', 'entity_id', 'tag_id', name='uq_entity_tag'),
     )

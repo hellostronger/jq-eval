@@ -12,6 +12,8 @@ import {
   FireOutlined,
   ThunderboltOutlined,
   ExperimentOutlined,
+  FileTextOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons'
 import Dashboard from './pages/Dashboard'
 import Models from './pages/Models'
@@ -27,6 +29,10 @@ import Metrics from './pages/Metrics'
 import DataSources from './pages/DataSources'
 import HotNews from './pages/HotNews'
 import LoadTests from './pages/LoadTests'
+import DocExplanations from './pages/DocExplanations'
+import DocExplanationEvaluations from './pages/DocExplanationEvaluations'
+import DocExplanationEvalDetail from './pages/DocExplanationEvalDetail'
+import OpenSourceDatasets from './pages/OpenSourceDatasets'
 
 const { Sider, Content } = Layout
 
@@ -35,9 +41,12 @@ const menuItems = [
   { key: '/models', icon: <SettingOutlined />, label: '模型配置' },
   { key: '/rag-systems', icon: <ApiOutlined />, label: 'RAG系统' },
   { key: '/datasets', icon: <FolderOpenOutlined />, label: '数据集' },
+  { key: '/open-source-datasets', icon: <GlobalOutlined />, label: '开源数据集' },
   { key: '/invocations', icon: <ThunderboltOutlined />, label: '调用批次' },
   { key: '/load-tests', icon: <ExperimentOutlined />, label: '性能压测' },
   { key: '/evaluations', icon: <LineChartOutlined />, label: '评估任务' },
+  { key: '/doc-explanations', icon: <FileTextOutlined />, label: '文档解释' },
+  { key: '/doc-explanation-evaluations', icon: <BarChartOutlined />, label: '解释评估' },
   { key: '/metrics', icon: <BarChartOutlined />, label: '指标市场' },
   { key: '/data-sources', icon: <DatabaseOutlined />, label: '数据源' },
   { key: '/hot-news', icon: <FireOutlined />, label: '热点新闻' },
@@ -70,12 +79,16 @@ const App: React.FC = () => {
           <Route path="/rag-systems" element={<RAGSystems />} />
           <Route path="/datasets" element={<Datasets />} />
           <Route path="/datasets/:id" element={<DatasetDetail />} />
+          <Route path="/open-source-datasets" element={<OpenSourceDatasets />} />
           <Route path="/invocations" element={<Invocations />} />
           <Route path="/invocations/:id" element={<InvocationDetail />} />
           <Route path="/load-tests" element={<LoadTests />} />
           <Route path="/evaluations" element={<Evaluations />} />
           <Route path="/evaluations/compare" element={<EvaluationCompare />} />
           <Route path="/evaluations/:id" element={<EvaluationDetail />} />
+          <Route path="/doc-explanations" element={<DocExplanations />} />
+          <Route path="/doc-explanation-evaluations" element={<DocExplanationEvaluations />} />
+          <Route path="/doc-explanation-evaluations/:id" element={<DocExplanationEvalDetail />} />
           <Route path="/metrics" element={<Metrics />} />
           <Route path="/data-sources" element={<DataSources />} />
           <Route path="/hot-news" element={<HotNews />} />

@@ -10,12 +10,41 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from app.core.celery_app import celery_app
 from app.core.database import get_db_context
-from app.models import LoadTest, LoadTestStatus, RAGSystem
+from app.models import LoadTest, LoadTestStatus, LoadTestMode, RAGSystem
 from app.models.dataset import QARecord
+from app.models.model import Model
 from app.services.adapters import AdapterFactory, RAGResponse
-from sqlalchemy import text
+from sqlalchemy import text, select
 
 logger = logging.getLogger(__name__)
+
+
+async def _prepare_direct_llm_config(connection_config: Dict[str, Any], db) -> Dict[str, Any]:
+    """为直连LLM类型准备完整配置"""
+    llm_model_id = connection_config.get("llm_model_id")
+    if not llm_model_id:
+        return connection_config
+
+    try:
+        result = await db.execute(select(Model).where(Model.id == UUID(llm_model_id)))
+        model = result.scalar_one_or_none()
+        if not model:
+            return connection_config
+
+        config = connection_config.copy()
+        config["api_endpoint"] = model.endpoint
+        config["api_key"] = model.api_key_encrypted or ""
+        config["model_name"] = model.model_name or model.name
+        config["provider"] = connection_config.get("provider") or model.provider or "openai"
+
+        if model.params:
+            config["temperature"] = connection_config.get("temperature") or model.params.get("temperature", 0.7)
+            config["max_tokens"] = connection_config.get("max_tokens") or model.params.get("max_tokens", 2048)
+
+        return config
+    except Exception as e:
+        logger.error(f"获取LLM模型配置失败: {e}")
+        return connection_config
 
 
 def run_async(coro):
@@ -71,20 +100,33 @@ async def _run_load_test(task, load_test_id: UUID) -> Dict[str, Any]:
                 raise ValueError("没有可用的测试问题")
 
             # 创建RAG适配器
+            config = rag_system.connection_config
+            if rag_system.system_type == "direct_llm":
+                config = await _prepare_direct_llm_config(config, db)
             adapter = AdapterFactory.create(
                 rag_system.system_type,
-                rag_system.connection_config
+                config
             )
 
-            # 执行压测
-            result = await _execute_load_test(
-                task=task,
-                adapter=adapter,
-                questions=questions,
-                test_type=load_test.test_type,
-                latency_threshold=load_test.latency_threshold,
-                concurrency=load_test.concurrency
-            )
+            # 根据测试模式执行不同的压测逻辑
+            if load_test.test_mode == LoadTestMode.QPS_LIMIT.value:
+                result = await _execute_qps_limit_test(
+                    task=task,
+                    db=db,
+                    load_test=load_test,
+                    adapter=adapter,
+                    questions=questions
+                )
+            elif load_test.test_mode == LoadTestMode.LATENCY_DIST.value:
+                result = await _execute_latency_dist_test(
+                    task=task,
+                    db=db,
+                    load_test=load_test,
+                    adapter=adapter,
+                    questions=questions
+                )
+            else:
+                raise ValueError(f"未知的测试模式: {load_test.test_mode}")
 
             # 保存结果
             load_test.result = result
@@ -111,15 +153,136 @@ async def _run_load_test(task, load_test_id: UUID) -> Dict[str, Any]:
             return {"error": str(e)}
 
 
-async def _execute_load_test(
+async def _execute_qps_limit_test(
     task,
+    db,
+    load_test,
+    adapter,
+    questions: List[str]
+) -> Dict[str, Any]:
+    """执行QPS上限测试 - 自动递增并发找上限"""
+    initial_concurrency = load_test.initial_concurrency or 10
+    step = load_test.step or 10
+    max_concurrency = load_test.max_concurrency or 100
+    latency_threshold = load_test.latency_threshold
+    test_type = load_test.test_type
+
+    if latency_threshold is None:
+        raise ValueError("QPS上限测试需要设置latency_threshold")
+
+    step_results = []
+    max_successful_qps = 0
+    max_successful_concurrency = 0
+
+    current_concurrency = initial_concurrency
+    while current_concurrency <= max_concurrency:
+        # 更新进度
+        progress = int((current_concurrency / max_concurrency) * 80)
+        load_test.progress = progress
+        await db.commit()
+
+        # 执行当前并发级别的测试
+        result = await _execute_single_test(
+            adapter=adapter,
+            questions=questions,
+            test_type=test_type,
+            latency_threshold=latency_threshold,
+            concurrency=current_concurrency
+        )
+
+        step_results.append({
+            "concurrency": current_concurrency,
+            "qps": result["qps"],
+            "success_rate": result["success_count"] / result["total_requests"],
+            "latency_stats": result["latency_stats"],
+            "meets_threshold": result["success_count"] == result["total_requests"]
+        })
+
+        logger.info(f"并发={current_concurrency}, QPS={result['qps']:.2f}, 成功率={result['success_count']}/{result['total_requests']}")
+
+        # 判断是否达标：100%成功率且所有延迟在阈值内
+        if result["success_count"] == result["total_requests"] and result["latency_stats"]:
+            max_p99 = result["latency_stats"].get("max", 0)
+            if max_p99 <= latency_threshold:
+                max_successful_qps = result["qps"]
+                max_successful_concurrency = current_concurrency
+                current_concurrency += step
+                continue
+
+        # 不达标，返回上一级结果
+        break
+
+    return {
+        "test_mode": "qps_limit",
+        "max_qps": max_successful_qps,
+        "max_concurrency": max_successful_concurrency,
+        "latency_threshold": latency_threshold,
+        "test_type": test_type,
+        "step_results": step_results
+    }
+
+
+async def _execute_latency_dist_test(
+    task,
+    db,
+    load_test,
+    adapter,
+    questions: List[str]
+) -> Dict[str, Any]:
+    """执行响应时间分布测试 - 多个并发级别测试"""
+    concurrency_levels = load_test.concurrency_levels or [1, 5, 10, 20, 50, 100]
+    latency_threshold = load_test.latency_threshold
+    test_type = load_test.test_type
+
+    levels_results = []
+    total_levels = len(concurrency_levels)
+
+    for idx, concurrency in enumerate(concurrency_levels):
+        # 更新进度
+        progress = int((idx / total_levels) * 80)
+        load_test.progress = progress
+        await db.commit()
+
+        # 执行当前并发级别的测试
+        result = await _execute_single_test(
+            adapter=adapter,
+            questions=questions,
+            test_type=test_type,
+            latency_threshold=latency_threshold,
+            concurrency=concurrency
+        )
+
+        meets_threshold = False
+        if latency_threshold is not None and result["latency_stats"]:
+            max_latency = result["latency_stats"].get("max", 0)
+            meets_threshold = result["success_count"] == result["total_requests"] and max_latency <= latency_threshold
+
+        levels_results.append({
+            "concurrency": concurrency,
+            "qps": result["qps"],
+            "success_rate": result["success_count"] / result["total_requests"],
+            "latency_stats": result["latency_stats"],
+            "meets_threshold": meets_threshold
+        })
+
+        logger.info(f"并发={concurrency}, QPS={result['qps']:.2f}, 延迟分布={result['latency_stats']}")
+
+    return {
+        "test_mode": "latency_dist",
+        "test_type": test_type,
+        "latency_threshold": latency_threshold,
+        "levels": levels_results
+    }
+
+
+async def _execute_single_test(
     adapter,
     questions: List[str],
     test_type: str,
     latency_threshold: float,
     concurrency: int
 ) -> Dict[str, Any]:
-    """执行并发压测"""
+    """执行单次并发测试"""
     # 根据测试类型选择调用方法
     is_first_token = test_type == "first_token"
     query_method = adapter.query_stream if is_first_token else adapter.query
@@ -146,14 +309,12 @@ async def _execute_load_test(
 
                 # 根据测试类型判断成功与否
                 if is_first_token:
-                    # 首token时间判断
                     actual_latency = response.first_token_latency or latency
                 else:
-                    # 完整响应时间判断
                     actual_latency = latency
 
                 return {
-                    "success": response.success and actual_latency <= latency_threshold,
+                    "success": response.success and (latency_threshold is None or actual_latency <= latency_threshold),
                     "latency": actual_latency,
                     "full_latency": latency,
                     "error": response.error
@@ -203,19 +364,12 @@ async def _execute_load_test(
             "p99": statistics.quantiles(latencies, n=100)[98] if len(latencies) >= 100 else max(latencies),
         }
 
-    result = {
+    return {
         "total_requests": len(test_questions),
         "success_count": success_count,
         "failed_count": len(test_questions) - success_count,
         "qps": qps,
         "overall_time": overall_time,
-        "latency_threshold": latency_threshold,
-        "test_type": test_type,
-        "concurrency": concurrency,
         "latency_stats": latency_stats,
-        "errors": errors[:10]  # 只保留前10个错误
+        "errors": errors[:10]
     }
-
-    logger.info(f"压测完成: QPS={qps:.2f}, 成功={success_count}/{len(test_questions)}, 耗时={overall_time:.2f}s")
-
-    return result

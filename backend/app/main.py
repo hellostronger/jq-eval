@@ -10,6 +10,7 @@ from .core import settings, init_db, close_db
 from .core.database import AsyncSessionLocal
 from .api.v1 import api_router
 from .services.crawler.preset_sources import init_preset_sources
+from .services.preset_tags import init_preset_tags
 
 # 配置日志
 logging.basicConfig(
@@ -27,6 +28,7 @@ async def lifespan(app: FastAPI):
     # 初始化预设RSS源
     async with AsyncSessionLocal() as db:
         await init_preset_sources(db)
+        await init_preset_tags(db)
 
     print(f"[OK] {settings.APP_NAME} v{settings.APP_VERSION} 启动成功")
     print(f"[INFO] 环境: {settings.APP_ENV}")

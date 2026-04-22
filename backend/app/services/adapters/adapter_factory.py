@@ -10,6 +10,7 @@ ADAPTER_REGISTRY: Dict[str, str] = {
     "fastgpt": "app.services.adapters.fastgpt_adapter.FastGPTAdapter",
     "n8n": "app.services.adapters.n8n_adapter.N8nAdapter",
     "custom": "app.services.adapters.custom_adapter.CustomAdapter",
+    "direct_llm": "app.services.adapters.direct_llm_adapter.DirectLLMAdapter",
 }
 
 
