@@ -14,6 +14,7 @@ import {
   ExperimentOutlined,
   FileTextOutlined,
   GlobalOutlined,
+  EditOutlined,
 } from '@ant-design/icons'
 import Dashboard from './pages/Dashboard'
 import Models from './pages/Models'
@@ -33,6 +34,7 @@ import DocExplanations from './pages/DocExplanations'
 import DocExplanationEvaluations from './pages/DocExplanationEvaluations'
 import DocExplanationEvalDetail from './pages/DocExplanationEvalDetail'
 import OpenSourceDatasets from './pages/OpenSourceDatasets'
+import Prompts from './pages/Prompts'
 
 const { Sider, Content } = Layout
 
@@ -50,6 +52,7 @@ const menuItems = [
   { key: '/metrics', icon: <BarChartOutlined />, label: '指标市场' },
   { key: '/data-sources', icon: <DatabaseOutlined />, label: '数据源' },
   { key: '/hot-news', icon: <FireOutlined />, label: '热点新闻' },
+  { key: '/prompts', icon: <EditOutlined />, label: 'Prompt管理' },
 ]
 
 const App: React.FC = () => {
@@ -92,6 +95,7 @@ const App: React.FC = () => {
           <Route path="/metrics" element={<Metrics />} />
           <Route path="/data-sources" element={<DataSources />} />
           <Route path="/hot-news" element={<HotNews />} />
+          <Route path="/prompts" element={<Prompts />} />
         </Routes>
       </Content>
     </Layout>

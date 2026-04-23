@@ -74,7 +74,7 @@ async def init_db():
     """初始化数据库（创建所有表）"""
     async with async_engine.begin() as conn:
         # 导入所有模型
-        from ..models import document, dataset, evaluation, model, rag_system, metric, sync, hot_news, load_test
+        from ..models import document, dataset, evaluation, model, rag_system, metric, sync, hot_news, load_test, prompt
 
         # 创建所有表
         await conn.run_sync(Base.metadata.create_all)

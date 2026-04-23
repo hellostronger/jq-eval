@@ -169,9 +169,12 @@ async def init_preset_tags(db):
     from sqlalchemy import select
 
     for tag_data in PRESET_TAGS:
-        # 检查是否已存在
+        # 检查是否已存在（同时检查 name 和 usage_scenario）
         result = await db.execute(
-            select(Tag).where(Tag.name == tag_data["name"])
+            select(Tag).where(
+                (Tag.name == tag_data["name"]) &
+                (Tag.usage_scenario == tag_data["usage_scenario"])
+            )
         )
         if result.scalar_one_or_none():
             continue

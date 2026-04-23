@@ -113,12 +113,15 @@ async def create_tag(
     if data.usage_scenario not in USAGE_SCENARIOS:
         raise HTTPException(status_code=400, detail=f"无效的使用场景，可选值: {USAGE_SCENARIOS}")
 
-    # 检查名称是否已存在
+    # 检查名称是否已存在（同一使用场景下）
     result = await db.execute(
-        select(Tag).where(Tag.name == data.name)
+        select(Tag).where(
+            (Tag.name == data.name) &
+            (Tag.usage_scenario == data.usage_scenario)
+        )
     )
     if result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="标签名称已存在")
+        raise HTTPException(status_code=400, detail="该使用场景下标签名称已存在")
 
     tag = Tag(
         name=data.name,

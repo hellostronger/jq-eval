@@ -1,5 +1,5 @@
 # 指标定义模型
-from sqlalchemy import Column, String, Text, Integer, Float, Boolean, ForeignKey
+from sqlalchemy import Column, String, Text, Integer, Float, Boolean, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 
@@ -60,7 +60,7 @@ class Tag(BaseModel):
     """标签维护表 - 通用标签，支持多种使用场景"""
     __tablename__ = "tags"
 
-    name = Column(String(50), unique=True, nullable=False)
+    name = Column(String(50), nullable=False)
     display_name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
     color = Column(String(20), nullable=True)  # 标签颜色
@@ -74,6 +74,10 @@ class Tag(BaseModel):
 
     # 排序
     sort_order = Column(Integer, default=0)
+
+    __table_args__ = (
+        UniqueConstraint('name', 'usage_scenario', name='tags_name_usage_scenario_key'),
+    )
 
 
 class EntityTag(BaseModel):

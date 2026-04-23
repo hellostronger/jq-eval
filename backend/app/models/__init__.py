@@ -13,6 +13,7 @@ from .load_test import LoadTest, LoadTestStatus, LoadTestType, LoadTestMode
 from .doc_explanation import DocExplanation, DocExplanationEvaluation, DocExplanationEvalResult, DocExplanationEvalStatus
 from .open_source_dataset import OpenSourceDataset
 from .annotation_correction import AnnotationCorrection
+from .prompt import PromptVersion, PromptVersionHistory, PromptFramework
 
 __all__ = [
     "BaseModel",
@@ -47,4 +48,7 @@ __all__ = [
     "DocExplanationEvalStatus",
     "OpenSourceDataset",
     "AnnotationCorrection",
+    "PromptVersion",
+    "PromptVersionHistory",
+    "PromptFramework",
 ]
