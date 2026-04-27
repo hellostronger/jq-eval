@@ -34,6 +34,7 @@ class Dataset(BaseModel):
     evaluations = relationship("Evaluation", back_populates="dataset")
     invocation_batches = relationship("InvocationBatch", back_populates="dataset")
     snapshots = relationship("DatasetSnapshot", back_populates="dataset")
+    training_data_evals = relationship("TrainingDataEval", back_populates="dataset")
 
 
 class QARecord(BaseModel):
@@ -63,6 +64,7 @@ class QARecord(BaseModel):
     dataset = relationship("Dataset", back_populates="qa_records")
     eval_results = relationship("EvalResult", back_populates="qa_record")
     invocation_results = relationship("InvocationResult", back_populates="qa_record")
+    training_data_eval_results = relationship("TrainingDataEvalResult", back_populates="qa_record")
 
 
 class DatasetSnapshot(BaseModel):

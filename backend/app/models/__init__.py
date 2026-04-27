@@ -14,6 +14,13 @@ from .doc_explanation import DocExplanation, DocExplanationEvaluation, DocExplan
 from .open_source_dataset import OpenSourceDataset
 from .annotation_correction import AnnotationCorrection
 from .prompt import PromptVersion, PromptVersionHistory, PromptFramework
+from .training_data_eval import (
+    TrainingDataEval,
+    TrainingDataMetricConfig,
+    TrainingDataEvalResult,
+    TrainingQualityChecker,
+    TrainingDataTemplate
+)
 
 __all__ = [
     "BaseModel",
@@ -51,4 +58,9 @@ __all__ = [
     "PromptVersion",
     "PromptVersionHistory",
     "PromptFramework",
+    "TrainingDataEval",
+    "TrainingDataMetricConfig",
+    "TrainingDataEvalResult",
+    "TrainingQualityChecker",
+    "TrainingDataTemplate",
 ]

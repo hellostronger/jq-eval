@@ -32,7 +32,25 @@
       "Bash(./venv/Scripts/python.exe -m pytest tests/test_imports.py -v)",
       "Bash(PGPASSWORD=jqeval123 psql *)",
       "Bash(./venv/Scripts/python.exe -c ' *)",
-      "Bash(python -c \"from app.services.dataset.adapters.base import AdapterFactory; print\\('Import OK'\\)\")"
+      "Bash(python -c \"from app.services.dataset.adapters.base import AdapterFactory; print\\('Import OK'\\)\")",
+      "Bash(python -c \"from app.models import RAGSystem; print\\('RAGSystem model fields:', [c.name for c in RAGSystem.__table__.columns]\\)\")",
+      "Bash(npx tsc *)",
+      "Bash(xxd)",
+      "Bash(node -e ' *)",
+      "Bash(npm search *)",
+      "Bash(gh repo *)",
+      "Bash(./venv/Scripts/python.exe -m pip install --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple -q)",
+      "Bash(./venv/Scripts/python.exe -c \"from agent_sandbox import Sandbox; print\\('agent-sandbox installed OK'\\)\")",
+      "Bash(set HTTP_PROXY=http://127.0.0.1:7890)"
     ]
+  },
+  "mcpServers": {
+    "duckduckgo": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "ddg-mcp-search"
+      ]
+    }
   }
 }
