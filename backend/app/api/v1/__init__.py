@@ -1,7 +1,7 @@
 # API v1 Module
 from fastapi import APIRouter
 
-from . import health, models, rag_systems, datasets, evaluations, metrics, tags, data_sources, files, graph, hot_news, invocations, load_tests, open_source_datasets, doc_explanations, doc_explanation_evaluations, annotation_corrections, prompts
+from . import health, models, rag_systems, datasets, evaluations, metrics, tags, data_sources, files, graph, hot_news, invocations, load_tests, open_source_datasets, doc_explanations, doc_explanation_evaluations, annotation_corrections, prompts, training_data_evals
 
 api_router = APIRouter()
 
@@ -24,5 +24,6 @@ api_router.include_router(doc_explanations.router, prefix="/doc-explanations", t
 api_router.include_router(doc_explanation_evaluations.router, prefix="/doc-explanation-evaluations", tags=["Doc Explanation Evaluations"])
 api_router.include_router(annotation_corrections.router, prefix="/annotation-corrections", tags=["Annotation Corrections"])
 api_router.include_router(prompts.router, prefix="/prompts", tags=["Prompts"])
+api_router.include_router(training_data_evals.router, prefix="/training-data-evals", tags=["Training Data Evaluations"])
 
 __all__ = ["api_router"]
