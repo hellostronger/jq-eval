@@ -628,3 +628,83 @@ export const confirmCorrection = (
     data
   )
 }
+
+// 训练数据评估API
+export interface TrainingDataEvalCreateParams {
+  name: string
+  description?: string
+  dataset_id: string
+  data_type: 'llm' | 'embedding' | 'reranker' | 'reward_model' | 'dpo' | 'vlm' | 'vla'
+  config?: Record<string, any>
+  metrics: string[]
+  metric_configs?: Array<{
+    metric_name: string
+    metric_type: string
+    params?: Record<string, any>
+    weight?: number
+    enabled?: boolean
+    threshold?: number
+    threshold_type?: string
+  }>
+}
+
+export const getTrainingDataEvals = (params?: { status?: string; dataset_id?: string; data_type?: string }) => {
+  return request.get<import('@/types').TrainingDataEval[]>('/training-data-evals', { params })
+}
+
+export const getTrainingDataEval = (id: string) => {
+  return request.get<import('@/types').TrainingDataEval>(`/training-data-evals/${id}`)
+}
+
+export const createTrainingDataEval = (data: TrainingDataEvalCreateParams) => {
+  return request.post<import('@/types').TrainingDataEval>('/training-data-evals', data)
+}
+
+export const deleteTrainingDataEval = (id: string) => {
+  return request.delete(`/training-data-evals/${id}`)
+}
+
+export const runTrainingDataEval = (id: string) => {
+  return request.post<{ message: string; eval_id: string; task_id: string }>(`/training-data-evals/${id}/run`)
+}
+
+export const getTrainingDataEvalStatus = (id: string) => {
+  return request.get<{
+    eval_id: string
+    status: string
+    progress: number
+    total_samples: number
+    passed_samples: number
+    failed_samples: number
+    pass_rate: number
+    error?: string
+  }>(`/training-data-evals/${id}/status`)
+}
+
+export const getTrainingDataEvalResults = (id: string, params?: { status?: string; skip?: number; limit?: number }) => {
+  return request.get<{
+    eval_id: string
+    summary?: Record<string, any>
+    results: import('@/types').TrainingDataEvalResult[]
+  }>(`/training-data-evals/${id}/results`, { params })
+}
+
+export const getAvailableTrainingDataMetrics = (dataType?: string) => {
+  return request.get<{ metrics: import('@/types').TrainingDataMetricDefinition[] }>('/training-data-evals/metrics/available', {
+    params: dataType ? { data_type: dataType } : undefined
+  })
+}
+
+export const getTrainingDataTemplates = (dataType?: string) => {
+  return request.get<{ templates: import('@/types').TrainingDataTemplate[] }>('/training-data-evals/templates', {
+    params: dataType ? { data_type: dataType } : undefined
+  })
+}
+
+export const getTrainingQualityRules = (params?: { data_type?: string; rule_type?: string }) => {
+  return request.get<{ rules: import('@/types').TrainingQualityRule[] }>('/training-data-evals/quality-rules', { params })
+}
+
+export const exportTrainingDataEvalReport = (id: string, format: 'json' | 'csv' = 'json') => {
+  return request.get(`/training-data-evals/${id}/export`, { params: { format } })
+}

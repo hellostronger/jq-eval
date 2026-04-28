@@ -421,3 +421,95 @@ export interface AnnotationCorrection {
   error?: string
   created_at?: string
 }
+
+// 训练数据评估相关类型
+export type TrainingDataType = 'llm' | 'embedding' | 'reranker' | 'reward_model' | 'dpo' | 'vlm' | 'vla'
+
+export interface TrainingDataEval {
+  id: string
+  name: string
+  description?: string
+  dataset_id: string
+  data_type: TrainingDataType
+  config: Record<string, any>
+  metrics: string[]
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  progress: number
+  total_samples: number
+  passed_samples: number
+  failed_samples: number
+  pass_rate: number
+  summary?: Record<string, any>
+  quality_distribution?: Record<string, number>
+  started_at?: string
+  completed_at?: string
+  created_at?: string
+}
+
+export interface TrainingDataMetricConfig {
+  metric_name: string
+  metric_type: string
+  params: Record<string, any>
+  weight: number
+  enabled: boolean
+  threshold?: number
+  threshold_type?: string
+}
+
+export interface TrainingDataEvalResult {
+  id: string
+  eval_id: string
+  qa_record_id: string
+  question: string
+  answer?: string
+  scores: Record<string, { score: number; passed: boolean }>
+  details?: Record<string, any>
+  quality_tags: string[]
+  issues: string[]
+  suggestions: string[]
+  status: 'passed' | 'failed' | 'warning'
+  overall_score: number
+  created_at?: string
+}
+
+export interface TrainingDataMetricDefinition {
+  name: string
+  display_name: string
+  description: string
+  category: string
+  data_types: string[]
+  requires_llm: boolean
+  requires_embedding: boolean
+  requires_ground_truth: boolean
+  range_min: number
+  range_max: number
+  higher_is_better: boolean
+  default_threshold: number
+  threshold_type: string
+}
+
+export interface TrainingDataTemplate {
+  id: string
+  name: string
+  display_name: string
+  data_type: TrainingDataType
+  description?: string
+  metric_configs: TrainingDataMetricConfig[]
+  default_thresholds: Record<string, number>
+  is_builtin: boolean
+}
+
+export interface TrainingQualityRule {
+  id: string
+  name: string
+  description?: string
+  data_types: string[]
+  rule_type: string
+  config: Record<string, any>
+  threshold_min?: number
+  threshold_max?: number
+  severity: 'error' | 'warning' | 'info'
+  auto_fixable: boolean
+  is_enabled: boolean
+  is_builtin: boolean
+}
