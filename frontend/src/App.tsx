@@ -34,6 +34,7 @@ import DocExplanations from './pages/DocExplanations'
 import DocExplanationEvaluations from './pages/DocExplanationEvaluations'
 import DocExplanationEvalDetail from './pages/DocExplanationEvalDetail'
 import OpenSourceDatasets from './pages/OpenSourceDatasets'
+import TrainingDataEvals from './pages/TrainingDataEvals'
 import Prompts from './pages/Prompts'
 
 const { Sider, Content } = Layout
@@ -47,6 +48,7 @@ const menuItems = [
   { key: '/invocations', icon: <ThunderboltOutlined />, label: '调用批次' },
   { key: '/load-tests', icon: <ExperimentOutlined />, label: '性能压测' },
   { key: '/evaluations', icon: <LineChartOutlined />, label: '评估任务' },
+  { key: '/training-data-evaluations', icon: <ExperimentOutlined />, label: '训练数据评估' },
   { key: '/doc-explanations', icon: <FileTextOutlined />, label: '文档解释' },
   { key: '/doc-explanation-evaluations', icon: <BarChartOutlined />, label: '解释评估' },
   { key: '/metrics', icon: <BarChartOutlined />, label: '指标市场' },
@@ -89,6 +91,7 @@ const App: React.FC = () => {
           <Route path="/evaluations" element={<Evaluations />} />
           <Route path="/evaluations/compare" element={<EvaluationCompare />} />
           <Route path="/evaluations/:id" element={<EvaluationDetail />} />
+          <Route path="/training-data-evaluations" element={<TrainingDataEvals />} />
           <Route path="/doc-explanations" element={<DocExplanations />} />
           <Route path="/doc-explanation-evaluations" element={<DocExplanationEvaluations />} />
           <Route path="/doc-explanation-evaluations/:id" element={<DocExplanationEvalDetail />} />
