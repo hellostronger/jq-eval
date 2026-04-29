@@ -23,7 +23,7 @@ api_router.include_router(open_source_datasets.router, prefix="/open-source-data
 api_router.include_router(doc_explanations.router, prefix="/doc-explanations", tags=["Doc Explanations"])
 api_router.include_router(doc_explanation_evaluations.router, prefix="/doc-explanation-evaluations", tags=["Doc Explanation Evaluations"])
 api_router.include_router(annotation_corrections.router, prefix="/annotation-corrections", tags=["Annotation Corrections"])
-api_router.include_router(prompts.router, prefix="/prompts", tags=["Prompts"])
+api_router.include_router(prompts.router, tags=["Prompts"])
 api_router.include_router(training_data_evals.router, prefix="/training-data-evals", tags=["Training Data Evaluations"])
 api_router.include_router(vibe_agent.router, tags=["VibeAgent"])
 
