@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react'
-import { Card, Table, Button, Modal, Form, Input, Select, Tag, Space, message, Tabs, Typography, Divider } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined, HistoryOutlined, BookOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Modal, Form, Input, Select, Tag, Space, message, Typography } from 'antd'
+import { PlusOutlined, EditOutlined, DeleteOutlined, HistoryOutlined } from '@ant-design/icons'
 import { promptApi, PromptVersion, PromptFramework } from '../api/prompts'
 
 const { TextArea } = Input
-const { Title, Text } = Typography
+const { Text } = Typography
 
 const Prompts: React.FC = () => {
   const [prompts, setPrompts] = useState<PromptVersion[]>([])

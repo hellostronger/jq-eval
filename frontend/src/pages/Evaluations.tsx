@@ -3,14 +3,13 @@ import { Card, Table, Button, Tag, Modal, Form, Input, Select, InputNumber, mess
 import { PlusOutlined, PlayCircleOutlined, SwitcherOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
-import { getEvaluations, createEvaluation, startEvaluation, getDatasets, getRAGSystems, getModels, getInvocationBatches } from '@/api'
-import type { Evaluation, Dataset, RAGSystem, ModelConfig, InvocationBatch } from '@/types'
+import { getEvaluations, createEvaluation, startEvaluation, getDatasets, getModels, getInvocationBatches } from '@/api'
+import type { Evaluation, Dataset, ModelConfig, InvocationBatch } from '@/types'
 
 const Evaluations: React.FC = () => {
   const navigate = useNavigate()
   const [evaluations, setEvaluations] = useState<Evaluation[]>([])
   const [datasets, setDatasets] = useState<Dataset[]>([])
-  const [ragSystems, setRAGSystems] = useState<RAGSystem[]>([])
   const [llmModels, setLLMModels] = useState<ModelConfig[]>([])
   const [embeddingModels, setEmbeddingModels] = useState<ModelConfig[]>([])
   const [invocationBatches, setInvocationBatches] = useState<InvocationBatch[]>([])
@@ -24,18 +23,16 @@ const Evaluations: React.FC = () => {
     setLoading(true)
     try {
       // 独立请求，避免某个失败导致整体失败
-      const [evalData, datasetData, ragData, llmData, embData, batchData] = await Promise.all([
+      const [evalData, datasetData, llmData, embData, batchData] = await Promise.all([
         getEvaluations().catch((e) => { console.error('getEvaluations failed:', e); return [] }),
         getDatasets().catch((e) => { console.error('getDatasets failed:', e); return [] }),
-        getRAGSystems().catch((e) => { console.error('getRAGSystems failed:', e); return [] }),
         getModels('llm').catch((e) => { console.error('getModels llm failed:', e); return [] }),
         getModels('embedding').catch((e) => { console.error('getModels embedding failed:', e); return [] }),
         getInvocationBatches({ status: 'completed' }).catch((e) => { console.error('getInvocationBatches failed:', e); return [] }),
       ])
-      console.log('Loaded data:', { evalData, datasetData, ragData, llmData, embData, batchData })
+      console.log('Loaded data:', { evalData, datasetData, llmData, embData, batchData })
       setEvaluations(evalData)
       setDatasets(datasetData)
-      setRAGSystems(ragData)
       setLLMModels(llmData)
       setEmbeddingModels(embData)
       setInvocationBatches(batchData)

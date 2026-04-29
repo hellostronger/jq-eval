@@ -1,21 +1,19 @@
 import React, { useEffect, useState } from 'react'
 import {
-  Card, Table, Button, Tag, Modal, Form, Input, Select, message, Space,
-  Progress, Descriptions, Tabs, Badge, Tooltip, Divider, Row, Col, Statistic
+  Card, Table, Button, Tag, Modal, Form, Input, InputNumber, Select, message, Space,
+  Progress, Descriptions, Tabs, Tooltip, Divider, Row, Col, Statistic
 } from 'antd'
 import {
   PlusOutlined, PlayCircleOutlined, DeleteOutlined, EyeOutlined,
-  ReloadOutlined, FileTextOutlined, CheckCircleOutlined, CloseCircleOutlined,
-  WarningOutlined
+  ReloadOutlined, FileTextOutlined, CheckCircleOutlined, CloseCircleOutlined
 } from '@ant-design/icons'
-import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
 import {
   getTrainingDataEvals, createTrainingDataEval, runTrainingDataEval,
   deleteTrainingDataEval, getTrainingDataEvalStatus, getAvailableTrainingDataMetrics,
-  getTrainingDataTemplates, getDatasets
+  getDatasets
 } from '@/api'
-import type { TrainingDataEval, Dataset, TrainingDataMetricDefinition, TrainingDataTemplate } from '@/types'
+import type { TrainingDataEval, Dataset, TrainingDataMetricDefinition } from '@/types'
 import type { TrainingDataEvalCreateParams } from '@/api'
 
 const { Option } = Select
@@ -33,11 +31,9 @@ const DATA_TYPE_OPTIONS = [
 ]
 
 const TrainingDataEvals: React.FC = () => {
-  const navigate = useNavigate()
   const [evaluations, setEvaluations] = useState<TrainingDataEval[]>([])
   const [datasets, setDatasets] = useState<Dataset[]>([])
   const [availableMetrics, setAvailableMetrics] = useState<TrainingDataMetricDefinition[]>([])
-  const [templates, setTemplates] = useState<TrainingDataTemplate[]>([])
   const [loading, setLoading] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)
   const [detailModalVisible, setDetailModalVisible] = useState(false)
@@ -104,15 +100,7 @@ const TrainingDataEvals: React.FC = () => {
     }
   }
 
-  const fetchTemplates = async (dataType: string) => {
-    try {
-      const data = await getTrainingDataTemplates(dataType)
-      setTemplates(data.templates)
-    } catch (e) {
-      console.error('加载模板失败:', e)
-    }
-  }
-
+  
   const showCreateDialog = () => {
     form.resetFields()
     form.setFieldsValue({
@@ -124,7 +112,6 @@ const TrainingDataEvals: React.FC = () => {
 
   const handleDataTypeChange = (value: string) => {
     fetchMetrics(value)
-    fetchTemplates(value)
     // 自动选择默认指标
     const defaultMetrics = getDefaultMetrics(value)
     form.setFieldsValue({ metrics: defaultMetrics })

@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Button, Tag, Modal, Form, Input, message, Popconfirm, Select, Space, Switch } from 'antd'
-import { PlusOutlined, EditOutlined, LinkOutlined, DeleteOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Tag, Modal, Form, Input, message, Popconfirm, Select, Space, Switch, Row, Col, Tabs, Statistic, Divider, InputNumber } from 'antd'
+import { PlusOutlined, EditOutlined, LinkOutlined, DeleteOutlined, SearchOutlined, ReloadOutlined, CloudDownloadOutlined, DownloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { getOpenSourceDatasets, createOpenSourceDataset, updateOpenSourceDataset, deleteOpenSourceDataset } from '@/api'
-import type { OpenSourceDataset } from '@/types'
+import { getOpenSourceDatasets, createOpenSourceDataset, updateOpenSourceDataset, deleteOpenSourceDataset, searchHFDatasets, importHFDataset } from '@/api'
+import type { OpenSourceDataset, HFDatasetSearchResult } from '@/api'
 
 const OpenSourceDatasets: React.FC = () => {
   const [datasets, setDatasets] = useState<OpenSourceDataset[]>([])
@@ -15,6 +15,20 @@ const OpenSourceDatasets: React.FC = () => {
   const [saving, setSaving] = useState(false)
   const [editingDataset, setEditingDataset] = useState<OpenSourceDataset | null>(null)
   const [form] = Form.useForm()
+
+  // 本地搜索和筛选
+  const [searchText, setSearchText] = useState('')
+  const [filterType, setFilterType] = useState<string | undefined>()
+  const [filterLanguage, setFilterLanguage] = useState<string | undefined>()
+  const [filterStatus, setFilterStatus] = useState<string | undefined>()
+
+  // HuggingFace 搜索
+  const [hfSearchVisible, setHfSearchVisible] = useState(false)
+  const [hfSearchQuery, setHfSearchQuery] = useState('')
+  const [hfSearchLoading, setHfSearchLoading] = useState(false)
+  const [hfSearchResults, setHfSearchResults] = useState<HFDatasetSearchResult[]>([])
+  const [hfSearchTotal, setHfSearchTotal] = useState(0)
+  const [hfImporting, setHfImporting] = useState<string | null>(null)
 
   const DATASET_TYPES = [
     { value: 'text', label: '文本' },
@@ -37,7 +51,14 @@ const OpenSourceDatasets: React.FC = () => {
   const fetchDatasets = async () => {
     setLoading(true)
     try {
-      const data = await getOpenSourceDatasets({ page, size })
+      const data = await getOpenSourceDatasets({
+        page,
+        size,
+        search: searchText || undefined,
+        dataset_type: filterType,
+        language: filterLanguage,
+        status: filterStatus,
+      })
       setDatasets(data.items)
       setTotal(data.total)
     } finally {
@@ -47,7 +68,39 @@ const OpenSourceDatasets: React.FC = () => {
 
   useEffect(() => {
     fetchDatasets()
-  }, [page, size])
+  }, [page, size, searchText, filterType, filterLanguage, filterStatus])
+
+  // HuggingFace 搜索
+  const handleHfSearch = async () => {
+    if (!hfSearchQuery.trim()) {
+      message.warning('请输入搜索关键词')
+      return
+    }
+    setHfSearchLoading(true)
+    try {
+      const data = await searchHFDatasets({ query: hfSearchQuery, limit: 20 })
+      setHfSearchResults(data.items)
+      setHfSearchTotal(data.total)
+    } catch (e) {
+      // 错误已处理
+    } finally {
+      setHfSearchLoading(false)
+    }
+  }
+
+  // 从 HuggingFace 导入
+  const handleHfImport = async (hfDatasetId: string) => {
+    setHfImporting(hfDatasetId)
+    try {
+      await importHFDataset(hfDatasetId)
+      message.success(`数据集 ${hfDatasetId} 导入成功`)
+      fetchDatasets()
+    } catch (e) {
+      // 错误已处理
+    } finally {
+      setHfImporting(null)
+    }
+  }
 
   const showCreateDialog = () => {
     form.resetFields()
@@ -199,15 +252,148 @@ const OpenSourceDatasets: React.FC = () => {
     },
   ]
 
+  // HuggingFace 搜索结果列配置
+  const hfColumns = [
+    {
+      title: '数据集',
+      dataIndex: 'id',
+      key: 'id',
+      width: 200,
+      render: (id: string, record: HFDatasetSearchResult) => (
+        <a href={record.url} target="_blank" rel="noopener noreferrer">
+          <LinkOutlined /> {id}
+        </a>
+      ),
+    },
+    {
+      title: '名称',
+      dataIndex: 'name',
+      key: 'name',
+      width: 150,
+    },
+    {
+      title: '描述',
+      dataIndex: 'description',
+      key: 'description',
+      ellipsis: true,
+    },
+    {
+      title: '下载量',
+      dataIndex: 'downloads',
+      key: 'downloads',
+      width: 100,
+      render: (downloads: number) => downloads?.toLocaleString() || 0,
+    },
+    {
+      title: '点赞',
+      dataIndex: 'likes',
+      key: 'likes',
+      width: 80,
+    },
+    {
+      title: '语言',
+      dataIndex: 'language',
+      key: 'language',
+      width: 80,
+      render: (lang: string) => lang ? <Tag>{lang}</Tag> : '-',
+    },
+    {
+      title: '任务',
+      dataIndex: 'task_categories',
+      key: 'task_categories',
+      width: 150,
+      render: (cats: string[]) => cats?.length > 0 ? (
+        <Space size="small">
+          {cats.slice(0, 2).map(cat => <Tag key={cat} color="blue">{cat}</Tag>)}
+        </Space>
+      ) : '-',
+    },
+    {
+      title: '规模',
+      dataIndex: 'size_info',
+      key: 'size_info',
+      width: 80,
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 100,
+      render: (_: unknown, record: HFDatasetSearchResult) => (
+        <Button
+          type="primary"
+          size="small"
+          icon={<DownloadOutlined />}
+          loading={hfImporting === record.id}
+          onClick={() => handleHfImport(record.id)}
+        >
+          导入
+        </Button>
+      ),
+    },
+  ]
+
   return (
     <Card
       title="开源数据集"
       extra={
-        <Button type="primary" icon={<PlusOutlined />} onClick={showCreateDialog}>
-          新建数据集
-        </Button>
+        <Space>
+          <Button icon={<CloudDownloadOutlined />} onClick={() => setHfSearchVisible(true)}>
+            HF搜索
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={showCreateDialog}>
+            新建数据集
+          </Button>
+        </Space>
       }
     >
+      {/* 本地搜索筛选 */}
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Col span={6}>
+          <Input.Search
+            placeholder="搜索名称/描述"
+            allowClear
+            enterButton={<SearchOutlined />}
+            onSearch={setSearchText}
+            onChange={(e) => setSearchText(e.target.value)}
+          />
+        </Col>
+        <Col span={4}>
+          <Select
+            placeholder="筛选类型"
+            allowClear
+            options={DATASET_TYPES}
+            value={filterType}
+            onChange={setFilterType}
+          />
+        </Col>
+        <Col span={4}>
+          <Select
+            placeholder="筛选语言"
+            allowClear
+            options={LANGUAGES}
+            value={filterLanguage}
+            onChange={setFilterLanguage}
+          />
+        </Col>
+        <Col span={4}>
+          <Select
+            placeholder="筛选状态"
+            allowClear
+            options={[
+              { value: 'active', label: '活跃' },
+              { value: 'archived', label: '归档' },
+            ]}
+            value={filterStatus}
+            onChange={setFilterStatus}
+          />
+        </Col>
+        <Col span={4}>
+          <Button icon={<ReloadOutlined />} onClick={fetchDatasets}>
+            刷新
+          </Button>
+        </Col>
+      </Row>
+
       <Table
         dataSource={datasets}
         columns={columns}
@@ -218,7 +404,7 @@ const OpenSourceDatasets: React.FC = () => {
           pageSize: size,
           total: total,
           showSizeChanger: true,
-          showTotal: (total) => `共 ${total} 条`,
+          showTotal: (t) => `共 ${t} 条`,
           onChange: (p, s) => {
             setPage(p)
             setSize(s)
@@ -226,6 +412,7 @@ const OpenSourceDatasets: React.FC = () => {
         }}
       />
 
+      {/* 本地创建/编辑模态框 */}
       <Modal
         title={editingDataset ? '编辑开源数据集' : '新建开源数据集'}
         open={modalVisible}
@@ -268,6 +455,64 @@ const OpenSourceDatasets: React.FC = () => {
             </Form.Item>
           )}
         </Form>
+      </Modal>
+
+      {/* HuggingFace 搜索模态框 */}
+      <Modal
+        title="从 HuggingFace Hub 搜索数据集"
+        open={hfSearchVisible}
+        onCancel={() => setHfSearchVisible(false)}
+        footer={null}
+        width={900}
+      >
+        <Row gutter={16} style={{ marginBottom: 16 }}>
+          <Col span={12}>
+            <Input.Search
+              placeholder="搜索 HuggingFace 数据集（如：squad, instruct, chat）"
+              value={hfSearchQuery}
+              onChange={(e) => setHfSearchQuery(e.target.value)}
+              onSearch={handleHfSearch}
+              enterButton={<SearchOutlined />}
+              loading={hfSearchLoading}
+            />
+          </Col>
+          <Col span={12}>
+            <Space>
+              <Select
+                placeholder="语言筛选"
+                allowClear
+                style={{ width: 120 }}
+                options={LANGUAGES}
+              />
+              <InputNumber placeholder="结果数" min={5} max={50} defaultValue={20} />
+            </Space>
+          </Col>
+        </Row>
+
+        <Divider />
+
+        {hfSearchTotal > 0 && (
+          <Row style={{ marginBottom: 16 }}>
+            <Col>
+              <Statistic title="搜索结果" value={hfSearchTotal} suffix="个数据集" />
+            </Col>
+          </Row>
+        )}
+
+        <Table
+          dataSource={hfSearchResults}
+          columns={hfColumns}
+          rowKey="id"
+          loading={hfSearchLoading}
+          pagination={false}
+          scroll={{ x: 'max-content' }}
+        />
+
+        {hfSearchResults.length === 0 && !hfSearchLoading && (
+          <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+            输入关键词搜索 HuggingFace 上的开源数据集，点击导入添加到本地数据库
+          </div>
+        )}
       </Modal>
     </Card>
   )

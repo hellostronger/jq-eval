@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Card, Table, Button, Tag, Space, Progress, message, Popconfirm, Modal, Input, Pagination, Spin, Select, Descriptions, Divider, Alert } from 'antd'
-import { ReloadOutlined, PlayCircleOutlined, ArrowLeftOutlined, EyeOutlined, DeleteOutlined, CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Tag, Space, Progress, message, Popconfirm, Modal, Spin, Select, Descriptions, Divider, Alert } from 'antd'
+import { ReloadOutlined, PlayCircleOutlined, ArrowLeftOutlined, EyeOutlined, CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import {
   getInvocationBatch,
   getInvocationResults,
-  getInvocationStats,
   retryInvocationBatch,
   retrySingleResult,
   getDatasets,
@@ -24,7 +23,7 @@ const InvocationDetail: React.FC = () => {
   const [batch, setBatch] = useState<InvocationBatch | null>(null)
   const [results, setResults] = useState<InvocationResult[]>([])
   const [datasets, setDatasets] = useState<Dataset[]>([])
-  const [ragSystems, setRAGSystems] = useState<RAGSystem[]>([])
+  const [ragSystems, setRagSystems] = useState<RAGSystem[]>([])
   const [llmModels, setLlmModels] = useState<ModelConfig[]>([])
   const [loading, setLoading] = useState(false)
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
@@ -80,7 +79,7 @@ const InvocationDetail: React.FC = () => {
   const handleRetrySelected = async () => {
     if (!id || selectedRowKeys.length === 0) return
     try {
-      const res = await retryInvocationBatch(id, selectedRowKeys as string[])
+      await retryInvocationBatch(id, selectedRowKeys as string[])
       message.success(`重试任务已启动，将重试 ${selectedRowKeys.length} 条记录`)
       setSelectedRowKeys([])
       fetchData()
@@ -142,16 +141,6 @@ const InvocationDetail: React.FC = () => {
       setCorrectionDetailVisible(false)
     } catch (e) {
       message.error('确认失败')
-    }
-  }
-
-  const handleViewExistingCorrection = async (resultId: string) => {
-    try {
-      const res = await getCorrectionByInvocation(resultId)
-      setCorrectionResult(res)
-      setCorrectionDetailVisible(true)
-    } catch (e) {
-      message.error('未找到矫正记录')
     }
   }
 

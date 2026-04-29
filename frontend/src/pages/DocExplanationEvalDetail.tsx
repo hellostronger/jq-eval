@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Card, Table, Button, Tag, Space, Progress, Statistic, Row, Col, Spin, Modal } from 'antd'
 import { ArrowLeftOutlined, EyeOutlined } from '@ant-design/icons'
-import dayjs from 'dayjs'
 import { getDocExplanationEvaluation, getDocExplanationEvalResults } from '@/api'
 import type { DocExplanationEvaluation, DocExplanationEvalResult } from '@/types'
 
@@ -45,6 +44,13 @@ const DocExplanationEvalDetail: React.FC = () => {
     return 'error'
   }
 
+  const formatScore = (score: string | number | undefined, decimals: number = 1): string => {
+    if (score === undefined || score === null) return '-'
+    const num = typeof score === 'string' ? parseFloat(score) : score
+    if (isNaN(num)) return '-'
+    return num.toFixed(decimals)
+  }
+
   const columns = [
     {
       title: '文档标题',
@@ -64,9 +70,9 @@ const DocExplanationEvalDetail: React.FC = () => {
       title: '完整性',
       dataIndex: ['scores', 'completeness'],
       key: 'completeness',
-      render: (score: number) => (
-        <Tag color={getScoreColor(score)}>
-          {score?.toFixed(1) || '-'}
+      render: (score: string | number) => (
+        <Tag color={getScoreColor(typeof score === 'string' ? parseFloat(score) : score)}>
+          {formatScore(score)}
         </Tag>
       ),
     },
@@ -74,9 +80,9 @@ const DocExplanationEvalDetail: React.FC = () => {
       title: '准确性',
       dataIndex: ['scores', 'accuracy'],
       key: 'accuracy',
-      render: (score: number) => (
-        <Tag color={getScoreColor(score)}>
-          {score?.toFixed(1) || '-'}
+      render: (score: string | number) => (
+        <Tag color={getScoreColor(typeof score === 'string' ? parseFloat(score) : score)}>
+          {formatScore(score)}
         </Tag>
       ),
     },
@@ -84,9 +90,9 @@ const DocExplanationEvalDetail: React.FC = () => {
       title: '信息遗漏',
       dataIndex: ['scores', 'info_missing'],
       key: 'info_missing',
-      render: (score: number) => (
-        <Tag color={getScoreColor(score)}>
-          {score?.toFixed(1) || '-'}
+      render: (score: string | number) => (
+        <Tag color={getScoreColor(typeof score === 'string' ? parseFloat(score) : score)}>
+          {formatScore(score)}
         </Tag>
       ),
     },
@@ -94,9 +100,9 @@ const DocExplanationEvalDetail: React.FC = () => {
       title: '解释错误',
       dataIndex: ['scores', 'explanation_error'],
       key: 'explanation_error',
-      render: (score: number) => (
-        <Tag color={getScoreColor(score)}>
-          {score?.toFixed(1) || '-'}
+      render: (score: string | number) => (
+        <Tag color={getScoreColor(typeof score === 'string' ? parseFloat(score) : score)}>
+          {formatScore(score)}
         </Tag>
       ),
     },
@@ -146,32 +152,32 @@ const DocExplanationEvalDetail: React.FC = () => {
         <Col span={4}>
           <Statistic
             title="总体得分"
-            value={summary.overall_score?.toFixed(2) || '-'}
+            value={formatScore(summary.overall_score, 2)}
             suffix="/ 10"
           />
         </Col>
         <Col span={4}>
           <Statistic
             title="完整性均值"
-            value={summary.completeness?.mean?.toFixed(2) || '-'}
+            value={formatScore(summary.completeness?.mean, 2)}
           />
         </Col>
         <Col span={4}>
           <Statistic
             title="准确性均值"
-            value={summary.accuracy?.mean?.toFixed(2) || '-'}
+            value={formatScore(summary.accuracy?.mean, 2)}
           />
         </Col>
         <Col span={4}>
           <Statistic
             title="信息遗漏均值"
-            value={summary.info_missing?.mean?.toFixed(2) || '-'}
+            value={formatScore(summary.info_missing?.mean, 2)}
           />
         </Col>
         <Col span={4}>
           <Statistic
             title="解释错误均值"
-            value={summary.explanation_error?.mean?.toFixed(2) || '-'}
+            value={formatScore(summary.explanation_error?.mean, 2)}
           />
         </Col>
         <Col span={4}>
@@ -227,28 +233,28 @@ const DocExplanationEvalDetail: React.FC = () => {
                 <Col span={6}>
                   <Statistic
                     title="完整性"
-                    value={selectedResult.scores?.completeness?.toFixed(1) || '-'}
+                    value={formatScore(selectedResult.scores?.completeness)}
                     valueStyle={{ fontSize: 18 }}
                   />
                 </Col>
                 <Col span={6}>
                   <Statistic
                     title="准确性"
-                    value={selectedResult.scores?.accuracy?.toFixed(1) || '-'}
+                    value={formatScore(selectedResult.scores?.accuracy)}
                     valueStyle={{ fontSize: 18 }}
                   />
                 </Col>
                 <Col span={6}>
                   <Statistic
                     title="信息遗漏"
-                    value={selectedResult.scores?.info_missing?.toFixed(1) || '-'}
+                    value={formatScore(selectedResult.scores?.info_missing)}
                     valueStyle={{ fontSize: 18 }}
                   />
                 </Col>
                 <Col span={6}>
                   <Statistic
                     title="解释错误"
-                    value={selectedResult.scores?.explanation_error?.toFixed(1) || '-'}
+                    value={formatScore(selectedResult.scores?.explanation_error)}
                     valueStyle={{ fontSize: 18 }}
                   />
                 </Col>

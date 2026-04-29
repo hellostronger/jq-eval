@@ -81,4 +81,8 @@ nest-asyncio==1.6.0
 appdirs==1.4.4
 
 # Agent Sandbox
-agent-sandbox==2.2.0
+agent-sandbox==0.0.30
+
+# LangGraph (for VibeAgent)
+langgraph>=0.2.0
+websockets>=12.0

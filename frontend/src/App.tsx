@@ -35,6 +35,7 @@ import DocExplanationEvaluations from './pages/DocExplanationEvaluations'
 import DocExplanationEvalDetail from './pages/DocExplanationEvalDetail'
 import OpenSourceDatasets from './pages/OpenSourceDatasets'
 import Prompts from './pages/Prompts'
+import VibeAgent from './pages/VibeAgent'
 
 const { Sider, Content } = Layout
 
@@ -53,6 +54,7 @@ const menuItems = [
   { key: '/data-sources', icon: <DatabaseOutlined />, label: '数据源' },
   { key: '/hot-news', icon: <FireOutlined />, label: '热点新闻' },
   { key: '/prompts', icon: <EditOutlined />, label: 'Prompt管理' },
+  { key: '/vibe-agent', icon: <ThunderboltOutlined />, label: 'VibeAgent' },
 ]
 
 const App: React.FC = () => {
@@ -96,6 +98,7 @@ const App: React.FC = () => {
           <Route path="/data-sources" element={<DataSources />} />
           <Route path="/hot-news" element={<HotNews />} />
           <Route path="/prompts" element={<Prompts />} />
+          <Route path="/vibe-agent" element={<VibeAgent />} />
         </Routes>
       </Content>
     </Layout>

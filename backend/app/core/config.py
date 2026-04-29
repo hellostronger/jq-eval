@@ -66,6 +66,18 @@ class Settings(BaseSettings):
     def CELERY_RESULT_BACKEND(self) -> str:
         return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/1"
 
+    # VibeAgent 配置
+    SANDBOX_URL: str = ""  # 沙箱服务地址，空则使用本地子进程
+    SANDBOX_TIMEOUT: int = 60  # 执行超时（秒）
+    SANDBOX_MAX_MEMORY: int = 256  # 最大内存（MB）
+
+    # VibeAgent LLM 配置（用于槽位生成和代码生成）
+    VIBEAGENT_LLM_URL: str = "https://api.openai.com/v1"
+    VIBEAGENT_LLM_KEY: str = ""
+    VIBEAGENT_LLM_MODEL: str = "gpt-4o-mini"
+    VIBEAGENT_LLM_TEMPERATURE: float = 0.7
+    VIBEAGENT_LLM_MAX_TOKENS: int = 4000
+
     class Config:
         env_file = ".env"
         case_sensitive = True

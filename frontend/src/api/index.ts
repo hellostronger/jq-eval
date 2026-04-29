@@ -1,5 +1,26 @@
 import { request } from './request'
-import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, DataSource, SyncTask, ModelConfig, SystemStats, NewsSource, HotArticle, NewsStats, InvocationBatch, InvocationResult, LoadTest, DocExplanation, DocExplanationEvaluation, DocExplanationEvalResult, DocumentInfo, OpenSourceDataset, AnnotationCorrection } from '@/types'
+import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, DataSource, SyncTask, ModelConfig, SystemStats, NewsSource, HotArticle, NewsStats, InvocationBatch, InvocationResult, LoadTest, DocExplanation, DocExplanationEvaluation, DocExplanationEvalResult, OpenSourceDataset, AnnotationCorrection } from '@/types'
+
+// 文档和分片API
+export interface DocumentInfo {
+  id: string
+  title?: string
+  content?: string
+  file_type?: string
+  source_type?: string
+  chunk_count?: number
+}
+
+export interface ChunkInfo {
+  id: string
+  doc_id: string
+  content: string
+  chunk_index: number
+  start_char?: number
+  end_char?: number
+  milvus_id?: string
+  document_title?: string
+}
 
 // 模型API
 export const getModels = (modelType: string) => {
@@ -369,26 +390,7 @@ export const batchDeleteArticles = (ids: string[]) => {
   return request.post<{ deleted_count: number }>('/hot-news/articles/batch-delete', { article_ids: ids })
 }
 
-// 文档和分片API
-export interface DocumentInfo {
-  id: string
-  title?: string
-  content?: string
-  file_type?: string
-  source_type?: string
-  chunk_count?: number
-}
-
-export interface ChunkInfo {
-  id: string
-  doc_id: string
-  content: string
-  chunk_index: number
-  start_char?: number
-  end_char?: number
-  milvus_id?: string
-  document_title?: string
-}
+// 文档和分片API（定义已移到文件顶部）
 
 export const getDatasetDocuments = (datasetId: string, params?: { page?: number; size?: number }) => {
   return request.get<{ items: DocumentInfo[]; total: number }>(`/datasets/${datasetId}/documents`, { params })
@@ -576,6 +578,28 @@ export const updateOpenSourceDataset = (id: string, data: Partial<OpenSourceData
 
 export const deleteOpenSourceDataset = (id: string) => {
   return request.delete(`/open-source-datasets/${id}`)
+}
+
+// HuggingFace 数据集搜索 API
+export interface HFDatasetSearchResult {
+  id: string
+  name: string
+  url: string
+  description: string
+  downloads: number
+  likes: number
+  tags: string[]
+  language: string
+  task_categories: string[]
+  size_info: string
+}
+
+export const searchHFDatasets = (params: { query: string; limit?: number; author?: string; tags?: string; language?: string }) => {
+  return request.get<{ items: HFDatasetSearchResult[]; total: number }>('/open-source-datasets/hf-search', { params })
+}
+
+export const importHFDataset = (hfDatasetId: string) => {
+  return request.post<OpenSourceDataset>('/open-source-datasets/hf-import', { hf_dataset_id: hfDatasetId })
 }
 
 // 标注矫正API

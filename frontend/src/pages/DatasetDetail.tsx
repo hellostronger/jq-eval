@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Upload, Button, message, Tabs, Tag, Space, Divider, Popconfirm, Modal, Descriptions, Input, Select, Spin, Alert, Typography } from 'antd'
+import { Card, Table, Upload, Button, message, Tabs, Tag, Space, Divider, Popconfirm, Modal, Descriptions, Input, InputNumber, Select, Spin, Alert, Typography } from 'antd'
 import { UploadOutlined, DownloadOutlined, DeleteOutlined, EyeOutlined, PlusOutlined, FileTextOutlined, EnvironmentOutlined } from '@ant-design/icons'
 import { useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
@@ -689,9 +689,9 @@ const DatasetDetail: React.FC = () => {
             <div style={{ marginBottom: 8, fontWeight: 500 }}>分片参数：</div>
             <Space>
               <span>分片大小：</span>
-              <Input.Number
+              <InputNumber
                 value={chunkSize}
-                onChange={(v) => setChunkSize(v || 500)}
+                onChange={(v: number | null) => setChunkSize(v || 500)}
                 min={100}
                 max={2000}
                 style={{ width: 100 }}
@@ -699,9 +699,9 @@ const DatasetDetail: React.FC = () => {
               <span>字符</span>
               <Divider type="vertical" />
               <span>重叠大小：</span>
-              <Input.Number
+              <InputNumber
                 value={chunkOverlap}
-                onChange={(v) => setChunkOverlap(v || 50)}
+                onChange={(v: number | null) => setChunkOverlap(v || 50)}
                 min={0}
                 max={200}
                 style={{ width: 100 }}
@@ -864,11 +864,13 @@ const DatasetDetail: React.FC = () => {
                     <Space>
                       <EnvironmentOutlined style={{ color: '#1890ff' }} />
                       <span>
-                        {record.start_char} - {record.end_char}
+                        {record.start_char ?? '-'} - {record.end_char ?? '-'}
                       </span>
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        ({record.end_char - record.start_char}字)
-                      </Typography.Text>
+                      {(record.start_char !== undefined && record.end_char !== undefined) && (
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          ({record.end_char - record.start_char}字)
+                        </Typography.Text>
+                      )}
                     </Space>
                   ),
                 },

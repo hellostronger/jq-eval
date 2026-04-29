@@ -1,5 +1,4 @@
 // Prompt 管理 API
-import type { AxiosRequestConfig } from 'axios'
 
 export interface PromptVersion {
   id: string

@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Card, Table, Button, Tag, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm, Radio, Divider, Typography } from 'antd'
 import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons'
-import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { getLoadTests, createLoadTest, runLoadTest, deleteLoadTest, getRAGSystems, getDatasets } from '@/api'
 import type { LoadTest, RAGSystem, Dataset, LoadTestQpsLimitResult, LoadTestLatencyDistResult } from '@/types'
@@ -10,7 +9,6 @@ const { TextArea } = Input
 const { Text } = Typography
 
 const LoadTests: React.FC = () => {
-  const navigate = useNavigate()
   const [loadTests, setLoadTests] = useState<LoadTest[]>([])
   const [ragSystems, setRAGSystems] = useState<RAGSystem[]>([])
   const [datasets, setDatasets] = useState<Dataset[]>([])
@@ -62,14 +60,14 @@ const LoadTests: React.FC = () => {
       let questions: string[] | undefined
       if (values.questions) {
         questions = values.questions.split('\n').map((q: string) => q.trim()).filter((q: string) => q)
-        if (questions.length === 0) questions = undefined
+        if (questions && questions.length === 0) questions = undefined
       }
 
       // 处理concurrency_levels：将文本转换为数组
       let concurrency_levels: number[] | undefined
       if (values.test_mode === 'latency_dist' && values.concurrency_levels) {
         concurrency_levels = values.concurrency_levels.split(',').map((v: string) => parseInt(v.trim())).filter((v: number) => v > 0)
-        if (concurrency_levels.length === 0) concurrency_levels = undefined
+        if (concurrency_levels && concurrency_levels.length === 0) concurrency_levels = undefined
       }
 
       await createLoadTest({
