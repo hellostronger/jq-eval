@@ -37,6 +37,7 @@ const Models: React.FC = () => {
       max_tokens: 2048,
       dimension: 1536,
       is_default: false,
+      save_logs: false,
     })
     setModalVisible(true)
   }
@@ -56,6 +57,7 @@ const Models: React.FC = () => {
       dimension: model.dimension || 1536,
       max_input_length: model.max_input_length,
       is_default: model.is_default,
+      save_logs: model.save_logs || false,
     })
     setModalVisible(true)
   }
@@ -91,6 +93,7 @@ const Models: React.FC = () => {
         dimension: values.dimension,
         max_input_length: values.max_input_length,
         is_default: values.is_default,
+        save_logs: values.save_logs,
       }
       if (editingModel) {
         await updateModel(editingModel.id, payload)
@@ -141,6 +144,12 @@ const Models: React.FC = () => {
       dataIndex: 'is_default',
       key: 'is_default',
       render: (v: boolean) => v ? <Tag color="success">默认</Tag> : null,
+    },
+    {
+      title: '保存日志',
+      dataIndex: 'save_logs',
+      key: 'save_logs',
+      render: (v: boolean) => v ? <Tag color="blue">开启</Tag> : <Tag>关闭</Tag>,
     },
     {
       title: 'Temperature',
@@ -256,6 +265,9 @@ const Models: React.FC = () => {
             }}
           </Form.Item>
           <Form.Item name="is_default" label="设为默认" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Form.Item name="save_logs" label="保存请求响应" valuePropName="checked">
             <Switch />
           </Form.Item>
         </Form>

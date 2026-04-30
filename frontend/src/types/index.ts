@@ -19,6 +19,7 @@ export interface ModelConfig {
   max_input_length?: number
   is_default: boolean
   status: string
+  save_logs?: boolean  // 是否保存请求响应日志
 }
 
 export interface RAGSystem {

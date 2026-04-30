@@ -43,6 +43,75 @@ export const testModel = (id: string) => {
   return request.post<{ success: boolean; error?: string }>(`/models/${id}/test`)
 }
 
+// 模型日志API
+export interface ModelLog {
+  id: string
+  model_id: string
+  model_name?: string
+  session_id?: string
+  request_type: string
+  prompt: string
+  system_prompt?: string
+  params?: Record<string, any>
+  response?: string
+  response_metadata?: Record<string, any>
+  status: string
+  error_message?: string
+  latency_ms?: number
+  is_replay: boolean
+  replay_from_log_id?: string
+  replay_model_id?: string
+  created_at: string
+}
+
+export const getModelLogs = (params?: { model_id?: string; request_type?: string; status?: string; is_replay?: boolean; skip?: number; limit?: number }) => {
+  return request.get<{ items: ModelLog[]; total: number }>('/model-logs', { params })
+}
+
+export const getLogDetail = (logId: string) => {
+  return request.get<ModelLog>(`/model-logs/${logId}`)
+}
+
+export const replayLog = (logId: string, targetModelId: string) => {
+  return request.post<{ log_id: string; replay_response?: string; replay_status: string; replay_error?: string }>(`/model-logs/${logId}/replay`, { target_model_id: targetModelId })
+}
+
+export const batchReplay = (data: { log_ids: string[]; target_model_ids: string[] }) => {
+  return request.post<{ log_id: string; replay_response?: string; replay_status: string }[]>('/model-logs/batch-replay', data)
+}
+
+export const multiModelCompare = (data: { log_id: string; target_model_ids: string[] }) => {
+  return request.post<{
+    log_id: string
+    original_prompt: string
+    original_response?: string
+    original_model_name?: string
+    results: Array<{
+      log_id: string
+      replay_model_id: string
+      replay_model_name?: string
+      replay_response?: string
+      replay_status: string
+      replay_error?: string
+    }>
+  }>('/model-logs/multi-model-compare', data)
+}
+
+export const deleteLog = (logId: string) => {
+  return request.delete(`/model-logs/${logId}`)
+}
+
+export const getLogStats = (modelId?: string) => {
+  return request.get<{
+    total_logs: number
+    logs_by_model: Record<string, number>
+    logs_by_type: Record<string, number>
+    logs_by_status: Record<string, number>
+    avg_latency_ms?: number
+    replay_count: number
+  }>('/model-logs/stats', { params: modelId ? { model_id: modelId } : undefined })
+}
+
 // RAG系统API
 export const getRAGSystems = () => {
   return request.get<RAGSystem[]>('/rag-systems')

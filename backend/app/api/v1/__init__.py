@@ -1,13 +1,14 @@
 # API v1 Module
 from fastapi import APIRouter
 
-from . import health, models, rag_systems, datasets, evaluations, metrics, tags, data_sources, files, graph, hot_news, invocations, load_tests, open_source_datasets, doc_explanations, doc_explanation_evaluations, annotation_corrections, prompts, training_data_evals, vibe_agent
+from . import health, models, rag_systems, datasets, evaluations, metrics, tags, data_sources, files, graph, hot_news, invocations, load_tests, open_source_datasets, doc_explanations, doc_explanation_evaluations, annotation_corrections, prompts, training_data_evals, vibe_agent, model_logs
 
 api_router = APIRouter()
 
 # 注册各模块路由
 api_router.include_router(health.router, tags=["Health"])
 api_router.include_router(models.router, prefix="/models", tags=["Models"])
+api_router.include_router(model_logs.router, prefix="/model-logs", tags=["Model Logs"])
 api_router.include_router(rag_systems.router, prefix="/rag-systems", tags=["RAG Systems"])
 api_router.include_router(datasets.router, prefix="/datasets", tags=["Datasets"])
 api_router.include_router(evaluations.router, prefix="/evaluations", tags=["Evaluations"])

@@ -74,13 +74,24 @@ async def init_db():
     """初始化数据库（创建所有表）"""
     async with async_engine.begin() as conn:
         # 导入所有模型
-        from ..models import document, dataset, evaluation, model, rag_system, metric, sync, hot_news, load_test, prompt, vibe_agent
+        from ..models import document, dataset, evaluation, model, model_log, rag_system, metric, sync, hot_news, load_test, prompt, vibe_agent
 
         # 创建所有表
         await conn.run_sync(Base.metadata.create_all)
 
         # 添加新列（如果不存在）
         from sqlalchemy import text
+
+        # models.save_logs
+        result = await conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'models' AND column_name = 'save_logs'
+        """))
+        if result.fetchone() is None:
+            await conn.execute(text("""
+                ALTER TABLE models
+                ADD COLUMN save_logs BOOLEAN DEFAULT false
+            """))
 
         # metric_definitions.eval_stage
         result = await conn.execute(text("""

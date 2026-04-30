@@ -36,6 +36,7 @@ class ModelCreate(BaseModel):
     is_default: bool = False
     dimension: Optional[int] = None
     max_input_length: Optional[int] = None
+    save_logs: bool = False  # 是否保存请求响应日志
 
 
 class ModelResponse(BaseModel):
@@ -51,6 +52,7 @@ class ModelResponse(BaseModel):
     status: str
     dimension: Optional[int]
     max_input_length: Optional[int]
+    save_logs: bool = False  # 是否保存请求响应日志
 
     class Config:
         from_attributes = True
@@ -75,6 +77,7 @@ def model_to_response(model: Model) -> dict:
         "status": model.status,
         "dimension": model.dimension,
         "max_input_length": model.max_input_length,
+        "save_logs": model.save_logs or False,
     }
 
 
@@ -99,6 +102,7 @@ async def create_model(
         is_default=data.is_default,
         dimension=data.dimension,
         max_input_length=data.max_input_length,
+        save_logs=data.save_logs,
     )
     db.add(model)
     await db.commit()
@@ -160,6 +164,7 @@ async def update_model(
     model.is_default = data.is_default
     model.dimension = data.dimension
     model.max_input_length = data.max_input_length
+    model.save_logs = data.save_logs
 
     await db.commit()
     await db.refresh(model)

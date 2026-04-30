@@ -22,3 +22,6 @@ class Model(BaseModel):
     # Embedding特有字段
     dimension = Column(Integer, nullable=True)  # 向量维度
     max_input_length = Column(Integer, nullable=True)  # 最大输入长度
+
+    # 日志保存
+    save_logs = Column(Boolean, default=False)  # 是否保存请求响应日志

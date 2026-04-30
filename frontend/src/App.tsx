@@ -15,9 +15,11 @@ import {
   FileTextOutlined,
   GlobalOutlined,
   EditOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons'
 import Dashboard from './pages/Dashboard'
 import Models from './pages/Models'
+import ModelLogs from './pages/ModelLogs'
 import RAGSystems from './pages/RAGSystems'
 import Datasets from './pages/Datasets'
 import DatasetDetail from './pages/DatasetDetail'
@@ -43,6 +45,7 @@ const { Sider, Content } = Layout
 const menuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘' },
   { key: '/models', icon: <SettingOutlined />, label: '模型配置' },
+  { key: '/model-logs', icon: <HistoryOutlined />, label: '模型日志' },
   { key: '/rag-systems', icon: <ApiOutlined />, label: 'RAG系统' },
   { key: '/datasets', icon: <FolderOpenOutlined />, label: '数据集' },
   { key: '/open-source-datasets', icon: <GlobalOutlined />, label: '开源数据集' },
@@ -83,6 +86,7 @@ const App: React.FC = () => {
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/models" element={<Models />} />
+          <Route path="/model-logs" element={<ModelLogs />} />
           <Route path="/rag-systems" element={<RAGSystems />} />
           <Route path="/datasets" element={<Datasets />} />
           <Route path="/datasets/:id" element={<DatasetDetail />} />
