@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Card, Table, Button, Tabs, Tag, Modal, Form, Select, Space, Drawer, Descriptions, Input, message, Popconfirm, Alert, Divider, Typography, Switch, Tooltip } from 'antd'
-import { EyeOutlined, PlayCircleOutlined, SwapOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, EditOutlined, ApiOutlined } from '@ant-design/icons'
+import { EyeOutlined, PlayCircleOutlined, SwapOutlined, DeleteOutlined, PlusOutlined, CopyOutlined, EditOutlined, ApiOutlined, CodeOutlined } from '@ant-design/icons'
 import {
   getModelLogs, replayLog, batchReplay, multiModelCompare, deleteLog, getLogStats, getModels,
   getModelMappings, createMapping, updateMapping, resetMappingKey, deleteMapping,
@@ -595,7 +595,48 @@ const MappingsTab: React.FC<{ onNotify: () => void }> = ({ onNotify }) => {
   const [keyModalVisible, setKeyModalVisible] = useState(false)
   const [plainKey, setPlainKey] = useState<string>('')
 
+  const [curlModalVisible, setCurlModalVisible] = useState(false)
+  const [curlSample, setCurlSample] = useState('')
+
   const origin = window.location.origin
+
+  // 生成 curl 调用示例（OpenAI / Anthropic 两种协议，含流式）
+  const showCurlExamples = (mapping: ModelMapping) => {
+    const baseUrl = `${origin}/api/v1/model-mappings/${mapping.id}`
+    const key = mapping.auth_required ? 'Authorization: Bearer $MAPPING_KEY' : null
+    const authLine = key ? `\n  -H "${key}" \\` : ''
+    const authLineA = mapping.auth_required
+      ? `\n  -H "x-api-key: $MAPPING_KEY" \\\n  -H "anthropic-version: 2023-06-01" \\`
+      : '\n  -H "anthropic-version: 2023-06-01" \\'
+    const keyExport = mapping.auth_required
+      ? `# 映射服务密钥（在「密钥」列查看，重置后旧密钥失效）\nexport MAPPING_KEY="你的密钥"\n\n`
+      : ''
+
+    const text = `${keyExport}# 1. OpenAI 协议调用（兼容 /v1/chat/completions）\ncurl -X POST "${baseUrl}/v1/chat/completions" \\${authLine}
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "任意值（以映射的目标模型为准）",
+    "messages": [{"role": "user", "content": "你好"}],
+    "max_tokens": 1024
+  }'
+
+# 2. OpenAI 协议流式调用（SSE）
+curl -N -X POST "${baseUrl}/v1/chat/completions" \\${authLine}
+  -H "Content-Type: application/json" \\
+  -d '{"messages": [{"role": "user", "content": "你好"}], "stream": true, "max_tokens": 1024}'
+
+# 3. Anthropic 协议调用（兼容 /v1/messages）
+curl -X POST "${baseUrl}/v1/messages" \\${authLineA}
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "任意值（以映射的目标模型为准）",
+    "max_tokens": 1024,
+    "messages": [{"role": "user", "content": "你好"}]
+  }'`
+    setCurlSample(text)
+    setCurlModalVisible(true)
+  }
+
 
   const fetchMappings = async () => {
     setLoading(true)
@@ -786,11 +827,14 @@ const MappingsTab: React.FC<{ onNotify: () => void }> = ({ onNotify }) => {
     {
       title: '操作',
       key: 'action',
-      width: 120,
+      width: 160,
       render: (_: unknown, record: ModelMapping) => (
         <Space size="small">
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => showEditDialog(record)}>
             编辑
+          </Button>
+          <Button type="link" size="small" icon={<CodeOutlined />} onClick={() => showCurlExamples(record)}>
+            调用示例
           </Button>
           <Popconfirm title="确定删除此映射服务?" onConfirm={() => handleDelete(record.id)}>
             <Button type="link" size="small" danger icon={<DeleteOutlined />} />
@@ -885,6 +929,51 @@ const MappingsTab: React.FC<{ onNotify: () => void }> = ({ onNotify }) => {
         <Paragraph code copyable={false} style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
           {plainKey}
         </Paragraph>
+      </Modal>
+
+      {/* 调用示例弹窗 */}
+      <Modal
+        title="调用示例（curl）"
+        open={curlModalVisible}
+        width={760}
+        onCancel={() => setCurlModalVisible(false)}
+        footer={[
+          <Button key="copy" icon={<CopyOutlined />} onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(curlSample)
+              message.success('已复制')
+            } catch {
+              const input = document.createElement('textarea')
+              input.value = curlSample
+              document.body.appendChild(input)
+              input.select()
+              document.execCommand('copy')
+              document.body.removeChild(input)
+              message.success('已复制')
+            }
+          }}>
+            复制全部
+          </Button>,
+          <Button key="ok" type="primary" onClick={() => setCurlModalVisible(false)}>
+            关闭
+          </Button>,
+        ]}
+      >
+        <Alert
+          type="info"
+          showIcon
+          message="示例中的 URL 已按此映射服务生成；auth_required 开启时密钥用环境变量 MAPPING_KEY 占位，执行前先 export，避免密钥落入 shell 历史"
+          style={{ marginBottom: 16 }}
+        />
+        <pre
+          style={{
+            background: '#1e1e1e', color: '#d4d4d4', padding: 16, borderRadius: 8,
+            fontSize: 12, lineHeight: 1.6, overflowX: 'auto', margin: 0,
+            fontFamily: 'Consolas, Monaco, monospace',
+          }}
+        >
+          {curlSample}
+        </pre>
       </Modal>
     </>
   )
