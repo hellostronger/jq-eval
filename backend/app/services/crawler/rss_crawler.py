@@ -1,6 +1,7 @@
 # RSS爬虫
 from typing import Dict, List, Any, Optional
 from datetime import datetime
+import re
 import feedparser
 import logging
 import asyncio
@@ -9,79 +10,165 @@ from langdetect import detect, LangDetectException
 from bs4 import BeautifulSoup
 from markdownify import markdownify as md
 
+try:
+    import trafilatura
+except ImportError:
+    trafilatura = None
+
 from .base import BaseCrawler, CrawledArticle, CrawlResult
+from .image_transfer import transfer_article_images
 
 logger = logging.getLogger(__name__)
 
 
+def detect_text_language(text: str) -> Optional[str]:
+    """检测文本语言
+
+    langdetect 对短中文文本易误判（vi/en等），先按中文字符占比判定
+    """
+    if not text or len(text) < 20:
+        return None
+    sample = text[:500]
+    chinese = len(re.findall(r"[一-鿿]", sample))
+    if chinese / max(len(sample), 1) > 0.15:
+        return "zh"
+    try:
+        return detect(sample)
+    except LangDetectException:
+        return None
+
+
 # 常见的文章正文选择器
+# 注意：宽泛的选择器（如 article、[class*='content']）容易命中广告/侧栏容器，
+# 实际提取时会取"文本最长的候选"，这里顺序只影响优先级
 ARTICLE_CONTENT_SELECTORS = [
-    "article",
     ".article-content",
+    ".article-body",
     ".post-content",
     ".entry-content",
-    ".content",
-    ".article-body",
     ".post-body",
     ".story-body",
     "#article-content",
+    "article",
+    ".content",
     "[class*='content']",
     "[class*='article']",
 ]
 
+# 正文最小长度：低于此值的候选视为误命中（广告、摘要、骨架页），继续尝试下一个
+MIN_CONTENT_LENGTH = 200
+
+# 默认浏览器 UA，部分站点（雪球、开源中国等）对无 UA 请求直接返回 403
+DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+}
+
+
+def _cleanup_element(elem) -> None:
+    """移除脚本、样式、导航等干扰元素"""
+    for tag in elem.select(
+        "script, style, nav, header, footer, aside, .sidebar, "
+        ".ads, .ad, [class*='ad-'], [class*='-ad'], "
+        ".recommend, .comment, "
+        "[class*='share'], [class*='social'], [class*='reaction'], "
+        "[class*='button'], button, form, iframe, svg"
+    ):
+        tag.decompose()
+
+
+async def _get_page_text(client: "httpx.AsyncClient", url: str) -> Optional[str]:
+    """请求页面，带UA失败时用裸头重试（部分站点对伪造UA的指纹校验更严）"""
+    response = await client.get(url)
+    if response.status_code != 200 or len(response.text) < 1000:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as bare_client:
+            retry = await bare_client.get(url)
+        if retry.status_code == 200 and len(retry.text) >= len(response.text):
+            return retry.text
+    if response.status_code != 200:
+        response.raise_for_status()
+    return response.text
+
+
+def _cleanup_extracted(text: str) -> str:
+    """清理 trafilatura 提取结果中的互动按钮等残留（如单独成行的 +1）"""
+    text = re.sub(r"^\s*[-*]?\s*\+1\s*$", "", text, flags=re.M)
+    return text.strip()
+
 
 async def fetch_full_content(url: str, content_format: str = "markdown") -> Optional[str]:
     """获取文章完整内容
+
+    策略：优先用 trafilatura（通用正文提取算法，自动识别正文/过滤广告导航等噪音）；
+    未安装或提取失败时，回退到"候选选择器取最长文本 + 段落汇总"的启发式方案。
 
     Args:
         url: 文章链接
         content_format: 内容格式 - "text"(纯文本), "markdown"(Markdown), "html"(原始HTML)
 
     Returns:
-        格式化后的文章内容
+        格式化后的文章内容，提取失败返回 None
     """
     try:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-            response = await client.get(url)
-            response.raise_for_status()
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=DEFAULT_HEADERS) as client:
+            page_text = await _get_page_text(client, url)
+            if not page_text:
+                return None
 
-            soup = BeautifulSoup(response.text, "lxml")
+            soup = BeautifulSoup(page_text, "lxml")
 
-            # 尝试多种选择器找到文章正文
+            # 优先：trafilatura 通用正文提取
+            if trafilatura is not None and content_format != "html":
+                output_format = "markdown" if content_format == "markdown" else "txt"
+                try:
+                    extracted = trafilatura.extract(
+                        page_text,
+                        output_format=output_format,
+                        include_comments=False,
+                        include_tables=True,
+                        include_images=True,
+                    )
+                except Exception as e:
+                    logger.warning(f"trafilatura 提取失败，回退到选择器方案: {url}, 错误: {e}")
+                    extracted = None
+                if extracted and len(extracted) >= MIN_CONTENT_LENGTH:
+                    return _cleanup_extracted(extracted)
+
+            # 回退：遍历选择器，记录文本最长的正文容器
+            best_elem = None
+            best_length = 0
+
             for selector in ARTICLE_CONTENT_SELECTORS:
                 elem = soup.select_one(selector)
-                if elem:
-                    # 清理：移除脚本、样式、导航等
-                    for tag in elem.select("script, style, nav, header, footer, aside, .sidebar, .ads"):
-                        tag.decompose()
+                if not elem:
+                    continue
+                _cleanup_element(elem)
+                text_length = len(elem.get_text(strip=True))
+                if text_length > best_length:
+                    best_elem = elem
+                    best_length = text_length
 
-                    if content_format == "html":
-                        # 保留HTML格式
-                        return str(elem)
-                    elif content_format == "markdown":
-                        # 转换为Markdown
-                        html = str(elem)
-                        return md(html, heading_style="atx", bullets="-")
-                    else:
-                        # 纯文本格式
-                        text = elem.get_text(strip=True, separator="\n")
-                        if len(text) > 200:
-                            return text
-
-            # 如果没有找到，尝试获取所有p标签内容
-            paragraphs = soup.select("p")
-            if paragraphs:
+            if best_elem is not None and best_length >= MIN_CONTENT_LENGTH:
                 if content_format == "html":
-                    return "\n".join(str(p) for p in paragraphs if len(p.get_text(strip=True)) > 50)
+                    return str(best_elem)
                 elif content_format == "markdown":
-                    html = "\n".join(str(p) for p in paragraphs if len(p.get_text(strip=True)) > 50)
-                    return md(html, heading_style="atx")
+                    return md(str(best_elem), heading_style="atx", bullets="-")
                 else:
-                    text = "\n".join(p.get_text(strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 50)
-                    if len(text) > 200:
-                        return text
+                    return best_elem.get_text(strip=True, separator="\n")
 
-            return None
+            # 兜底：汇总所有有效段落
+            paragraphs = [p for p in soup.select("p") if len(p.get_text(strip=True)) > 50]
+            if not paragraphs:
+                return None
+
+            if content_format == "html":
+                return "\n".join(str(p) for p in paragraphs)
+            elif content_format == "markdown":
+                return md("\n".join(str(p) for p in paragraphs), heading_style="atx")
+            else:
+                text = "\n".join(p.get_text(strip=True) for p in paragraphs)
+                return text if len(text) >= MIN_CONTENT_LENGTH else None
     except Exception as e:
         logger.warning(f"获取文章完整内容失败: {url}, 错误: {e}")
         return None
@@ -133,17 +220,43 @@ class RSSCrawler(BaseCrawler):
                     *[fetch_full_content(url, content_format) for url in urls]
                 )
 
+                kept = []
                 for i, article in enumerate(articles):
                     if article.source_url and contents[i]:
+                        # 全文抓取成功，无条件覆盖（RSS原始content可能是HTML，
+                        # 直接按长度比较会让原始HTML反而胜出）
                         article.content = contents[i]
                         article.metadata["content_length"] = len(article.content)
                         article.metadata["content_format"] = content_format
                         # 重新检测语言
-                        if len(article.content) > 50:
-                            try:
-                                article.metadata["language"] = detect(article.content[:500])
-                            except LangDetectException:
-                                pass
+                        lang = detect_text_language(article.content or "")
+                        if lang:
+                            article.metadata["language"] = lang
+                        kept.append(article)
+                    elif article.source_url:
+                        # 全文抓取失败，保留RSS摘要但标记，避免与全文混淆；
+                        # 摘要若是HTML则转为纯文本
+                        if article.content and "<" in article.content:
+                            article.content = BeautifulSoup(article.content, "lxml").get_text(separator="\n", strip=True)
+                        article.metadata["full_content_fetched"] = False
+                        kept.append(article)
+                    else:
+                        kept.append(article)
+                articles = kept
+
+            # 图片转存MinIO：下载正文图片并替换URL（markdown/HTML格式才处理）
+            if content_format in ("markdown", "html") and articles:
+                for article in articles:
+                    if not article.content or "http" not in article.content:
+                        continue
+                    try:
+                        new_content, count = await transfer_article_images(article.content)
+                        if count > 0:
+                            article.content = new_content
+                            article.metadata["images_transferred"] = count
+                            article.metadata["content_length"] = len(article.content)
+                    except Exception as e:
+                        logger.warning(f"图片转存失败({article.title[:30]}): {e}")
 
             return CrawlResult(
                 total=len(articles),
@@ -194,12 +307,7 @@ class RSSCrawler(BaseCrawler):
         content_length = len(content) if content else 0
 
         # 检测语言
-        language = None
-        if content and len(content) > 50:
-            try:
-                language = detect(content[:500])
-            except LangDetectException:
-                language = None
+        language = detect_text_language(content)
 
         return CrawledArticle(
             title=entry.get("title", ""),

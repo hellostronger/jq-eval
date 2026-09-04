@@ -1,6 +1,9 @@
 // 类型定义
 
-export type ModelType = 'llm' | 'embedding' | 'reranker'
+export type ModelType = 'llm' | 'embedding' | 'reranker' | 'doc_parser'
+
+// 文档解析服务提供商
+export type DocParserProvider = 'mineru' | 'mineru_api' | 'custom'
 
 export interface ModelConfig {
   id: string
@@ -11,8 +14,12 @@ export interface ModelConfig {
   endpoint: string
   api_key_masked?: string  // 掩码显示，如 "sk-***abc"
   params: {
-    temperature: number
-    max_tokens: number
+    temperature?: number
+    max_tokens?: number
+    // 文档解析服务配置（doc_parser 类型）
+    output_format?: string
+    language?: string
+    backend_url?: string
   }
   api_key?: string  // 仅用于创建/更新时传递
   dimension?: number

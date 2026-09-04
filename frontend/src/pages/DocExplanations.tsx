@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Button, Tag, Modal, Form, Input, Select, message, Space, Popconfirm } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Tag, Modal, Form, Input, Select, message, Space, Popconfirm, Upload } from 'antd'
+import { PlusOutlined, EditOutlined, DeleteOutlined, UploadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { getDocExplanations, createDocExplanation, updateDocExplanation, deleteDocExplanation, getDocuments } from '@/api'
+import { getDocExplanations, createDocExplanation, updateDocExplanation, deleteDocExplanation, getDocuments, uploadGlobalDocument } from '@/api'
 import type { DocExplanation, DocumentInfo } from '@/types'
 
 const DocExplanations: React.FC = () => {
@@ -13,6 +13,7 @@ const DocExplanations: React.FC = () => {
   const [editModalVisible, setEditModalVisible] = useState(false)
   const [editingExp, setEditingExp] = useState<DocExplanation | null>(null)
   const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const [form] = Form.useForm()
   const [editForm] = Form.useForm()
 
@@ -34,9 +35,33 @@ const DocExplanations: React.FC = () => {
     fetchData()
   }, [])
 
-  const showCreateModal = () => {
+  const showCreateModal = async () => {
     form.resetFields()
     setModalVisible(true)
+    // 打开弹窗时刷新文档列表
+    try {
+      const docData = await getDocuments()
+      setDocuments(docData.items || docData)
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // 弹窗内直接上传文件并选中文档
+  const handleUploadDocument = async (file: File) => {
+    setUploading(true)
+    try {
+      const doc = await uploadGlobalDocument(file)
+      message.success(`文档上传成功，已分片 ${doc.chunk_count ?? 0} 个`)
+      const docData = await getDocuments()
+      setDocuments(docData.items || docData)
+      form.setFieldsValue({ doc_id: doc.id })
+    } catch (e) {
+      // 错误已由拦截器处理
+    } finally {
+      setUploading(false)
+    }
+    return false
   }
 
   const handleCreate = async () => {
@@ -172,11 +197,27 @@ const DocExplanations: React.FC = () => {
         width={600}
       >
         <Form form={form} labelCol={{ span: 4 }}>
-          <Form.Item name="doc_id" label="文档" rules={[{ required: true }]}>
+          <Form.Item name="doc_id" label="文档" rules={[{ required: true, message: '请选择或上传文档' }]}>
             <Select
-              placeholder="选择文档"
+              placeholder="选择文档，或点击右侧按钮上传新文档"
               showSearch
               optionFilterProp="label"
+              loading={uploading}
+              dropdownRender={menu => (
+                <>
+                  {menu}
+                  <div style={{ padding: 8, borderTop: '1px solid #f0f0f0' }}>
+                    <Upload beforeUpload={handleUploadDocument} accept=".txt,.md,.pdf" showUploadList={false}>
+                      <Button icon={<UploadOutlined />} size="small" loading={uploading}>
+                        上传新文档
+                      </Button>
+                    </Upload>
+                    <div style={{ marginTop: 4, color: '#999', fontSize: 12 }}>
+                      支持 TXT、Markdown、PDF，上传后自动分片并选中
+                    </div>
+                  </div>
+                </>
+              )}
               options={documents.map(d => ({ value: d.id, label: d.title || d.id }))}
             />
           </Form.Item>

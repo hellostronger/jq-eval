@@ -6,23 +6,13 @@ from typing import List, Optional, Dict, Any
 from uuid import UUID
 from pydantic import BaseModel
 from datetime import datetime
-from langdetect import detect, LangDetectException
 
 from ...core.database import get_db
 from ...models.hot_news import HotNewsSource, HotArticle
 from ...services.crawler import CrawlerFactory
+from ...services.crawler.rss_crawler import detect_text_language
 
 router = APIRouter()
-
-
-def detect_language(text: str) -> Optional[str]:
-    """检测文本语言"""
-    if not text or len(text) < 50:
-        return None
-    try:
-        return detect(text[:500])
-    except LangDetectException:
-        return None
 
 
 # Pydantic Schemas
@@ -411,7 +401,7 @@ async def list_articles(
         category=a.category,
         tags=a.tags or [],
         content_length=len(a.content) if a.content else 0,
-        language=detect_language(a.content) if a.content else None,
+        language=detect_text_language(a.content),
     ) for a in articles]
 
 

@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from ...core.database import get_db
-from ...models import Model, ModelRequestLog
+from ...models import Model, ModelRequestLog, ModelMapping
 from ...services.llm.llm_client import create_llm_from_config
 
 router = APIRouter()
@@ -36,6 +36,9 @@ class LogResponse(BaseModel):
     is_replay: bool
     replay_from_log_id: Optional[UUID]
     replay_model_id: Optional[UUID]
+    source: Optional[str] = "direct"
+    mapping_id: Optional[UUID] = None
+    mapping_name: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -92,7 +95,8 @@ class LogStatsResponse(BaseModel):
     replay_count: int
 
 
-def log_to_response(log: ModelRequestLog, model_name: Optional[str] = None) -> dict:
+def log_to_response(log: ModelRequestLog, model_name: Optional[str] = None,
+                    mapping_name: Optional[str] = None) -> dict:
     """将日志转换为响应字典"""
     return {
         "id": log.id,
@@ -102,6 +106,7 @@ def log_to_response(log: ModelRequestLog, model_name: Optional[str] = None) -> d
         "request_type": log.request_type,
         "prompt": log.prompt,
         "system_prompt": log.system_prompt,
+        "messages": getattr(log, "messages", None),
         "params": log.params,
         "response": log.response,
         "response_metadata": log.response_metadata,
@@ -111,6 +116,9 @@ def log_to_response(log: ModelRequestLog, model_name: Optional[str] = None) -> d
         "is_replay": log.is_replay,
         "replay_from_log_id": log.replay_from_log_id,
         "replay_model_id": log.replay_model_id,
+        "source": getattr(log, "source", None) or "direct",
+        "mapping_id": getattr(log, "mapping_id", None),
+        "mapping_name": mapping_name,
         "created_at": log.created_at,
     }
 
@@ -121,6 +129,8 @@ async def list_logs(
     request_type: Optional[str] = None,
     status: Optional[str] = None,
     is_replay: Optional[bool] = None,
+    source: Optional[str] = None,
+    mapping_id: Optional[UUID] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db)
@@ -136,6 +146,10 @@ async def list_logs(
         query = query.where(ModelRequestLog.status == status)
     if is_replay is not None:
         query = query.where(ModelRequestLog.is_replay == is_replay)
+    if source:
+        query = query.where(ModelRequestLog.source == source)
+    if mapping_id:
+        query = query.where(ModelRequestLog.mapping_id == mapping_id)
 
     # 获取总数
     count_query = select(func.count()).select_from(query.subquery())
@@ -157,7 +171,21 @@ async def list_logs(
         for row in model_result:
             model_names[row[0]] = row[1]
 
-    items = [log_to_response(log, model_names.get(log.model_id)) for log in logs]
+    # 获取映射服务名称
+    mapping_names = {}
+    mapping_ids = [log.mapping_id for log in logs if getattr(log, "mapping_id", None)]
+    if mapping_ids:
+        mapping_result = await db.execute(
+            select(ModelMapping.id, ModelMapping.name).where(ModelMapping.id.in_(mapping_ids))
+        )
+        for row in mapping_result:
+            mapping_names[row[0]] = row[1]
+
+    items = [
+        log_to_response(log, model_names.get(log.model_id),
+                        mapping_names.get(getattr(log, "mapping_id", None)))
+        for log in logs
+    ]
     return {"items": items, "total": total}
 
 
@@ -180,7 +208,15 @@ async def get_log(
     )
     model_name = model_result.scalar_one_or_none()
 
-    return log_to_response(log, model_name)
+    # 获取映射服务名称
+    mapping_name = None
+    if getattr(log, "mapping_id", None):
+        mapping_result = await db.execute(
+            select(ModelMapping.name).where(ModelMapping.id == log.mapping_id)
+        )
+        mapping_name = mapping_result.scalar_one_or_none()
+
+    return log_to_response(log, model_name, mapping_name)
 
 
 @router.post("/{log_id}/replay", response_model=ReplayResult)

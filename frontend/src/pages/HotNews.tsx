@@ -5,8 +5,40 @@ import dayjs from 'dayjs'
 import { getNewsSources, createNewsSource, updateNewsSource, deleteNewsSource, testNewsSource, triggerCrawl, getHotArticles, getNewsStats, getDomains, getSupportedTypes, deleteArticle, batchDeleteArticles } from '@/api'
 import type { NewsSource, HotArticle, NewsStats } from '@/types'
 
-const HotNews: React.FC = () => {
-  const [sources, setSources] = useState<NewsSource[]>([])
+/** 文章正文渲染：markdown 图片 ![alt](url) 转为 <img>，其余按纯文本 */
+const ArticleContent: React.FC<{ content?: string | null }> = ({ content }) => {
+  if (!content) return <div style={{ color: '#999' }}>无内容</div>
+  const parts: React.ReactNode[] = []
+  const regex = /!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g
+  let last = 0
+  let m: RegExpExecArray | null
+  let key = 0
+  while ((m = regex.exec(content)) !== null) {
+    if (m.index > last) {
+      parts.push(<span key={key++}>{content.slice(last, m.index)}</span>)
+    }
+    parts.push(
+      <img
+        key={key++}
+        src={m[2]}
+        alt={m[1] || ''}
+        style={{ maxWidth: '100%', display: 'block', margin: '12px 0', borderRadius: 4 }}
+        loading="lazy"
+      />
+    )
+    last = m.index + m[0].length
+  }
+  if (last < content.length) {
+    parts.push(<span key={key++}>{content.slice(last)}</span>)
+  }
+  return (
+    <div style={{ maxHeight: 500, overflow: 'auto', whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>
+      {parts}
+    </div>
+  )
+}
+
+const HotNews: React.FC = () => {  const [sources, setSources] = useState<NewsSource[]>([])
   const [articles, setArticles] = useState<HotArticle[]>([])
   const [stats, setStats] = useState<NewsStats | null>(null)
   const [domains, setDomains] = useState<{ code: string; name: string }[]>([])
@@ -520,9 +552,7 @@ const HotNews: React.FC = () => {
                 {selectedArticle.published_at && <span>发布: {dayjs(selectedArticle.published_at).format('YYYY-MM-DD')}</span>}
               </Space>
             </div>
-            <div style={{ maxHeight: 400, overflow: 'auto', whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>
-              {selectedArticle.content || '无内容'}
-            </div>
+            <ArticleContent content={selectedArticle.content} />
           </div>
         )}
       </Modal>

@@ -6,6 +6,7 @@ from .evaluation import Evaluation, EvaluationMetricConfig, EvalResult
 from .invocation import InvocationBatch, InvocationResult
 from .model import Model
 from .model_log import ModelRequestLog
+from .model_mapping import ModelMapping
 from .rag_system import RAGSystem, RAGSystemType
 from .metric import MetricDefinition, Tag, EntityTag
 from .sync import DataSource, SyncTask, SchemaMapping, DataSourceType
@@ -44,6 +45,7 @@ __all__ = [
     "InvocationResult",
     "Model",
     "ModelRequestLog",
+    "ModelMapping",
     "RAGSystem",
     "RAGSystemType",
     "MetricDefinition",

@@ -30,7 +30,19 @@ const Models: React.FC = () => {
   const showCreateDialog = () => {
     setEditingModel(null)
     form.resetFields()
-    form.setFieldsValue({
+    const defaults: Record<string, Record<string, unknown>> = {
+      doc_parser: {
+        model_type: 'doc_parser',
+        provider: 'mineru',
+        endpoint: 'http://localhost:8888',
+        output_format: 'markdown',
+        language: 'ch',
+        backend_url: 'pipeline',
+        is_default: false,
+        save_logs: false,
+      },
+    }
+    form.setFieldsValue(defaults[activeTab] || {
       model_type: activeTab,
       provider: 'openai',
       temperature: 0.7,
@@ -56,6 +68,9 @@ const Models: React.FC = () => {
       max_tokens: model.params?.max_tokens || 2048,
       dimension: model.dimension || 1536,
       max_input_length: model.max_input_length,
+      output_format: model.params?.output_format || 'markdown',
+      language: model.params?.language || 'ch',
+      backend_url: model.params?.backend_url || 'pipeline',
       is_default: model.is_default,
       save_logs: model.save_logs || false,
     })
@@ -63,6 +78,18 @@ const Models: React.FC = () => {
   }
 
   const onProviderChange = (provider: string) => {
+    const modelType = form.getFieldValue('model_type')
+    if (modelType === 'doc_parser') {
+      const parserPresets: Record<string, { endpoint: string }> = {
+        mineru: { endpoint: 'http://localhost:8888' },
+        mineru_api: { endpoint: 'https://mineru.net' },
+        custom: { endpoint: '' },
+      }
+      if (parserPresets[provider]) {
+        form.setFieldsValue({ endpoint: parserPresets[provider].endpoint })
+      }
+      return
+    }
     const presets: Record<string, { endpoint: string }> = {
       openai: { endpoint: 'https://api.openai.com/v1' },
       azure: { endpoint: '' },
@@ -81,7 +108,7 @@ const Models: React.FC = () => {
     try {
       const values = await form.validateFields()
       setSaving(true)
-      const payload = {
+      const payload: Record<string, unknown> = {
         name: values.name,
         model_type: values.model_type,
         provider: values.provider,
@@ -94,6 +121,13 @@ const Models: React.FC = () => {
         max_input_length: values.max_input_length,
         is_default: values.is_default,
         save_logs: values.save_logs,
+      }
+      if (values.model_type === 'doc_parser') {
+        payload.parse_config = {
+          output_format: values.output_format || 'markdown',
+          language: values.language || 'ch',
+          backend_url: values.backend_url || 'pipeline',
+        }
       }
       if (editingModel) {
         await updateModel(editingModel.id, payload)
@@ -181,6 +215,7 @@ const Models: React.FC = () => {
     { key: 'llm', label: 'LLM' },
     { key: 'embedding', label: 'Embedding' },
     { key: 'reranker', label: 'Reranker' },
+    { key: 'doc_parser', label: '文档解析' },
   ]
 
   return (
@@ -212,27 +247,99 @@ const Models: React.FC = () => {
               { value: 'llm', label: 'LLM' },
               { value: 'embedding', label: 'Embedding' },
               { value: 'reranker', label: 'Reranker' },
+              { value: 'doc_parser', label: '文档解析' },
             ]} />
           </Form.Item>
-          <Form.Item name="provider" label="提供商">
-            <Select onChange={onProviderChange} options={[
-              { value: 'openai', label: 'OpenAI' },
-              { value: 'azure', label: 'Azure OpenAI' },
-              { value: 'zhipuai', label: '智谱AI' },
-              { value: 'baidu', label: '百度千帆' },
-              { value: 'aliyun', label: '阿里云百炼' },
-              { value: 'volcengine', label: '火山引擎' },
-              { value: 'local', label: '本地部署' },
-            ]} />
+          <Form.Item shouldUpdate={(prev, curr) => prev.model_type !== curr.model_type}>
+            {({ getFieldValue }) => {
+              const modelType = getFieldValue('model_type')
+              if (modelType === 'doc_parser') {
+                return (
+                  <Form.Item name="provider" label="解析服务" rules={[{ required: true }]}>
+                    <Select onChange={onProviderChange} options={[
+                      { value: 'mineru', label: 'MinerU（自部署）' },
+                      { value: 'mineru_api', label: 'MinerU（官方API）' },
+                      { value: 'custom', label: '自定义' },
+                    ]} />
+                  </Form.Item>
+                )
+              }
+              return (
+                <Form.Item name="provider" label="提供商">
+                  <Select onChange={onProviderChange} options={[
+                    { value: 'openai', label: 'OpenAI' },
+                    { value: 'azure', label: 'Azure OpenAI' },
+                    { value: 'zhipuai', label: '智谱AI' },
+                    { value: 'baidu', label: '百度千帆' },
+                    { value: 'aliyun', label: '阿里云百炼' },
+                    { value: 'volcengine', label: '火山引擎' },
+                    { value: 'local', label: '本地部署' },
+                  ]} />
+                </Form.Item>
+              )
+            }}
           </Form.Item>
-          <Form.Item name="model_name" label="模型名称" rules={[{ required: true }]}>
-            <Input placeholder="如 gpt-4, text-embedding-ada-002" />
+          <Form.Item shouldUpdate={(prev, curr) => prev.model_type !== curr.model_type}>
+            {({ getFieldValue }) => {
+              const modelType = getFieldValue('model_type')
+              if (modelType !== 'doc_parser') return null
+              return (
+                <>
+                  <Form.Item
+                    name="endpoint"
+                    label="服务地址"
+                    rules={[{ required: getFieldValue('provider') !== 'mineru_api', message: '请输入服务地址' }]}
+                  >
+                    <Input placeholder="MinerU服务地址, 如 http://localhost:8888" />
+                  </Form.Item>
+                  <Form.Item
+                    name="api_key"
+                    label="API Key"
+                    rules={[{ required: getFieldValue('provider') === 'mineru_api', message: 'MinerU官方API需要API Key' }]}
+                  >
+                    <Input.Password placeholder={editingModel?.api_key_masked || (getFieldValue('provider') === 'mineru_api' ? 'mineru.net 申请的 Token' : '可选')} />
+                  </Form.Item>
+                  <Form.Item name="output_format" label="输出格式">
+                    <Select options={[
+                      { value: 'markdown', label: 'Markdown' },
+                      { value: 'json', label: 'JSON' },
+                    ]} />
+                  </Form.Item>
+                  <Form.Item name="language" label="文档语言">
+                    <Select options={[
+                      { value: 'ch', label: '中文' },
+                      { value: 'en', label: '英文' },
+                    ]} />
+                  </Form.Item>
+                  <Form.Item name="backend_url" label="解析后端">
+                    <Select options={[
+                      { value: 'pipeline', label: 'pipeline（默认）' },
+                      { value: 'vlm-transformers', label: 'vlm-transformers' },
+                      { value: 'vlm-sglang', label: 'vlm-sglang' },
+                    ]} />
+                  </Form.Item>
+                </>
+              )
+            }}
           </Form.Item>
-          <Form.Item name="endpoint" label="API地址" rules={[{ required: true }]}>
-            <Input placeholder="API Base URL" />
-          </Form.Item>
-          <Form.Item name="api_key" label="API Key" rules={[{ required: !editingModel, message: '请输入 API Key' }]}>
-            <Input.Password placeholder={editingModel?.api_key_masked || 'API Key'} />
+          <Form.Item shouldUpdate={(prev, curr) => prev.model_type !== curr.model_type}>
+            {({ getFieldValue }) => {
+              // 文档解析服务没有模型名称/API地址/API Key（在上方单独渲染）
+              if (getFieldValue('model_type') === 'doc_parser') return null
+              return (
+                <>
+                  <Form.Item name="model_name" label="模型名称" rules={[{ required: true }]}>
+                    <Input placeholder="如 gpt-4, text-embedding-ada-002" />
+                  </Form.Item>
+                  <Form.Item name="endpoint" label="API地址" rules={[{ required: true }]}>
+                    <Input placeholder="API Base URL" />
+                  </Form.Item>
+                  <Form.Item name="api_key" label="API Key" rules={[{ required: !editingModel, message: '请输入 API Key' }]}>
+                    <Input.Password placeholder={editingModel?.api_key_masked || 'API Key'} />
+                  </Form.Item>
+                </>
+              )
+            }}
           </Form.Item>
           <Form.Item shouldUpdate={(prev, curr) => prev.model_type !== curr.model_type}>
             {({ getFieldValue }) => {

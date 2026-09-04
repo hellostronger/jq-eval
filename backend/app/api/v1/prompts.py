@@ -175,25 +175,6 @@ async def list_prompts(
 
     result = await db.execute(query)
     return result.scalars().all()
-    usage_scenario: Optional[str] = None,
-    framework: Optional[str] = None,
-    tags: Optional[str] = None,
-    skip: int = 0,
-    limit: int = 20,
-    db: AsyncSession = Depends(get_db)
-):
-    """获取 Prompt 列表"""
-    query = select(PromptVersion).where(PromptVersion.is_active == True)
-
-    if usage_scenario:
-        query = query.where(PromptVersion.usage_scenario == usage_scenario)
-    if framework:
-        query = query.where(PromptVersion.framework == framework)
-
-    query = query.order_by(desc(PromptVersion.created_at)).offset(skip).limit(limit)
-
-    result = await db.execute(query)
-    return result.scalars().all()
 
 
 @router.get("/{prompt_id}", response_model=PromptVersionResponse)

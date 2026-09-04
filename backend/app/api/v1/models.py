@@ -26,7 +26,7 @@ def mask_api_key(api_key: Optional[str]) -> Optional[str]:
 # Pydantic Schemas
 class ModelCreate(BaseModel):
     name: str
-    model_type: str  # llm/embedding/reranker
+    model_type: str  # llm/embedding/reranker/doc_parser
     provider: Optional[str] = None
     model_name: Optional[str] = None
     endpoint: Optional[str] = None
@@ -37,6 +37,8 @@ class ModelCreate(BaseModel):
     dimension: Optional[int] = None
     max_input_length: Optional[int] = None
     save_logs: bool = False  # 是否保存请求响应日志
+    # 文档解析服务配置（doc_parser 类型）
+    parse_config: Optional[dict] = None  # 如 {"output_format": "markdown", "language": "ch", "backend_url": "pipeline"}
 
 
 class ModelResponse(BaseModel):
@@ -91,6 +93,9 @@ async def create_model(
         "temperature": data.temperature,
         "max_tokens": data.max_tokens
     }
+    # 文档解析服务：解析配置直接放 params
+    if data.parse_config:
+        params.update(data.parse_config)
     model = Model(
         name=data.name,
         model_type=data.model_type,
@@ -159,7 +164,8 @@ async def update_model(
         model.api_key_encrypted = data.api_key
     model.params = {
         "temperature": data.temperature,
-        "max_tokens": data.max_tokens
+        "max_tokens": data.max_tokens,
+        **(data.parse_config or {}),
     }
     model.is_default = data.is_default
     model.dimension = data.dimension
@@ -218,6 +224,10 @@ async def test_model(
         elif model.model_type == "embedding":
             request_data = _build_embedding_test_request(provider, model, test_prompt)
             logger.info(f"Embedding测试请求: url={request_data['url']}")
+        elif model.model_type == "doc_parser":
+            # 文档解析服务：健康检查（MinerU自部署用 /docs 探活）
+            request_data = _build_doc_parser_test_request(provider, model)
+            logger.info(f"DocParser测试请求: url={request_data['url']}")
         else:
             logger.info(f"非LLM/Embedding模型，直接返回成功")
             return {
@@ -228,11 +238,14 @@ async def test_model(
 
         logger.info(f"发送请求到 {request_data['url']}...")
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                request_data["url"],
-                headers=request_data["headers"],
-                json=request_data["body"]
-            )
+            if request_data.get("method") == "GET":
+                response = await client.get(request_data["url"], headers=request_data["headers"])
+            else:
+                response = await client.post(
+                    request_data["url"],
+                    headers=request_data["headers"],
+                    json=request_data["body"]
+                )
             logger.info(f"收到响应: status={response.status_code}")
             if response.status_code != 200:
                 logger.error(f"API返回错误: {response.status_code} - {response.text[:200]}")
@@ -366,6 +379,24 @@ def _build_llm_test_request(provider: str, model, test_prompt: str, params: dict
                 "temperature": params.get("temperature", 0.7)
             }
         }
+
+
+def _build_doc_parser_test_request(provider: str, model) -> dict:
+    """构建文档解析服务测试请求（探活）"""
+    endpoint = (model.endpoint or "").rstrip("/")
+
+    if provider in ("mineru", "mineru_self"):  # MinerU 自部署（FastAPI /file_parse）
+        return {"url": f"{endpoint}/docs", "headers": {}, "method": "GET"}
+    elif provider == "mineru_api":  # MinerU 官方API
+        api_key = model.api_key_encrypted
+        return {
+            "url": "https://mineru.net/api/v4/extract/task/batch",
+            "headers": {"Authorization": f"Bearer {api_key}"} if api_key else {},
+            "method": "GET",
+        }
+    else:
+        # 通用：探活 endpoint 根路径
+        return {"url": endpoint or "http://localhost:8000/docs", "headers": {}, "method": "GET"}
 
 
 def _build_embedding_test_request(provider: str, model, test_prompt: str) -> dict:

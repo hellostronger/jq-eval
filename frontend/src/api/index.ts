@@ -61,10 +61,13 @@ export interface ModelLog {
   is_replay: boolean
   replay_from_log_id?: string
   replay_model_id?: string
+  source?: string
+  mapping_id?: string
+  mapping_name?: string
   created_at: string
 }
 
-export const getModelLogs = (params?: { model_id?: string; request_type?: string; status?: string; is_replay?: boolean; skip?: number; limit?: number }) => {
+export const getModelLogs = (params?: { model_id?: string; request_type?: string; status?: string; is_replay?: boolean; source?: string; mapping_id?: string; skip?: number; limit?: number }) => {
   return request.get<{ items: ModelLog[]; total: number }>('/model-logs', { params })
 }
 
@@ -110,6 +113,44 @@ export const getLogStats = (modelId?: string) => {
     avg_latency_ms?: number
     replay_count: number
   }>('/model-logs/stats', { params: modelId ? { model_id: modelId } : undefined })
+}
+
+// 模型映射服务API
+export interface ModelMapping {
+  id: string
+  name: string
+  target_model_id: string
+  target_model_name?: string
+  auth_required: boolean
+  log_enabled: boolean
+  status: string
+  description?: string
+  api_key_masked?: string
+  api_key?: string  // 仅创建/重置时返回明文
+  openai_base_url?: string
+  anthropic_base_url?: string
+  last_called_at?: string
+  created_at: string
+}
+
+export const getModelMappings = () => {
+  return request.get<ModelMapping[]>('/model-mappings')
+}
+
+export const createMapping = (data: Partial<ModelMapping>) => {
+  return request.post<ModelMapping>('/model-mappings', data)
+}
+
+export const updateMapping = (id: string, data: Partial<ModelMapping>) => {
+  return request.put<ModelMapping>(`/model-mappings/${id}`, data)
+}
+
+export const resetMappingKey = (id: string) => {
+  return request.post<{ api_key: string }>(`/model-mappings/${id}/reset-key`)
+}
+
+export const deleteMapping = (id: string) => {
+  return request.delete(`/model-mappings/${id}`)
 }
 
 // RAG系统API
@@ -623,9 +664,19 @@ export const deleteDocExplanationEvaluation = (id: string) => {
   return request.delete(`/doc-explanation-evaluations/${id}`)
 }
 
-// 获取所有文档（用于选择）
-export const getDocuments = () => {
-  return request.get<{ items: DocumentInfo[]; total: number }>('/datasets/documents')
+// 获取所有文档（用于选择，不分数据集）
+export const getDocuments = (params?: { search?: string; page?: number; size?: number }) => {
+  return request.get<{ items: DocumentInfo[]; total: number }>('/doc-explanations/documents', { params })
+}
+
+// 上传文档（不关联数据集，用于文档解释场景）
+export const uploadGlobalDocument = (file: File, chunkSize?: number, chunkOverlap?: number) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  const params = new URLSearchParams()
+  if (chunkSize) params.append('chunk_size', chunkSize.toString())
+  if (chunkOverlap) params.append('chunk_overlap', chunkOverlap.toString())
+  return request.post<DocumentInfo>(`/doc-explanations/documents/upload?${params.toString()}`, formData)
 }
 
 // 开源数据集API

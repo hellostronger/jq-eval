@@ -1,16 +1,148 @@
 # 文档解释API路由
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from typing import List, Optional
 from uuid import UUID
 from pydantic import BaseModel
 from datetime import datetime
 
 from ...core.database import get_db
-from ...models import DocExplanation, Document
+from ...models import DocExplanation, Document, Chunk
 
 router = APIRouter()
+
+
+# ---------- 全局文档API（供文档解释等场景使用，与数据集解耦） ----------
+
+class GlobalDocumentResponse(BaseModel):
+    """文档响应"""
+    id: UUID
+    title: Optional[str] = None
+    content: Optional[str] = None
+    file_type: Optional[str] = None
+    source_type: Optional[str] = None
+    chunk_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class GlobalDocumentListResponse(BaseModel):
+    """文档列表响应"""
+    items: List[GlobalDocumentResponse]
+    total: int
+
+
+@router.get("/documents", response_model=GlobalDocumentListResponse)
+async def list_all_documents(
+    search: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db)
+):
+    """获取所有文档列表（不分数据集）"""
+    query = select(Document)
+    count_query = select(func.count(Document.id))
+
+    if search:
+        like = f"%{search}%"
+        query = query.where(Document.title.ilike(like))
+        count_query = count_query.where(Document.title.ilike(like))
+
+    total = (await db.execute(count_query)).scalar() or 0
+
+    query = query.order_by(Document.created_at.desc()).offset((page - 1) * size).limit(size)
+    documents = (await db.execute(query)).scalars().all()
+
+    # 批量查询chunk数量
+    chunk_counts: dict = {}
+    if documents:
+        doc_ids = [d.id for d in documents]
+        rows = await db.execute(
+            select(Chunk.doc_id, func.count(Chunk.id))
+            .where(Chunk.doc_id.in_(doc_ids))
+            .group_by(Chunk.doc_id)
+        )
+        chunk_counts = {row[0]: row[1] for row in rows.all()}
+
+    return GlobalDocumentListResponse(
+        items=[GlobalDocumentResponse(
+            id=d.id,
+            title=d.title,
+            content=d.content[:500] if d.content and len(d.content) > 500 else d.content,
+            file_type=d.file_type,
+            source_type=d.source_type,
+            chunk_count=chunk_counts.get(d.id, 0),
+        ) for d in documents],
+        total=total,
+    )
+
+
+@router.post("/documents/upload", response_model=GlobalDocumentResponse)
+async def upload_document(
+    file: UploadFile = File(...),
+    chunk_size: int = Query(500, ge=100, le=4000),
+    chunk_overlap: int = Query(50, ge=0, le=1000),
+    db: AsyncSession = Depends(get_db)
+):
+    """上传文档（不关联数据集），自动分片"""
+    from .datasets import _split_text
+
+    file_content = await file.read()
+    file_ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename else "txt"
+
+    content = ""
+    if file_ext in ("txt", "md"):
+        content = file_content.decode("utf-8", errors="ignore")
+    elif file_ext == "pdf":
+        try:
+            import fitz  # PyMuPDF
+            pdf_doc = fitz.open(stream=file_content, filetype="pdf")
+            content = "".join(page.get_text() for page in pdf_doc)
+            pdf_doc.close()
+        except ImportError:
+            raise HTTPException(status_code=400, detail="PDF处理库未安装，请安装 PyMuPDF")
+    else:
+        content = file_content.decode("utf-8", errors="ignore")
+
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="文档内容为空")
+
+    document = Document(
+        title=file.filename or f"文档_{len(content)}字符",
+        content=content,
+        file_type=file_ext,
+        source_type="upload",
+        doc_metadata={"original_filename": file.filename, "size": len(file_content)}
+    )
+    db.add(document)
+    await db.flush()
+
+    chunks = _split_text(content, chunk_size, chunk_overlap)
+    for i, chunk_text in enumerate(chunks):
+        db.add(Chunk(
+            doc_id=document.id,
+            content=chunk_text["content"],
+            chunk_index=i,
+            start_char=chunk_text["start"],
+            end_char=chunk_text["end"]
+        ))
+
+    await db.commit()
+    await db.refresh(document)
+
+    return GlobalDocumentResponse(
+        id=document.id,
+        title=document.title,
+        content=document.content[:500] if document.content and len(document.content) > 500 else document.content,
+        file_type=document.file_type,
+        source_type=document.source_type,
+        chunk_count=len(chunks),
+    )
+
+
+# ---------- 文档解释API ----------
 
 
 class DocExplanationCreate(BaseModel):

@@ -74,7 +74,7 @@ async def init_db():
     """初始化数据库（创建所有表）"""
     async with async_engine.begin() as conn:
         # 导入所有模型
-        from ..models import document, dataset, evaluation, model, model_log, rag_system, metric, sync, hot_news, load_test, prompt, vibe_agent
+        from ..models import document, dataset, evaluation, model, model_log, model_mapping, rag_system, metric, sync, hot_news, load_test, prompt, vibe_agent
 
         # 创建所有表
         await conn.run_sync(Base.metadata.create_all)
@@ -146,6 +146,32 @@ async def init_db():
             await conn.execute(text("""
                 ALTER TABLE eval_results
                 ADD COLUMN invocation_result_id UUID
+            """))
+
+        # model_request_logs.source
+        result = await conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'model_request_logs' AND column_name = 'source'
+        """))
+        if result.fetchone() is None:
+            await conn.execute(text("""
+                ALTER TABLE model_request_logs
+                ADD COLUMN source VARCHAR(20) NOT NULL DEFAULT 'direct'
+            """))
+
+        # model_request_logs.mapping_id
+        result = await conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'model_request_logs' AND column_name = 'mapping_id'
+        """))
+        if result.fetchone() is None:
+            await conn.execute(text("""
+                ALTER TABLE model_request_logs
+                ADD COLUMN mapping_id UUID
+            """))
+            await conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_model_request_logs_mapping_id
+                ON model_request_logs (mapping_id)
             """))
 
 
