@@ -259,6 +259,44 @@ async def test_model(
                         "error": f"API返回错误: {response.status_code} - {response.text[:200]}",
                         "model_id": str(model_id)
                     }
+            elif model.model_type == "embedding":
+                # Embedding 接口返回普通 JSON，不是 SSE 流
+                response = await client.post(
+                    request_data["url"],
+                    headers=request_data["headers"],
+                    json=request_data["body"]
+                )
+                logger.info(f"收到响应: status={response.status_code}")
+                if response.status_code != 200:
+                    logger.error(f"Embedding API返回错误: {response.status_code} - {response.text[:200]}")
+                    return {
+                        "success": False,
+                        "error": f"API返回错误: {response.status_code} - {response.text[:200]}",
+                        "model_id": str(model_id)
+                    }
+                try:
+                    body = response.json()
+                    embeddings = body.get("data") or []
+                    dimension = len((embeddings[0] or {}).get("embedding") or []) if embeddings else 0
+                except ValueError:
+                    return {
+                        "success": False,
+                        "error": f"响应不是有效JSON: {response.text[:200]}",
+                        "model_id": str(model_id)
+                    }
+                if not dimension:
+                    return {
+                        "success": False,
+                        "error": "接口返回成功但未包含向量数据",
+                        "model_id": str(model_id)
+                    }
+                logger.info(f"Embedding 模型 {model_id} 测试成功, 维度={dimension}")
+                return {
+                    "success": True,
+                    "message": f"测试成功，向量维度: {dimension}",
+                    "dimension": dimension,
+                    "model_id": str(model_id)
+                }
             else:
                 # 探测请求为流式：读到首个有效分片即判定连通，提前断开
                 first_content: Optional[str] = None
