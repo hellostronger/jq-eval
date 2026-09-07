@@ -8,7 +8,8 @@ from datetime import datetime
 from pydantic import BaseModel
 from celery.result import AsyncResult
 
-from ...core.database import get_db
+from ...core.database import get_db, get_db_context
+from ...core.utc_datetime import UTCDatetime
 from ...core.config import settings
 from ...core.celery_app import celery_app
 from ...models import Evaluation, EvalResult, Dataset, QARecord
@@ -45,10 +46,10 @@ class EvaluationResponse(BaseModel):
     batch_size: int
     status: str
     progress: int
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: Optional[UTCDatetime] = None
+    completed_at: Optional[UTCDatetime] = None
     summary: Optional[Dict[str, Any]] = None
-    created_at: Optional[datetime] = None
+    created_at: Optional[UTCDatetime] = None
 
     class Config:
         from_attributes = True
@@ -201,6 +202,51 @@ async def list_evaluations(
         query = query.where(Evaluation.dataset_id == dataset_id)
     result = await db.execute(query.order_by(Evaluation.created_at.desc()))
     return result.scalars().all()
+
+
+@router.get("/daily-stats")
+async def get_daily_stats():
+    """系统统计（Dashboard 首页数据）"""
+    from sqlalchemy import text
+
+    async with get_db_context() as db:
+        datasets_count = (await db.execute(text("SELECT COUNT(*) as count FROM datasets"))).scalar()
+        qa_count = (await db.execute(text("SELECT COUNT(*) as count FROM qa_records"))).scalar()
+        eval_row = (await db.execute(text("""
+            SELECT
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE status = 'completed') as completed,
+                COUNT(*) FILTER (WHERE status = 'running') as running,
+                COUNT(*) FILTER (WHERE status = 'pending') as pending,
+                COUNT(*) FILTER (WHERE status = 'failed') as failed
+            FROM evaluations
+        """))).fetchone()
+        rag_count = (await db.execute(text("SELECT COUNT(*) as count FROM rag_systems"))).scalar()
+        model_row = (await db.execute(text("""
+            SELECT
+                COUNT(*) FILTER (WHERE model_type = 'llm') as llm,
+                COUNT(*) FILTER (WHERE model_type = 'embedding') as embedding,
+                COUNT(*) FILTER (WHERE model_type = 'reranker') as reranker
+            FROM models
+        """))).fetchone()
+
+    return {
+        "total_datasets": datasets_count,
+        "total_qa_records": qa_count,
+        "evaluations": {
+            "total": eval_row["total"],
+            "completed": eval_row["completed"],
+            "running": eval_row["running"],
+            "pending": eval_row["pending"],
+            "failed": eval_row["failed"],
+        },
+        "total_rag_systems": rag_count,
+        "models": {
+            "llm": model_row["llm"],
+            "embedding": model_row["embedding"],
+            "reranker": model_row["reranker"],
+        },
+    }
 
 
 @router.get("/{eval_id}", response_model=EvaluationResponse)

@@ -8,7 +8,8 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from ...core.database import get_db
-from ...models import LoadTest, LoadTestStatus, RAGSystem, Dataset
+from ...core.utc_datetime import UTCDatetime
+from ...models import LoadTest, LoadTestStatus, RAGSystem, Dataset, Model
 
 router = APIRouter()
 
@@ -17,7 +18,8 @@ router = APIRouter()
 class LoadTestCreate(BaseModel):
     name: str
     description: Optional[str] = None
-    rag_system_id: UUID
+    rag_system_id: Optional[UUID] = None
+    target_model_id: Optional[UUID] = None  # 大模型直连压测（与 rag_system_id 二选一）
     test_mode: str  # qps_limit / latency_dist
     test_type: str  # first_token / full_response
     latency_threshold: Optional[float] = None  # 时延阈值（秒），latency_dist模式下可选
@@ -38,6 +40,8 @@ class LoadTestCreate(BaseModel):
 class LoadTestUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    rag_system_id: Optional[UUID] = None
+    target_model_id: Optional[UUID] = None
     test_mode: Optional[str] = None
     test_type: Optional[str] = None
     latency_threshold: Optional[float] = None
@@ -53,7 +57,8 @@ class LoadTestResponse(BaseModel):
     id: UUID
     name: str
     description: Optional[str] = None
-    rag_system_id: UUID
+    rag_system_id: Optional[UUID] = None
+    target_model_id: Optional[UUID] = None
     test_mode: str
     test_type: str
     latency_threshold: Optional[float] = None
@@ -67,9 +72,9 @@ class LoadTestResponse(BaseModel):
     progress: int
     error: Optional[str] = None
     result: Optional[dict] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    created_at: Optional[datetime] = None
+    started_at: Optional[UTCDatetime] = None
+    completed_at: Optional[UTCDatetime] = None
+    created_at: Optional[UTCDatetime] = None
 
     class Config:
         from_attributes = True
@@ -81,11 +86,23 @@ async def create_load_test(
     db: AsyncSession = Depends(get_db)
 ):
     """创建压测任务"""
-    # 检查RAG系统是否存在
-    result = await db.execute(select(RAGSystem).where(RAGSystem.id == data.rag_system_id))
-    rag_system = result.scalar_one_or_none()
-    if not rag_system:
-        raise HTTPException(status_code=404, detail="RAG系统不存在")
+    # 压测对象校验：RAG系统 与 大模型 二选一
+    if not data.rag_system_id and not data.target_model_id:
+        raise HTTPException(status_code=400, detail="必须指定压测对象：RAG系统或大模型")
+
+    if data.rag_system_id:
+        result = await db.execute(select(RAGSystem).where(RAGSystem.id == data.rag_system_id))
+        rag_system = result.scalar_one_or_none()
+        if not rag_system:
+            raise HTTPException(status_code=404, detail="RAG系统不存在")
+
+    if data.target_model_id:
+        result = await db.execute(select(Model).where(Model.id == data.target_model_id))
+        model = result.scalar_one_or_none()
+        if not model:
+            raise HTTPException(status_code=404, detail="大模型不存在")
+        if model.model_type != "llm":
+            raise HTTPException(status_code=400, detail="压测目标必须是 LLM 类型模型")
 
     # 如果指定了数据集，检查数据集是否存在
     if data.dataset_id:
@@ -98,6 +115,7 @@ async def create_load_test(
         name=data.name,
         description=data.description,
         rag_system_id=data.rag_system_id,
+        target_model_id=data.target_model_id,
         test_mode=data.test_mode,
         test_type=data.test_type,
         latency_threshold=data.latency_threshold,

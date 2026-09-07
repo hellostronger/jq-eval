@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from celery.result import AsyncResult
 
 from ...core.database import get_db
+from ...core.utc_datetime import UTCDatetime
 from ...core.config import settings
 from ...core.celery_app import celery_app
 from ...models import (
@@ -18,7 +19,8 @@ from ...models import (
     TrainingQualityChecker,
     TrainingDataTemplate,
     Dataset,
-    QARecord
+    QARecord,
+    Model
 )
 from ...services.training_data.engine import TrainingDataMetricEngine, TRAINING_DATA_METRIC_REGISTRY
 
@@ -44,6 +46,9 @@ class TrainingDataEvalCreate(BaseModel):
     config: Dict[str, Any] = {}
     metrics: List[str]
     metric_configs: List[MetricConfigCreate] = []
+    # 评估用模型（指标 requires_llm / requires_embedding 时必填），存入 config 供任务读取
+    llm_model_id: Optional[UUID] = None
+    embedding_model_id: Optional[UUID] = None
 
 
 class TrainingDataEvalResponse(BaseModel):
@@ -61,9 +66,9 @@ class TrainingDataEvalResponse(BaseModel):
     failed_samples: int
     pass_rate: float
     summary: Optional[Dict[str, Any]]
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    created_at: Optional[datetime] = None
+    started_at: Optional[UTCDatetime] = None
+    completed_at: Optional[UTCDatetime] = None
+    created_at: Optional[UTCDatetime] = None
 
     class Config:
         from_attributes = True
@@ -81,7 +86,7 @@ class TrainingDataEvalResultResponse(BaseModel):
     suggestions: List[str]
     status: str
     overall_score: float
-    created_at: Optional[datetime] = None
+    created_at: Optional[UTCDatetime] = None
 
 
 @router.post("", response_model=TrainingDataEvalResponse)
@@ -96,12 +101,58 @@ async def create_training_data_eval(
     if not dataset:
         raise HTTPException(status_code=404, detail="数据集不存在")
 
+    # 校验评估用模型
+    if data.llm_model_id:
+        m = (await db.execute(select(Model).where(Model.id == data.llm_model_id))).scalar_one_or_none()
+        if not m or m.model_type != "llm":
+            raise HTTPException(status_code=400, detail="评估用 LLM 模型不存在或类型错误")
+    if data.embedding_model_id:
+        m = (await db.execute(select(Model).where(Model.id == data.embedding_model_id))).scalar_one_or_none()
+        if not m or m.model_type != "embedding":
+            raise HTTPException(status_code=400, detail="评估用 Embedding 模型不存在或类型错误")
+
+    # 合并 config：评估用模型ID写入 config 供异步任务读取
+    config = dict(data.config or {})
+    if data.llm_model_id:
+        config.setdefault("llm_model_id", str(data.llm_model_id))
+    if data.embedding_model_id:
+        config.setdefault("embedding_model_id", str(data.embedding_model_id))
+
+    # 根据所选指标生成指标配置（写入 metric_configs 表，任务执行时读取）
+    metric_config_rows = []
+    for config_item in data.metric_configs:
+        metric_config_rows.append({
+            "metric_name": config_item.metric_name,
+            "metric_type": config_item.metric_type,
+            "params": config_item.params,
+            "weight": config_item.weight,
+            "enabled": config_item.enabled,
+            "threshold": config_item.threshold,
+            "threshold_type": config_item.threshold_type,
+        })
+    # 未传 metric_configs 时按 metrics 列表生成默认配置
+    existing_names = {c["metric_name"] for c in metric_config_rows}
+    for name in data.metrics:
+        if name in existing_names:
+            continue
+        metric_cls = TRAINING_DATA_METRIC_REGISTRY.get(name)
+        if metric_cls and data.data_type in metric_cls.data_types:
+            metric_config_rows.append({
+                "metric_name": name,
+                "metric_type": metric_cls.category,
+                "params": {},
+                "weight": 1.0,
+                "enabled": True,
+                "threshold": metric_cls.default_threshold,
+                "threshold_type": metric_cls.threshold_type,
+            })
+
     evaluation = TrainingDataEval(
         name=data.name,
         description=data.description,
         dataset_id=data.dataset_id,
         data_type=data.data_type,
-        config=data.config,
+        config=config,
         metrics=data.metrics,
         status="pending",
         progress=0
@@ -111,16 +162,16 @@ async def create_training_data_eval(
     await db.refresh(evaluation)
 
     # 创建指标配置
-    for config in data.metric_configs:
+    for config_item in metric_config_rows:
         metric_config = TrainingDataMetricConfig(
             eval_id=evaluation.id,
-            metric_name=config.metric_name,
-            metric_type=config.metric_type,
-            params=config.params,
-            weight=config.weight,
-            enabled=config.enabled,
-            threshold=config.threshold,
-            threshold_type=config.threshold_type
+            metric_name=config_item["metric_name"],
+            metric_type=config_item.get("metric_type") or "quality",
+            params=config_item.get("params") or {},
+            weight=config_item.get("weight", 1.0),
+            enabled=config_item.get("enabled", True),
+            threshold=config_item.get("threshold"),
+            threshold_type=config_item.get("threshold_type")
         )
         db.add(metric_config)
 

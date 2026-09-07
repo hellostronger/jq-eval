@@ -89,6 +89,8 @@ async def finish_log(
     }
     if usage is not None:
         metadata["usage"] = usage
+        # 统一键名：与 log_recorder 直调链路的 usage_tokens 对齐，便于聚合统计
+        metadata["usage_tokens"] = usage
     if finish_reason is not None:
         metadata["finish_reason"] = finish_reason
     if raw_stop_reason is not None:

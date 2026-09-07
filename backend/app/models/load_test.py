@@ -35,8 +35,9 @@ class LoadTest(BaseModel):
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
 
-    # 关联RAG系统
-    rag_system_id = Column(UUID(as_uuid=True), ForeignKey("rag_systems.id"), nullable=False, index=True)
+    # 压测对象：rag_system_id（RAG系统）或 target_model_id（直连大模型），二选一
+    rag_system_id = Column(UUID(as_uuid=True), ForeignKey("rag_systems.id"), nullable=True, index=True)
+    target_model_id = Column(UUID(as_uuid=True), ForeignKey("models.id"), nullable=True, index=True)  # 大模型直连压测
 
     # 测试配置
     test_mode = Column(String(50), nullable=False, default=LoadTestMode.QPS_LIMIT.value)  # qps_limit / latency_dist

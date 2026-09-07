@@ -70,6 +70,7 @@ class VibeAgentEngine:
             api_key=self.llm_config.get("api_key", ""),
             base_url=self.llm_config.get("api_url", "https://api.openai.com/v1"),
             max_tokens=self.llm_config.get("max_tokens", 4000),
+            model_kwargs=self.llm_config.get("extra_params") or {},
         )
 
     async def start_session(self, session_id: str, description: str) -> Dict[str, Any]:

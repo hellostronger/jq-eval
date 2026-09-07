@@ -56,6 +56,7 @@ async def get_graph_builder(builder_type: str = "lightrag") -> BaseGraphBuilder:
                 "model": default_model.name,
                 "max_tokens": default_model.params.get("max_tokens", 4000),
                 "temperature": default_model.params.get("temperature", 0.1),
+                "extra_params": default_model.params.get("extra_params") or {},
             }
         else:
             # Fallback to default OpenAI config

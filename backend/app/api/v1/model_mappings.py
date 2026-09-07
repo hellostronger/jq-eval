@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from ...core.database import get_db
+from ...core.utc_datetime import UTCDatetime
 from ...models import Model, ModelMapping
 
 router = APIRouter()
@@ -62,8 +63,8 @@ class MappingResponse(BaseModel):
     api_key: Optional[str] = None  # 仅创建/重置时返回明文
     openai_base_url: Optional[str] = None  # [OI] 客户端 SDK base_url
     anthropic_base_url: Optional[str] = None  # Anthropic 客户端 SDK base_url
-    last_called_at: Optional[datetime] = None
-    created_at: datetime
+    last_called_at: Optional[UTCDatetime] = None
+    created_at: UTCDatetime
 
     class Config:
         from_attributes = True

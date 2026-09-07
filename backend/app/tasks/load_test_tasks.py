@@ -1,6 +1,6 @@
 # 压测任务Celery实现
 import asyncio
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from datetime import datetime
 import logging
 import time
@@ -17,6 +17,23 @@ from app.services.adapters import AdapterFactory, RAGResponse
 from sqlalchemy import text, select
 
 logger = logging.getLogger(__name__)
+
+
+async def _build_direct_llm_adapter(model: Model) -> Any:
+    """为大模型直连压测构建适配器（复用 direct_llm 适配器）"""
+    config = {
+        "api_endpoint": model.endpoint,
+        "api_key": model.api_key_encrypted or "",
+        "model_name": model.model_name or model.name,
+        "provider": model.provider or "openai",
+    }
+    if model.params:
+        config["temperature"] = model.params.get("temperature", 0.7)
+        config["max_tokens"] = model.params.get("max_tokens", 2048)
+        extra = model.params.get("extra_params")
+        if extra:
+            config["extra_params"] = extra
+    return AdapterFactory.create("direct_llm", config)
 
 
 async def _prepare_direct_llm_config(connection_config: Dict[str, Any], db) -> Dict[str, Any]:
@@ -40,6 +57,11 @@ async def _prepare_direct_llm_config(connection_config: Dict[str, Any], db) -> D
         if model.params:
             config["temperature"] = connection_config.get("temperature") or model.params.get("temperature", 0.7)
             config["max_tokens"] = connection_config.get("max_tokens") or model.params.get("max_tokens", 2048)
+            # 额外请求参数：调用方配置可覆盖模型默认
+            extra = dict(model.params.get("extra_params") or {})
+            extra.update(connection_config.get("extra_params") or {})
+            if extra:
+                config["extra_params"] = extra
 
         return config
     except Exception as e:
@@ -81,10 +103,27 @@ async def _run_load_test(task, load_test_id: UUID) -> Dict[str, Any]:
         await db.commit()
 
         try:
-            # 获取RAG系统配置
-            rag_system = await db.get(RAGSystem, load_test.rag_system_id)
-            if not rag_system:
-                raise ValueError(f"RAG系统 {load_test.rag_system_id} 不存在")
+            # 确定压测对象：target_model_id（大模型直连）优先，其次 rag_system_id
+            adapter = None
+            if load_test.target_model_id:
+                model = await db.get(Model, load_test.target_model_id)
+                if not model or model.model_type != "llm":
+                    raise ValueError(f"压测目标模型 {load_test.target_model_id} 不存在或不是 LLM 类型")
+                adapter = await _build_direct_llm_adapter(model)
+            else:
+                # 获取RAG系统配置
+                rag_system = await db.get(RAGSystem, load_test.rag_system_id)
+                if not rag_system:
+                    raise ValueError(f"RAG系统 {load_test.rag_system_id} 不存在")
+
+                # 创建RAG适配器
+                config = rag_system.connection_config
+                if rag_system.system_type == "direct_llm":
+                    config = await _prepare_direct_llm_config(config, db)
+                adapter = AdapterFactory.create(
+                    rag_system.system_type,
+                    config
+                )
 
             # 获取测试问题
             questions = load_test.questions or []
@@ -98,15 +137,6 @@ async def _run_load_test(task, load_test_id: UUID) -> Dict[str, Any]:
 
             if not questions:
                 raise ValueError("没有可用的测试问题")
-
-            # 创建RAG适配器
-            config = rag_system.connection_config
-            if rag_system.system_type == "direct_llm":
-                config = await _prepare_direct_llm_config(config, db)
-            adapter = AdapterFactory.create(
-                rag_system.system_type,
-                config
-            )
 
             # 根据测试模式执行不同的压测逻辑
             if load_test.test_mode == LoadTestMode.QPS_LIMIT.value:
@@ -195,12 +225,16 @@ async def _execute_qps_limit_test(
             "qps": result["qps"],
             "success_rate": result["success_count"] / result["total_requests"],
             "latency_stats": result["latency_stats"],
-            "meets_threshold": result["success_count"] == result["total_requests"]
+            "meets_threshold": result["success_count"] == result["total_requests"] and (
+                not result["latency_stats"] or result["latency_stats"].get("max", 0) <= latency_threshold
+            ),
+            "failed_count": result["failed_count"],
+            "error_summary": result.get("error_summary"),
         })
 
-        logger.info(f"并发={current_concurrency}, QPS={result['qps']:.2f}, 成功率={result['success_count']}/{result['total_requests']}")
+        logger.info(f"并发={current_concurrency}, QPS={result['qps']:.2f}, 成功率={result['success_count']}/{result['total_requests']}, 错误分类={result.get('error_summary', {}).get('error_categories')}")
 
-        # 判断是否达标：100%成功率且所有延迟在阈值内
+        # 判断是否达标：全部成功且最大延迟在阈值内
         if result["success_count"] == result["total_requests"] and result["latency_stats"]:
             max_p99 = result["latency_stats"].get("max", 0)
             if max_p99 <= latency_threshold:
@@ -209,16 +243,37 @@ async def _execute_qps_limit_test(
                 current_concurrency += step
                 continue
 
-        # 不达标，返回上一级结果
-        break
+        # 不达标，记录终止原因后返回上一级结果
+        stop_reason = "unknown"
+        if result["success_count"] < result["total_requests"]:
+            cats = (result.get("error_summary") or {}).get("error_categories") or {}
+            stop_reason = "request_failed" if cats.get("延迟超阈值") != result["failed_count"] else "latency_exceeded"
+            if not cats:
+                stop_reason = "request_failed"
+        elif result["latency_stats"] and result["latency_stats"].get("max", 0) > latency_threshold:
+            stop_reason = "latency_exceeded"
 
+        return {
+            "test_mode": "qps_limit",
+            "max_qps": max_successful_qps,
+            "max_concurrency": max_successful_concurrency,
+            "latency_threshold": latency_threshold,
+            "test_type": test_type,
+            "step_results": step_results,
+            "stopped_at_concurrency": current_concurrency,
+            "stop_reason": stop_reason,
+        }
+
+    # 全部并发级别都达标（正常结束循环）
     return {
         "test_mode": "qps_limit",
         "max_qps": max_successful_qps,
         "max_concurrency": max_successful_concurrency,
         "latency_threshold": latency_threshold,
         "test_type": test_type,
-        "step_results": step_results
+        "step_results": step_results,
+        "stopped_at_concurrency": None,
+        "stop_reason": "max_concurrency_reached",
     }
 
 
@@ -262,7 +317,9 @@ async def _execute_latency_dist_test(
             "qps": result["qps"],
             "success_rate": result["success_count"] / result["total_requests"],
             "latency_stats": result["latency_stats"],
-            "meets_threshold": meets_threshold
+            "meets_threshold": meets_threshold,
+            "failed_count": result["failed_count"],
+            "error_summary": result.get("error_summary"),
         })
 
         logger.info(f"并发={concurrency}, QPS={result['qps']:.2f}, 延迟分布={result['latency_stats']}")
@@ -272,6 +329,97 @@ async def _execute_latency_dist_test(
         "test_type": test_type,
         "latency_threshold": latency_threshold,
         "levels": levels_results
+    }
+
+
+def _summarize_errors(results: List[Any], is_first_token: bool, latency_threshold: Optional[float]) -> Dict[str, Any]:
+    """把单步请求结果汇总成错误分类统计 + 失败样本明细
+
+    分类维度：请求异常(抛错) / 接口报错(适配器返回error) / 延迟超阈值 / 空响应
+    """
+    error_categories: Dict[str, int] = {}
+    failed_samples: List[Dict[str, Any]] = []
+    slow_count = 0
+    request_fail_count = 0
+
+    def classify(error: str) -> str:
+        e = (error or "").lower()
+        if "timeout" in e or "timed out" in e:
+            return "请求超时"
+        if "connect" in e and ("error" in e or "refused" in e or "failed" in e):
+            return "连接失败"
+        if "401" in e or "unauthorized" in e or "api key" in e or "invalid_request_error" in e and "api" in e:
+            return "鉴权失败"
+        if "429" in e or "rate limit" in e:
+            return "限流(429)"
+        if "500" in e or "502" in e or "503" in e or "internal server" in e:
+            return "服务端错误(5xx)"
+        return "其他错误"
+
+    for idx, r in enumerate(results):
+        if isinstance(r, Exception):
+            error_categories["请求异常"] = error_categories.get("请求异常", 0) + 1
+            request_fail_count += 1
+            if len(failed_samples) < 20:
+                failed_samples.append({
+                    "index": idx,
+                    "fail_type": "exception",
+                    "error": str(r)[:500],
+                })
+            continue
+
+        success = r.get("success")
+        error = r.get("error")
+        latency = r.get("latency") or 0
+        full_latency = r.get("full_latency") or 0
+
+        if success:
+            continue
+
+        # 失败原因分类
+        if is_first_token and not error and r.get("first_token_latency") is None:
+            category = "无首token输出"
+        elif latency_threshold is not None and not error and full_latency > 0 and latency > latency_threshold:
+            category = "延迟超阈值"
+            slow_count += 1
+        elif error:
+            category = classify(error)
+            request_fail_count += 1
+        else:
+            category = "空响应"
+            request_fail_count += 1
+
+        error_categories[category] = error_categories.get(category, 0) + 1
+        if len(failed_samples) < 20:
+            failed_samples.append({
+                "index": idx,
+                "fail_type": "slow" if category == "延迟超阈值" else "request_error",
+                "latency": round(full_latency, 3),
+                "error": (error or category)[:500],
+            })
+
+    # 提取最常见的原始错误信息（截断去重）
+    top_errors: List[str] = []
+    seen = set()
+    for r in results:
+        if isinstance(r, Exception):
+            msg = str(r)[:300]
+        elif not r.get("success") and r.get("error"):
+            msg = str(r["error"])[:300]
+        else:
+            continue
+        if msg not in seen:
+            seen.add(msg)
+            top_errors.append(msg)
+        if len(top_errors) >= 10:
+            break
+
+    return {
+        "error_categories": error_categories,
+        "failed_samples": failed_samples,
+        "top_errors": top_errors,
+        "slow_count": slow_count,
+        "request_fail_count": request_fail_count,
     }
 
 
@@ -293,7 +441,6 @@ async def _execute_single_test(
 
     # 记录所有请求的延迟
     latencies: List[float] = []
-    errors: List[str] = []
     success_count = 0
 
     # 使用信号量控制并发
@@ -340,13 +487,10 @@ async def _execute_single_test(
     # 统计结果
     for result in results:
         if isinstance(result, Exception):
-            errors.append(str(result))
+            continue
         elif result.get("success"):
             success_count += 1
             latencies.append(result["latency"])
-        else:
-            if result.get("error"):
-                errors.append(result["error"])
 
     # 计算QPS
     qps = success_count / overall_time if overall_time > 0 else 0
@@ -364,6 +508,9 @@ async def _execute_single_test(
             "p99": statistics.quantiles(latencies, n=100)[98] if len(latencies) >= 100 else max(latencies),
         }
 
+    # 错误分类统计与失败样本（失败原因可观测）
+    error_summary = _summarize_errors(results, is_first_token, latency_threshold)
+
     return {
         "total_requests": len(test_questions),
         "success_count": success_count,
@@ -371,5 +518,5 @@ async def _execute_single_test(
         "qps": qps,
         "overall_time": overall_time,
         "latency_stats": latency_stats,
-        "errors": errors[:10]
+        "error_summary": error_summary,
     }

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
-import { Card, Form, Input, Button, Select, Upload, message, Progress, Space, InputNumber, Collapse } from 'antd'
-import { UploadOutlined, PlusOutlined, DeleteOutlined, PlayCircleOutlined } from '@ant-design/icons'
-import { generateDataset, getGenerateStatus, getCurrentGenerateTask, getModels, uploadDatasetFile } from '@/api'
-import type { ModelConfig, GenerateRequest } from '@/types'
+import { Card, Form, Input, Button, Select, Upload, message, Progress, Space, InputNumber, Collapse, Table, Modal } from 'antd'
+import { UploadOutlined, PlusOutlined, DeleteOutlined, PlayCircleOutlined, FileAddOutlined } from '@ant-design/icons'
+import { generateDataset, getGenerateStatus, getCurrentGenerateTask, getModels, uploadFileToMinio, getDocuments } from '@/api'
+import type { ModelConfig, GenerateRequest, DocumentInfo } from '@/types'
 
 interface GeneratePanelProps {
   datasetId: string
@@ -18,7 +18,12 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
   const [progress, setProgress] = useState<number>(0)
   const [status, setStatus] = useState<string>('idle')
   const [texts, setTexts] = useState<string[]>([])
-  const [uploadedFiles, setUploadedFiles] = useState<string[]>([])
+  const [uploadedFiles, setUploadedFiles] = useState<{ objectName: string; fileName: string }[]>([])
+  const [docSelectVisible, setDocSelectVisible] = useState(false)
+  const [allDocs, setAllDocs] = useState<DocumentInfo[]>([])
+  const [docsLoading, setDocsLoading] = useState(false)
+  const [selectedDocIds, setSelectedDocIds] = useState<React.Key[]>([])
+  const [existingDocs, setExistingDocs] = useState<DocumentInfo[]>([])
 
   // 加载模型列表
   useEffect(() => {
@@ -107,19 +112,49 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
     return () => clearInterval(timer)
   }, [taskId, status, datasetId, onGenerateSuccess])
 
-  // 上传文件处理
+  // 上传文件处理（上传到 MinIO documents bucket，供生成任务读取）
   const handleUpload = async (file: File) => {
     try {
-      const result = await uploadDatasetFile(datasetId, file)
-      const filePath = result.object_name || result.file_path
-      if (filePath) {
-        setUploadedFiles([...uploadedFiles, filePath])
+      const result = await uploadFileToMinio('documents', file)
+      if (result.object_name) {
+        setUploadedFiles(prev => [...prev, { objectName: result.object_name, fileName: file.name }])
         message.success('文件上传成功')
+      } else {
+        message.error('上传失败：未返回存储路径')
       }
     } catch (e) {
       // 错误已在拦截器处理
     }
     return false
+  }
+
+  const removeUploadedFile = (objectName: string) => {
+    setUploadedFiles(prev => prev.filter(f => f.objectName !== objectName))
+  }
+
+  // 打开已有文档选择弹窗
+  const openDocSelect = async () => {
+    setDocSelectVisible(true)
+    setDocsLoading(true)
+    try {
+      const data = await getDocuments({ size: 200 })
+      setAllDocs(data.items)
+    } catch (e) {
+      // 错误已在拦截器处理
+    } finally {
+      setDocsLoading(false)
+    }
+  }
+
+  const confirmDocSelect = () => {
+    const picked = allDocs.filter(d => selectedDocIds.includes(d.id))
+    // 合并去重
+    setExistingDocs(prev => {
+      const ids = new Set(prev.map(d => d.id))
+      return [...prev, ...picked.filter(d => !ids.has(d.id))]
+    })
+    setSelectedDocIds([])
+    setDocSelectVisible(false)
   }
 
   // 添加文本
@@ -150,7 +185,7 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
       if (uploadedFiles.length > 0) {
         sources.push({
           source_type: 'file_upload',
-          file_paths: uploadedFiles,
+          file_paths: uploadedFiles.map(f => f.objectName),
         })
       }
 
@@ -161,8 +196,15 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
         })
       }
 
+      if (existingDocs.length > 0) {
+        sources.push({
+          source_type: 'existing_doc',
+          document_ids: existingDocs.map(d => d.id),
+        })
+      }
+
       if (sources.length === 0) {
-        message.error('请至少添加一个文档源（上传文件或输入文本）')
+        message.error('请至少添加一个文档源（上传文件、输入文本或选择已有文档）')
         return
       }
 
@@ -211,14 +253,23 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
 
       <Form form={form} layout="vertical" initialValues={{ test_size: 10, simple_ratio: 0.5, reasoning_ratio: 0.3, multi_context_ratio: 0.2 }}>
         {/* 文档源配置 */}
-        <Collapse defaultActiveKey={['upload', 'text']}>
+        <Collapse defaultActiveKey={['upload', 'text', 'existing']}>
           <Collapse.Panel header="上传文件" key="upload">
             <Upload beforeUpload={handleUpload} accept=".pdf,.txt,.md,.docx" showUploadList={false}>
               <Button icon={<UploadOutlined />}>上传文档 (PDF/TXT/MD/DOCX)</Button>
             </Upload>
             {uploadedFiles.length > 0 && (
               <div style={{ marginTop: 8 }}>
-                已上传: {uploadedFiles.map(f => f.split('/').pop()).join(', ')}
+                {uploadedFiles.map(f => (
+                  <div key={f.objectName} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {f.fileName}
+                    </span>
+                    <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => removeUploadedFile(f.objectName)}>
+                      移除
+                    </Button>
+                  </div>
+                ))}
               </div>
             )}
           </Collapse.Panel>
@@ -240,6 +291,32 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
                 </Button>
               </div>
             ))}
+          </Collapse.Panel>
+
+          <Collapse.Panel header="选择已有文档" key="existing">
+            <Button icon={<FileAddOutlined />} onClick={openDocSelect}>
+              从文档库选择
+            </Button>
+            {existingDocs.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                {existingDocs.map(d => (
+                  <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {d.title || d.id}
+                    </span>
+                    <Button
+                      type="link"
+                      size="small"
+                      danger
+                      icon={<DeleteOutlined />}
+                      onClick={() => setExistingDocs(prev => prev.filter(x => x.id !== d.id))}
+                    >
+                      移除
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
           </Collapse.Panel>
         </Collapse>
 
@@ -289,6 +366,32 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
           </Button>
         </Form.Item>
       </Form>
+
+      {/* 已有文档选择弹窗 */}
+      <Modal
+        title="选择已有文档"
+        open={docSelectVisible}
+        onOk={confirmDocSelect}
+        onCancel={() => { setDocSelectVisible(false); setSelectedDocIds([]) }}
+        width={700}
+      >
+        <Table
+          dataSource={allDocs}
+          columns={[
+            { title: '标题', dataIndex: 'title', key: 'title', ellipsis: true },
+            { title: '类型', dataIndex: 'file_type', key: 'file_type', width: 80 },
+            { title: '分片数', dataIndex: 'chunk_count', key: 'chunk_count', width: 80 },
+          ]}
+          rowKey="id"
+          loading={docsLoading}
+          pagination={{ pageSize: 8 }}
+          rowSelection={{
+            selectedRowKeys: selectedDocIds,
+            onChange: (keys) => setSelectedDocIds(keys),
+          }}
+          size="small"
+        />
+      </Modal>
     </Card>
   )
 }

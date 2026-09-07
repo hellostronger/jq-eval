@@ -39,6 +39,8 @@ interface LogStats {
   logs_by_status: Record<string, number>
   avg_latency_ms?: number
   replay_count: number
+  token_usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+  logs_with_usage?: number
 }
 
 interface ReplayResult {
@@ -342,11 +344,19 @@ const LogsTab: React.FC = () => {
     <>
       {stats && (
         <Card size="small" style={{ marginBottom: 16 }}>
-          <Space split={<Divider type="vertical" />}>
+          <Space split={<Divider type="vertical" />} wrap>
             <span>总日志: <Text strong>{stats.total_logs}</Text></span>
             <span>成功率: <Text strong>{((stats.logs_by_status['success'] || 0) / stats.total_logs * 100 || 0).toFixed(1)}%</Text></span>
             <span>平均耗时: <Text strong>{stats.avg_latency_ms?.toFixed(0) || '-'}ms</Text></span>
             <span>回放数: <Text strong>{stats.replay_count}</Text></span>
+            <Tooltip title={`含 token 用量的日志 ${stats.logs_with_usage ?? 0} 条；其余日志因上游未返回 usage 或链路未记录而缺失`}>
+              <span>
+                Token 用量: <Text strong>{(stats.token_usage?.total_tokens ?? 0).toLocaleString()}</Text>
+                <Text type="secondary" style={{ marginLeft: 6, fontSize: 12 }}>
+                  (输入 {(stats.token_usage?.prompt_tokens ?? 0).toLocaleString()} / 输出 {(stats.token_usage?.completion_tokens ?? 0).toLocaleString()})
+                </Text>
+              </span>
+            </Tooltip>
           </Space>
         </Card>
       )}
@@ -435,6 +445,18 @@ const LogsTab: React.FC = () => {
               <Descriptions.Item label="耗时">{selectedLog.latency_ms}ms</Descriptions.Item>
               <Descriptions.Item label="回放">{selectedLog.is_replay ? '是' : '否'}</Descriptions.Item>
               <Descriptions.Item label="时间">{new Date(selectedLog.created_at).toLocaleString()}</Descriptions.Item>
+              {(() => {
+                const usage = selectedLog.response_metadata?.usage_tokens || selectedLog.response_metadata?.usage
+                return usage ? (
+                  <Descriptions.Item label="Token 用量" span={2}>
+                    <Space split={<Divider type="vertical" />}>
+                      <span>输入: <Text strong>{(usage.prompt_tokens ?? usage.input_tokens ?? 0).toLocaleString()}</Text></span>
+                      <span>输出: <Text strong>{(usage.completion_tokens ?? usage.output_tokens ?? 0).toLocaleString()}</Text></span>
+                      <span>总计: <Text strong>{(usage.total_tokens ?? 0).toLocaleString()}</Text></span>
+                    </Space>
+                  </Descriptions.Item>
+                ) : null
+              })()}
               {selectedLog.source === 'mapping' && (
                 <Descriptions.Item label="映射服务" span={2}>
                   {selectedLog.mapping_name || selectedLog.mapping_id}

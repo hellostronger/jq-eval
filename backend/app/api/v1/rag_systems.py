@@ -9,6 +9,7 @@ from pydantic import BaseModel
 import logging
 
 from ...core.database import get_db
+from ...core.utc_datetime import UTCDatetime
 from ...models import RAGSystem, RAGSystemType, Model
 
 router = APIRouter()
@@ -42,6 +43,11 @@ async def _prepare_direct_llm_config(
         if model.params:
             config["temperature"] = connection_config.get("temperature") or model.params.get("temperature", 0.7)
             config["max_tokens"] = connection_config.get("max_tokens") or model.params.get("max_tokens", 2048)
+            # 额外请求参数：调用方配置可覆盖模型默认
+            extra = dict(model.params.get("extra_params") or {})
+            extra.update(connection_config.get("extra_params") or {})
+            if extra:
+                config["extra_params"] = extra
 
         return config
     except Exception as e:
@@ -70,7 +76,7 @@ class RAGSystemResponse(BaseModel):
     status: str
     health_status: Optional[str]
     total_calls: int
-    created_at: Optional[datetime] = None
+    created_at: Optional[UTCDatetime] = None
 
     class Config:
         from_attributes = True

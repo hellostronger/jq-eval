@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from ...core.database import get_db
+from ...core.utc_datetime import UTCDatetime
 from ...models import DocExplanation, Document, Chunk
 
 router = APIRouter()
@@ -87,8 +88,6 @@ async def upload_document(
     db: AsyncSession = Depends(get_db)
 ):
     """上传文档（不关联数据集），自动分片"""
-    from .datasets import _split_text
-
     file_content = await file.read()
     file_ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename else "txt"
 
@@ -109,12 +108,48 @@ async def upload_document(
     if not content.strip():
         raise HTTPException(status_code=400, detail="文档内容为空")
 
-    document = Document(
+    document = await _create_document_with_chunks(
+        db,
         title=file.filename or f"文档_{len(content)}字符",
         content=content,
         file_type=file_ext,
         source_type="upload",
-        doc_metadata={"original_filename": file.filename, "size": len(file_content)}
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        doc_metadata={"original_filename": file.filename, "size": len(file_content)},
+    )
+
+    return GlobalDocumentResponse(
+        id=document.id,
+        title=document.title,
+        content=document.content[:500] if document.content and len(document.content) > 500 else document.content,
+        file_type=document.file_type,
+        source_type=document.source_type,
+        chunk_count=await _count_chunks(db, document.id),
+    )
+
+
+class DocumentTextCreate(BaseModel):
+    """从粘贴文本创建文档"""
+    title: Optional[str] = None
+    content: str
+    chunk_size: int = 500
+    chunk_overlap: int = 50
+
+
+async def _create_document_with_chunks(db: AsyncSession, title: str, content: str,
+                                 file_type: str, source_type: str,
+                                 chunk_size: int, chunk_overlap: int,
+                                 doc_metadata: Optional[dict] = None) -> Document:
+    """创建文档并写入分片（upload 与 text 端点共用）"""
+    from .datasets import _split_text
+
+    document = Document(
+        title=title,
+        content=content,
+        file_type=file_type,
+        source_type=source_type,
+        doc_metadata=doc_metadata or {}
     )
     db.add(document)
     await db.flush()
@@ -131,6 +166,27 @@ async def upload_document(
 
     await db.commit()
     await db.refresh(document)
+    return document
+
+
+@router.post("/documents/text", response_model=GlobalDocumentResponse)
+async def create_document_from_text(
+    data: DocumentTextCreate,
+    db: AsyncSession = Depends(get_db)
+):
+    """从粘贴文本创建文档（自动分片）"""
+    if not data.content.strip():
+        raise HTTPException(status_code=400, detail="文本内容为空")
+
+    document = await _create_document_with_chunks(
+        db,
+        title=data.title or f"文本_{len(data.content)}字符",
+        content=data.content,
+        file_type="txt",
+        source_type="text_input",
+        chunk_size=data.chunk_size,
+        chunk_overlap=data.chunk_overlap,
+    )
 
     return GlobalDocumentResponse(
         id=document.id,
@@ -138,8 +194,48 @@ async def upload_document(
         content=document.content[:500] if document.content and len(document.content) > 500 else document.content,
         file_type=document.file_type,
         source_type=document.source_type,
-        chunk_count=len(chunks),
+        chunk_count=await _count_chunks(db, document.id),
     )
+
+
+async def _count_chunks(db: AsyncSession, doc_id) -> int:
+    result = await db.execute(select(func.count(Chunk.id)).where(Chunk.doc_id == doc_id))
+    return result.scalar() or 0
+
+
+@router.get("/documents/{doc_id}", response_model=GlobalDocumentResponse)
+async def get_document_detail(
+    doc_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """获取文档详情（全文，用于预览）"""
+    document = await db.get(Document, doc_id)
+    if not document:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    return GlobalDocumentResponse(
+        id=document.id,
+        title=document.title,
+        content=document.content,
+        file_type=document.file_type,
+        source_type=document.source_type,
+        chunk_count=await _count_chunks(db, document.id),
+    )
+
+
+@router.delete("/documents/{doc_id}")
+async def delete_document(
+    doc_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """删除文档（级联删除分片与文档解释）"""
+    document = await db.get(Document, doc_id)
+    if not document:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    await db.delete(document)
+    await db.commit()
+    return {"message": "删除成功"}
 
 
 # ---------- 文档解释API ----------
@@ -167,7 +263,7 @@ class DocExplanationResponse(BaseModel):
     explanation: str
     source: str
     status: str
-    created_at: Optional[datetime] = None
+    created_at: Optional[UTCDatetime] = None
 
     class Config:
         from_attributes = True
@@ -181,7 +277,7 @@ class DocExplanationWithDocument(BaseModel):
     status: str
     document_title: Optional[str] = None
     document_content: Optional[str] = None
-    created_at: Optional[datetime] = None
+    created_at: Optional[UTCDatetime] = None
 
 
 @router.post("", response_model=DocExplanationResponse)

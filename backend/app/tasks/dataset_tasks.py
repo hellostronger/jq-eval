@@ -81,6 +81,14 @@ async def _run_generate_task(task, dataset_id: UUID, config: Dict[str, Any]) -> 
 
             # 4. 创建 LLM/Embeddings 客户端
             llm = await create_llm_from_config(llm_model)
+            # 按模型的 save_logs 开关挂接调用日志（失败不影响生成）
+            try:
+                from app.services.llm import create_log_recorder, LLMCallLogger
+                recorder = await create_log_recorder(db, llm_model.id)
+                if recorder.is_enabled():
+                    llm = LLMCallLogger(llm, recorder, request_type="chat")
+            except Exception as e:
+                logger.warning(f"挂接模型调用日志失败: {e}")
             embeddings = await create_embeddings_from_config(embedding_model)
 
             # 5. 创建适配器

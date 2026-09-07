@@ -121,6 +121,27 @@ def usage_to_anthropic(usage: Optional[Dict[str, Any]]) -> Optional[Dict[str, in
     }
 
 
+def merge_usage(base: Optional[Dict[str, Any]], new: Optional[Dict[str, Any]]) -> Optional[Dict[str, int]]:
+    """合并流式各阶段的 usage（openai 键名）：非零值优先，total 按合并后 prompt+completion 重算。
+
+    anthropic 出站的 input_tokens 在 message_start、output_tokens 在 message_delta
+    分两帧到达；openai include_usage 只在末端 chunk 一次性给出。直接 dict 合并会让
+    某一侧的 0 值覆盖另一侧的真实值，这里按非零优先归并。入参兼容 anthropic 键名。
+    """
+    if not new:
+        return base
+    new = usage_to_openai(new) or {}
+    merged = dict(base or {})
+    for key in ("prompt_tokens", "completion_tokens"):
+        value = new.get(key)
+        if value:
+            merged[key] = value
+    prompt = merged.get("prompt_tokens") or 0
+    completion = merged.get("completion_tokens") or 0
+    merged["total_tokens"] = prompt + completion
+    return merged
+
+
 # ---------------------------------------------------------------------------
 # 内容块解析辅助
 # ---------------------------------------------------------------------------
@@ -720,7 +741,9 @@ def parse_openai_stream_line(line: str) -> List[InternalStreamEvent]:
         return []
     data_str = stripped[5:].strip()
     if data_str == "[DONE]":
-        return [InternalStreamEvent(kind="final", finish_reason="stop")]
+        # [DONE] 仅是流结束标记，不携带 finish_reason；
+        # 真实的结束原因已在之前的 chunk 中以 final 事件上报，此处不覆盖
+        return []
     try:
         chunk = json.loads(data_str)
     except json.JSONDecodeError:
@@ -776,12 +799,21 @@ class AnthropicStreamAggregator:
             usage = message.get("usage", {}) or {}
             return [InternalStreamEvent(kind="start", usage={"input_tokens": usage.get("input_tokens") or 0}, raw=data)]
 
+        if dtype == "content_block_start":
+            block = data.get("content_block", {}) or {}
+            # 工具调用块开始：携带 name/id，透传 raw 供 openai 入站组装 tool_calls
+            if block.get("type") == "tool_use":
+                return [InternalStreamEvent(kind="delta", text=None, raw=data)]
+
         if dtype == "content_block_delta":
             delta = data.get("delta", {}) or {}
             if delta.get("type") == "text_delta":
                 text = delta.get("text", "")
                 if text:
                     return [InternalStreamEvent(kind="delta", text=text, raw=data)]
+            if delta.get("type") == "input_json_delta":
+                # 工具调用参数增量：透传 raw
+                return [InternalStreamEvent(kind="delta", text=None, raw=data)]
             return []
 
         if dtype == "message_delta":

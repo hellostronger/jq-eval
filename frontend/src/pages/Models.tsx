@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Button, Tabs, Tag, Modal, Form, Input, Select, Switch, Slider, InputNumber, message, Popconfirm } from 'antd'
+import { Card, Table, Button, Tabs, Tag, Modal, Form, Input, Select, Switch, Slider, InputNumber, message, Popconfirm, Alert } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { getModels, createModel, updateModel, deleteModel, testModel } from '@/api'
 import type { ModelConfig, ModelType } from '@/types'
+
+const { TextArea } = Input
 
 const Models: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ModelType>('llm')
@@ -48,6 +50,8 @@ const Models: React.FC = () => {
       temperature: 0.7,
       max_tokens: 2048,
       dimension: 1536,
+      is_vlm: false,
+      extra_params_text: '',
       is_default: false,
       save_logs: false,
     })
@@ -71,6 +75,8 @@ const Models: React.FC = () => {
       output_format: model.params?.output_format || 'markdown',
       language: model.params?.language || 'ch',
       backend_url: model.params?.backend_url || 'pipeline',
+      is_vlm: model.is_vlm || false,
+      extra_params_text: model.params?.extra_params ? JSON.stringify(model.params.extra_params, null, 2) : '',
       is_default: model.is_default,
       save_logs: model.save_logs || false,
     })
@@ -107,6 +113,21 @@ const Models: React.FC = () => {
   const saveModel = async () => {
     try {
       const values = await form.validateFields()
+      // 解析额外请求参数 JSON
+      let extraParams: Record<string, unknown> | undefined
+      const extraText = (values.extra_params_text || '').trim()
+      if (extraText) {
+        try {
+          extraParams = JSON.parse(extraText)
+        } catch {
+          message.error('额外请求参数不是合法的 JSON')
+          return
+        }
+        if (typeof extraParams !== 'object' || Array.isArray(extraParams) || extraParams === null) {
+          message.error('额外请求参数必须是 JSON 对象，如 {"thinking": {"type": "disabled"}}')
+          return
+        }
+      }
       setSaving(true)
       const payload: Record<string, unknown> = {
         name: values.name,
@@ -119,6 +140,8 @@ const Models: React.FC = () => {
         max_tokens: values.max_tokens,
         dimension: values.dimension,
         max_input_length: values.max_input_length,
+        is_vlm: values.is_vlm || false,
+        extra_params: extraParams,
         is_default: values.is_default,
         save_logs: values.save_logs,
       }
@@ -173,6 +196,16 @@ const Models: React.FC = () => {
     { title: '提供商', dataIndex: 'provider', key: 'provider' },
     { title: '模型名称', dataIndex: 'model_name', key: 'model_name' },
     { title: 'API地址', dataIndex: 'endpoint', key: 'endpoint' },
+    {
+      title: 'VLM',
+      dataIndex: 'is_vlm',
+      key: 'is_vlm',
+      width: 80,
+      render: (v: boolean, record: ModelConfig) =>
+        record.model_type === 'llm'
+          ? (v ? <Tag color="purple">VLM</Tag> : <Tag>纯文本</Tag>)
+          : null,
+    },
     {
       title: '默认',
       dataIndex: 'is_default',
@@ -353,6 +386,14 @@ const Models: React.FC = () => {
                     <Form.Item name="max_tokens" label="Max Tokens">
                       <InputNumber min={100} max={32000} />
                     </Form.Item>
+                    <Form.Item
+                      name="is_vlm"
+                      label="视觉模型(VLM)"
+                      valuePropName="checked"
+                      tooltip="开启后标记该模型支持识别图片（视觉语言模型），评估/生成任务会按需发送图片输入"
+                    >
+                      <Switch />
+                    </Form.Item>
                   </>
                 )
               }
@@ -369,6 +410,39 @@ const Models: React.FC = () => {
                 )
               }
               return null
+            }}
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, curr) => prev.model_type !== curr.model_type}>
+            {({ getFieldValue }) => {
+              // 仅 LLM/Embedding/Reranker 显示额外请求参数（doc_parser 无意义）
+              if (getFieldValue('model_type') === 'doc_parser') return null
+              return (
+                <Form.Item
+                  name="extra_params_text"
+                  label="额外参数"
+                  tooltip="以 JSON 对象填写，会顶层透传给模型 API 请求体，可控制关闭思考等。调用方可传同名参数覆盖"
+                >
+                  <TextArea
+                    rows={4}
+                    placeholder={'例如关闭思考：\n{"thinking": {"type": "disabled"}}\n或 {"enable_thinking": false}'}
+                    style={{ fontFamily: 'monospace' }}
+                  />
+                </Form.Item>
+              )
+            }}
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, curr) => prev.model_type !== curr.model_type}>
+            {({ getFieldValue }) => {
+              if (getFieldValue('model_type') === 'doc_parser' || !getFieldValue('extra_params_text')) return null
+              return (
+                <Form.Item label=" " colon={false}>
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="这些参数会原样合并进每次 LLM 请求体（顶层字段）"
+                  />
+                </Form.Item>
+              )
             }}
           </Form.Item>
           <Form.Item name="is_default" label="设为默认" valuePropName="checked">

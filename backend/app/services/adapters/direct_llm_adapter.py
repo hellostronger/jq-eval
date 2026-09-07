@@ -22,6 +22,8 @@ class DirectLLMAdapter(BaseRAGAdapter):
         self.temperature = config.get("temperature", 0.7)
         self.max_tokens = config.get("max_tokens", 2048)
         self.provider = config.get("provider", "openai")  # openai/azure/zhipuai等
+        # 额外请求参数，顶层透传给LLM API（如关闭思考）
+        self.extra_params = dict(config.get("extra_params") or {})
 
     def _get_chat_url(self) -> str:
         """获取Chat Completions API URL"""
@@ -76,6 +78,7 @@ class DirectLLMAdapter(BaseRAGAdapter):
                 "messages": messages,
                 "temperature": self.temperature,
                 "max_tokens": self.max_tokens,
+                **self.extra_params,
             }
 
             async with httpx.AsyncClient(timeout=60.0) as client:
@@ -148,7 +151,8 @@ class DirectLLMAdapter(BaseRAGAdapter):
                 "messages": messages,
                 "temperature": self.temperature,
                 "max_tokens": self.max_tokens,
-                "stream": True
+                "stream": True,
+                **self.extra_params,
             }
 
             answer_chunks = []

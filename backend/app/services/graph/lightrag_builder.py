@@ -58,6 +58,8 @@ class LightRAGGraphBuilder(BaseGraphBuilder):
         self.model = llm_config.get("model", "gpt-4o-mini")
         self.max_tokens = llm_config.get("max_tokens", 4000)
         self.temperature = llm_config.get("temperature", 0.1)
+        # 额外请求参数，顶层透传给LLM API
+        self.extra_params = dict(llm_config.get("extra_params") or {})
 
     async def _call_llm(
         self,
@@ -85,6 +87,7 @@ class LightRAGGraphBuilder(BaseGraphBuilder):
             ],
             "max_tokens": max_tokens or self.max_tokens,
             "temperature": self.temperature,
+            **self.extra_params,
         }
 
         try:

@@ -24,7 +24,9 @@ from ...services.llm.protocol_converter import (
     internal_to_anthropic_response,
     internal_to_openai_response,
     openai_request_to_internal,
+    merge_usage,
     sse_format,
+    usage_to_openai,
 )
 
 router = APIRouter()
@@ -167,6 +169,8 @@ def _inbound_sse_generator(mapping: ModelMapping, target: Model,
     raw_stop_reason = None
     chunk_count = 0
     error_message = None
+    # openai 入站流式工具调用聚合：anthropic 出站事件 -> openai tool_calls 增量
+    tool_state: Dict[int, Dict] = {}
 
     import uuid as _uuid
 
@@ -198,9 +202,9 @@ def _inbound_sse_generator(mapping: ModelMapping, target: Model,
         try:
             async for ev in outbound_client.stream_call(target, internal, outbound):
                 if ev.kind == "start":
-                    if ev.usage and inbound == "anthropic":
-                        # 可选：把 input usage 放进 message_start 已发，这里忽略
-                        pass
+                    # anthropic message_start 携带 input usage：先落底，后续 final 合并
+                    if ev.usage:
+                        final_usage = usage_to_openai(ev.usage)
                     continue
 
                 if ev.kind == "delta" and ev.text:
@@ -226,10 +230,21 @@ def _inbound_sse_generator(mapping: ModelMapping, target: Model,
                             "delta": {"type": "text_delta", "text": ev.text},
                         })
 
-                elif ev.kind == "delta" and ev.raw:  # 工具调用增量（仅 openai 入站透传）
+                elif ev.kind == "delta" and ev.raw:  # 工具调用增量
                     if inbound == "openai":
                         chunk_count += 1
-                        yield sse_format(None, ev.raw)
+                        # anthropic 出站的工具事件（content_block_start/input_json_delta）
+                        # 需转换为 openai tool_calls 增量格式；openai 出站直接透传 raw
+                        raw = ev.raw or {}
+                        if raw.get("type") in ("content_block_start", "content_block_delta"):
+                            converted = _anthropic_tool_event_to_openai_chunk(tool_state, raw)
+                            if converted:
+                                converted.update({"id": chunk_id, "object": "chat.completion.chunk",
+                                                  "created": created, "model": model_name})
+                                yield sse_format(None, converted)
+                        else:
+                            yield sse_format(None, ev.raw)
+                    # anthropic 入站暂不支持流式工具调用透传（openai 中间格式无法映射回 anthropic 块）
 
                 elif ev.kind == "final":
                     if ev.finish_reason:
@@ -237,7 +252,8 @@ def _inbound_sse_generator(mapping: ModelMapping, target: Model,
                     if ev.raw_stop_reason:
                         raw_stop_reason = ev.raw_stop_reason
                     if ev.usage:
-                        final_usage = {**(final_usage or {}), **ev.usage}
+                        # 合并 start（input）与 final（output/total）两侧的 usage
+                        final_usage = merge_usage(final_usage, usage_to_openai(ev.usage))
                     completed = True
 
                 elif ev.kind == "error":
@@ -283,7 +299,10 @@ def _inbound_sse_generator(mapping: ModelMapping, target: Model,
                 yield sse_format("message_delta", {
                     "type": "message_delta",
                     "delta": {"stop_reason": anthropic_stop, "stop_sequence": None},
-                    "usage": {"output_tokens": (final_usage or {}).get("completion_tokens", 0)},
+                    "usage": {
+                        "input_tokens": (final_usage or {}).get("prompt_tokens", 0),
+                        "output_tokens": (final_usage or {}).get("completion_tokens", 0),
+                    },
                 })
                 yield sse_format("message_stop", {"type": "message_stop"})
 
@@ -321,6 +340,30 @@ def _inbound_sse_generator(mapping: ModelMapping, target: Model,
     return gen()
 
 
+def _anthropic_tool_event_to_openai_chunk(state: Dict, raw: Dict) -> Optional[Dict]:
+    """anthropic 工具流事件（content_block_start tool_use / input_json_delta）-> openai chunk delta 片段"""
+    dtype = raw.get("type")
+    index = raw.get("index", 0)
+    if dtype == "content_block_start":
+        block = raw.get("content_block", {}) or {}
+        entry = {"id": block.get("id", ""), "name": block.get("name", ""), "arguments": ""}
+        state[index] = entry
+        return {"choices": [{"index": 0, "delta": {"tool_calls": [
+            {"index": index, "id": entry["id"], "type": "function",
+             "function": {"name": entry["name"], "arguments": ""}},
+        ]}, "finish_reason": None}]}
+    if dtype == "content_block_delta":
+        delta = raw.get("delta", {}) or {}
+        if delta.get("type") == "input_json_delta":
+            partial = delta.get("partial_json", "") or ""
+            if index in state:
+                state[index]["arguments"] += partial
+            return {"choices": [{"index": 0, "delta": {"tool_calls": [
+                {"index": index, "function": {"arguments": partial}},
+            ]}, "finish_reason": None}]}
+    return None
+
+
 def _openai_to_anthropic_stop(finish_reason: Optional[str]) -> str:
     from ...services.llm.protocol_converter import openai_finish_to_anthropic
     return openai_finish_to_anthropic(finish_reason)
@@ -356,6 +399,8 @@ async def _handle_openai_inbound(mapping_id: UUID, request: Request, db: AsyncSe
         body = await request.json()
     except Exception:
         return protocol_error(400, "请求体不是合法 JSON", inbound)
+    if not isinstance(body, dict):
+        return protocol_error(400, "请求体必须是 JSON 对象", inbound)
 
     internal = openai_request_to_internal(body)
     return await _execute_mapping(mapping, target, internal, inbound, body, db)
@@ -372,6 +417,8 @@ async def _handle_anthropic_inbound(mapping_id: UUID, request: Request, db: Asyn
         body = await request.json()
     except Exception:
         return protocol_error(400, "请求体不是合法 JSON", inbound)
+    if not isinstance(body, dict):
+        return protocol_error(400, "请求体必须是 JSON 对象", inbound)
 
     internal = anthropic_request_to_internal(body)
     return await _execute_mapping(mapping, target, internal, inbound, body, db)

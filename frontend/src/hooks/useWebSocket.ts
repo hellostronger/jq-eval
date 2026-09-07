@@ -27,7 +27,9 @@ export const useWebSocket = (sessionId: string | null): UseWebSocketReturn => {
   const connect = useCallback(() => {
     if (!sessionId) return
 
-    const wsUrl = `ws://localhost:8000/api/v1/vibe-agent/ws/${sessionId}`
+    // 与 axios baseURL('/api/v1') 同源：开发环境走 vite 代理，生产走当前站点
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const wsUrl = `${proto}://${window.location.host}/api/v1/vibe-agent/ws/${sessionId}`
     const ws = new WebSocket(wsUrl)
 
     ws.onopen = () => {

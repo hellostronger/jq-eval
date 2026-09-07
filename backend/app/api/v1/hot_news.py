@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from ...core.database import get_db
+from ...core.utc_datetime import UTCDatetime
 from ...models.hot_news import HotNewsSource, HotArticle
 from ...services.crawler import CrawlerFactory
 from ...services.crawler.rss_crawler import detect_text_language
@@ -44,7 +45,7 @@ class NewsSourceResponse(BaseModel):
     crawl_config: Dict[str, Any]
     crawl_frequency: str
     is_active: bool
-    last_crawl_at: Optional[datetime]
+    last_crawl_at: Optional[UTCDatetime]
     last_crawl_status: Optional[str]
     total_articles: int
 
@@ -58,8 +59,8 @@ class ArticleResponse(BaseModel):
     title: str
     content: Optional[str]
     author: Optional[str]
-    published_at: Optional[datetime]
-    crawled_at: datetime
+    published_at: Optional[UTCDatetime]
+    crawled_at: UTCDatetime
     source_url: Optional[str]
     category: Optional[str]
     tags: List[str]

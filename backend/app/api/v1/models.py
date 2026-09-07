@@ -1,4 +1,5 @@
 # 模型管理路由
+import json
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +38,8 @@ class ModelCreate(BaseModel):
     dimension: Optional[int] = None
     max_input_length: Optional[int] = None
     save_logs: bool = False  # 是否保存请求响应日志
+    is_vlm: bool = False  # 是否为视觉语言模型（支持识别图片）
+    extra_params: Optional[dict] = None  # 额外请求参数，顶层透传给LLM API，如 {"thinking": {"type": "disabled"}}
     # 文档解析服务配置（doc_parser 类型）
     parse_config: Optional[dict] = None  # 如 {"output_format": "markdown", "language": "ch", "backend_url": "pipeline"}
 
@@ -55,6 +58,7 @@ class ModelResponse(BaseModel):
     dimension: Optional[int]
     max_input_length: Optional[int]
     save_logs: bool = False  # 是否保存请求响应日志
+    is_vlm: bool = False  # 是否为视觉语言模型
 
     class Config:
         from_attributes = True
@@ -80,6 +84,7 @@ def model_to_response(model: Model) -> dict:
         "dimension": model.dimension,
         "max_input_length": model.max_input_length,
         "save_logs": model.save_logs or False,
+        "is_vlm": model.is_vlm or False,
     }
 
 
@@ -93,6 +98,9 @@ async def create_model(
         "temperature": data.temperature,
         "max_tokens": data.max_tokens
     }
+    # 额外请求参数（顶层透传给LLM API）
+    if data.extra_params:
+        params["extra_params"] = data.extra_params
     # 文档解析服务：解析配置直接放 params
     if data.parse_config:
         params.update(data.parse_config)
@@ -108,6 +116,7 @@ async def create_model(
         dimension=data.dimension,
         max_input_length=data.max_input_length,
         save_logs=data.save_logs,
+        is_vlm=data.is_vlm,
     )
     db.add(model)
     await db.commit()
@@ -165,12 +174,14 @@ async def update_model(
     model.params = {
         "temperature": data.temperature,
         "max_tokens": data.max_tokens,
+        **({"extra_params": data.extra_params} if data.extra_params else {}),
         **(data.parse_config or {}),
     }
     model.is_default = data.is_default
     model.dimension = data.dimension
     model.max_input_length = data.max_input_length
     model.save_logs = data.save_logs
+    model.is_vlm = data.is_vlm
 
     await db.commit()
     await db.refresh(model)
@@ -237,23 +248,59 @@ async def test_model(
             }
 
         logger.info(f"发送请求到 {request_data['url']}...")
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=300.0) as client:
             if request_data.get("method") == "GET":
                 response = await client.get(request_data["url"], headers=request_data["headers"])
+                logger.info(f"收到响应: status={response.status_code}")
+                if response.status_code != 200:
+                    logger.error(f"API返回错误: {response.status_code} - {response.text[:200]}")
+                    return {
+                        "success": False,
+                        "error": f"API返回错误: {response.status_code} - {response.text[:200]}",
+                        "model_id": str(model_id)
+                    }
             else:
-                response = await client.post(
+                # 探测请求为流式：读到首个有效分片即判定连通，提前断开
+                first_content: Optional[str] = None
+                async with client.stream(
+                    "POST",
                     request_data["url"],
                     headers=request_data["headers"],
                     json=request_data["body"]
-                )
-            logger.info(f"收到响应: status={response.status_code}")
-            if response.status_code != 200:
-                logger.error(f"API返回错误: {response.status_code} - {response.text[:200]}")
-                return {
-                    "success": False,
-                    "error": f"API返回错误: {response.status_code} - {response.text[:200]}",
-                    "model_id": str(model_id)
-                }
+                ) as response:
+                    logger.info(f"收到响应: status={response.status_code}")
+                    if response.status_code != 200:
+                        error_text = (await response.aread()).decode("utf-8", errors="replace")
+                        logger.error(f"API返回错误: {response.status_code} - {error_text[:200]}")
+                        return {
+                            "success": False,
+                            "error": f"API返回错误: {response.status_code} - {error_text[:200]}",
+                            "model_id": str(model_id)
+                        }
+                    # 逐行读取 SSE，拿到首个内容分片即成功
+                    async for line in response.aiter_lines():
+                        line = line.strip()
+                        if not line.startswith("data:"):
+                            continue
+                        payload = line[5:].strip()
+                        if payload == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(payload)
+                            delta = (chunk.get("choices") or [{}])[0].get("delta") or {}
+                            # 推理类模型可能先输出 reasoning_content
+                            if delta.get("content") or delta.get("reasoning_content"):
+                                first_content = delta.get("content") or delta.get("reasoning_content")
+                                break
+                        except json.JSONDecodeError:
+                            continue
+                if first_content is None:
+                    logger.error(f"模型 {model_id} 流式响应无内容分片")
+                    return {
+                        "success": False,
+                        "error": "连接成功但未收到模型回复内容",
+                        "model_id": str(model_id)
+                    }
             logger.info(f"模型 {model_id} 测试成功")
             return {
                 "success": True,
@@ -289,6 +336,13 @@ def _build_llm_test_request(provider: str, model, test_prompt: str, params: dict
     model_name = model.model_name or model.name
     api_key = model.api_key_encrypted
     endpoint = model.endpoint
+    # 额外请求参数顶层透传
+    extra_params = params.get("extra_params") or {}
+
+    def _body(**base):
+        # 探测走流式：收到首个分片即判定连通。
+        # 推理类模型（如 minimax-m3）非流式需等全部生成完（可达 40s+），会误报超时。
+        return {**base, "stream": True, **extra_params}
 
     if provider == "azure":
         # Azure OpenAI 使用 api-key header 和 deployments 路径
@@ -298,11 +352,11 @@ def _build_llm_test_request(provider: str, model, test_prompt: str, params: dict
                 "api-key": api_key,
                 "Content-Type": "application/json"
             },
-            "body": {
-                "messages": [{"role": "user", "content": test_prompt}],
-                "max_tokens": params.get("max_tokens", 100),
-                "temperature": params.get("temperature", 0.7)
-            }
+            "body": _body(
+                messages=[{"role": "user", "content": test_prompt}],
+                max_tokens=params.get("max_tokens", 100),
+                temperature=params.get("temperature", 0.7),
+            )
         }
     elif provider == "zhipuai":
         # 智谱AI
@@ -312,12 +366,12 @@ def _build_llm_test_request(provider: str, model, test_prompt: str, params: dict
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             },
-            "body": {
-                "model": model_name,
-                "messages": [{"role": "user", "content": test_prompt}],
-                "max_tokens": params.get("max_tokens", 100),
-                "temperature": params.get("temperature", 0.7)
-            }
+            "body": _body(
+                model=model_name,
+                messages=[{"role": "user", "content": test_prompt}],
+                max_tokens=params.get("max_tokens", 100),
+                temperature=params.get("temperature", 0.7),
+            )
         }
     elif provider == "baidu":
         # 百度千帆 - 需要先获取 access_token
@@ -327,12 +381,12 @@ def _build_llm_test_request(provider: str, model, test_prompt: str, params: dict
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             },
-            "body": {
-                "model": model_name,
-                "messages": [{"role": "user", "content": test_prompt}],
-                "max_tokens": params.get("max_tokens", 100),
-                "temperature": params.get("temperature", 0.7)
-            }
+            "body": _body(
+                model=model_name,
+                messages=[{"role": "user", "content": test_prompt}],
+                max_tokens=params.get("max_tokens", 100),
+                temperature=params.get("temperature", 0.7),
+            )
         }
     elif provider == "aliyun":
         # 阿里云百炼
@@ -342,12 +396,12 @@ def _build_llm_test_request(provider: str, model, test_prompt: str, params: dict
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             },
-            "body": {
-                "model": model_name,
-                "messages": [{"role": "user", "content": test_prompt}],
-                "max_tokens": params.get("max_tokens", 100),
-                "temperature": params.get("temperature", 0.7)
-            }
+            "body": _body(
+                model=model_name,
+                messages=[{"role": "user", "content": test_prompt}],
+                max_tokens=params.get("max_tokens", 100),
+                temperature=params.get("temperature", 0.7),
+            )
         }
     elif provider == "volcengine":
         # 火山引擎
@@ -357,12 +411,12 @@ def _build_llm_test_request(provider: str, model, test_prompt: str, params: dict
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             },
-            "body": {
-                "model": model_name,
-                "messages": [{"role": "user", "content": test_prompt}],
-                "max_tokens": params.get("max_tokens", 100),
-                "temperature": params.get("temperature", 0.7)
-            }
+            "body": _body(
+                model=model_name,
+                messages=[{"role": "user", "content": test_prompt}],
+                max_tokens=params.get("max_tokens", 100),
+                temperature=params.get("temperature", 0.7),
+            )
         }
     else:
         # OpenAI 及兼容格式 (默认)
@@ -372,12 +426,12 @@ def _build_llm_test_request(provider: str, model, test_prompt: str, params: dict
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             },
-            "body": {
-                "model": model_name,
-                "messages": [{"role": "user", "content": test_prompt}],
-                "max_tokens": params.get("max_tokens", 100),
-                "temperature": params.get("temperature", 0.7)
-            }
+            "body": _body(
+                model=model_name,
+                messages=[{"role": "user", "content": test_prompt}],
+                max_tokens=params.get("max_tokens", 100),
+                temperature=params.get("temperature", 0.7),
+            )
         }
 
 

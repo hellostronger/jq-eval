@@ -1,4 +1,5 @@
 # 数据源与同步路由
+import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -155,12 +156,20 @@ async def test_connection(
     if not data_source:
         raise HTTPException(status_code=404, detail="数据源不存在")
 
-    # TODO: 实现实际的连接测试
-    return {
-        "success": True,
-        "message": "连接测试成功",
-        "source_id": str(source_id)
-    }
+    # 用对应适配器真实探测连接
+    try:
+        from ...services.sync import SyncAdapterFactory
+        adapter = SyncAdapterFactory.create(data_source.system_type or "custom", data_source.connection_config)
+        probe = await adapter.test_connection()
+        await adapter.disconnect()
+        return {
+            "success": bool(probe.get("success")),
+            "message": probe.get("error") or "连接测试成功",
+            "source_id": str(source_id),
+            **{k: v for k, v in probe.items() if k not in ("success", "error")},
+        }
+    except Exception as e:
+        return {"success": False, "message": f"连接测试失败: {e}", "source_id": str(source_id)}
 
 
 @router.get("/{source_id}/tables")
@@ -250,16 +259,29 @@ async def execute_sync(
     if not data_source:
         raise HTTPException(status_code=404, detail="数据源不存在")
 
-    # 创建同步任务
+    # 验证数据集存在
+    from ...models import Dataset
+    dataset = await db.get(Dataset, data.dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="目标数据集不存在")
+
+    # 创建同步任务并触发 Celery 异步执行
     sync_task = SyncTask(
         source_id=source_id,
         task_type="incremental" if data.incremental else "full",
-        status="pending"
+        target_type=json.dumps(data.tables) if data.tables else None,
+        status="pending",
+        log={
+            "dataset_id": str(data.dataset_id),
+            "tables": data.tables,
+            "mappings": data.mappings,
+        },
     )
     db.add(sync_task)
     await db.commit()
 
-    # TODO: 触发Celery异步任务执行同步
+    from ...tasks.sync_tasks import data_sync_task
+    data_sync_task.delay(sync_task.id)
 
     return {
         "task_id": str(sync_task.id),

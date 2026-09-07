@@ -1,34 +1,59 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Button, Tag, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm, Radio, Divider, Typography } from 'antd'
-import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Tag, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm, Radio, Divider, Typography, Alert, Statistic, Row, Col, Tooltip } from 'antd'
+import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, ReloadOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { getLoadTests, createLoadTest, runLoadTest, deleteLoadTest, getRAGSystems, getDatasets } from '@/api'
-import type { LoadTest, RAGSystem, Dataset, LoadTestQpsLimitResult, LoadTestLatencyDistResult } from '@/types'
+import { getLoadTests, createLoadTest, runLoadTest, deleteLoadTest, getRAGSystems, getDatasets, getModels } from '@/api'
+import type { LoadTest, RAGSystem, Dataset, LoadTestQpsLimitResult, LoadTestLatencyDistResult, LoadTestErrorSummary } from '@/types'
 
 const { TextArea } = Input
 const { Text } = Typography
+
+const STOP_REASON_TEXT: Record<string, string> = {
+  request_failed: '请求失败导致终止',
+  latency_exceeded: '延迟超过阈值导致终止',
+  max_concurrency_reached: '达到最大并发上限，全部达标',
+}
+
+const ERROR_CATEGORY_COLORS: Record<string, string> = {
+  '请求超时': 'orange',
+  '连接失败': 'red',
+  '鉴权失败': 'magenta',
+  '限流(429)': 'gold',
+  '服务端错误(5xx)': 'volcano',
+  '延迟超阈值': 'purple',
+  '无首token输出': 'cyan',
+  '空响应': 'default',
+  '请求异常': 'error',
+  '其他错误': 'default',
+}
 
 const LoadTests: React.FC = () => {
   const [loadTests, setLoadTests] = useState<LoadTest[]>([])
   const [ragSystems, setRAGSystems] = useState<RAGSystem[]>([])
   const [datasets, setDatasets] = useState<Dataset[]>([])
+  const [llmModels, setLlmModels] = useState<Array<{ id: string; name: string }>>([])
   const [loading, setLoading] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [detailTest, setDetailTest] = useState<LoadTest | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
   const [form] = Form.useForm()
   const [testMode, setTestMode] = useState<'qps_limit' | 'latency_dist'>('qps_limit')
+  const [targetKind, setTargetKind] = useState<'rag' | 'llm'>('rag')
 
   const fetchData = async () => {
     setLoading(true)
     try {
-      const [testData, ragData, datasetData] = await Promise.all([
+      const [testData, ragData, datasetData, modelData] = await Promise.all([
         getLoadTests().catch(() => []),
         getRAGSystems().catch(() => []),
-        getDatasets().catch(() => [])
+        getDatasets().catch(() => []),
+        getModels('llm').catch(() => [])
       ])
       setLoadTests(testData)
       setRAGSystems(ragData)
       setDatasets(datasetData)
+      setLlmModels(modelData)
     } finally {
       setLoading(false)
     }
@@ -48,6 +73,7 @@ const LoadTests: React.FC = () => {
     form.setFieldValue('max_concurrency', 100)
     form.setFieldValue('concurrency_levels', '1,5,10,20,50,100')
     setTestMode('qps_limit')
+    setTargetKind('rag')
     setModalVisible(true)
   }
 
@@ -56,22 +82,29 @@ const LoadTests: React.FC = () => {
       const values = await form.validateFields()
       setSaving(true)
 
+      // 压测对象二选一：未选中的目标字段不提交
+      const { rag_system_id, target_model_id, ...rest } = values
+      const target = targetKind === 'rag'
+        ? { rag_system_id }
+        : { target_model_id }
+
       // 处理questions：将文本转换为数组
       let questions: string[] | undefined
-      if (values.questions) {
-        questions = values.questions.split('\n').map((q: string) => q.trim()).filter((q: string) => q)
+      if (rest.questions) {
+        questions = rest.questions.split('\n').map((q: string) => q.trim()).filter((q: string) => q)
         if (questions && questions.length === 0) questions = undefined
       }
 
       // 处理concurrency_levels：将文本转换为数组
       let concurrency_levels: number[] | undefined
-      if (values.test_mode === 'latency_dist' && values.concurrency_levels) {
-        concurrency_levels = values.concurrency_levels.split(',').map((v: string) => parseInt(v.trim())).filter((v: number) => v > 0)
+      if (rest.test_mode === 'latency_dist' && rest.concurrency_levels) {
+        concurrency_levels = rest.concurrency_levels.split(',').map((v: string) => parseInt(v.trim())).filter((v: number) => v > 0)
         if (concurrency_levels && concurrency_levels.length === 0) concurrency_levels = undefined
       }
 
       await createLoadTest({
-        ...values,
+        ...rest,
+        ...target,
         questions,
         concurrency_levels
       })
@@ -117,34 +150,184 @@ const LoadTests: React.FC = () => {
     return types[status] || 'default'
   }
 
-  const renderQpsLimitResult = (result: LoadTestQpsLimitResult) => (
-    <Space direction="vertical" size="small">
-      <div>最大QPS: <Text strong style={{ color: '#52c41a' }}>{result.max_qps.toFixed(2)}</Text></div>
-      <div>对应并发: {result.max_concurrency}</div>
-      <div style={{ fontSize: 12, color: '#888' }}>
-        阈值: {result.latency_threshold}s, 共{result.step_results?.length || 0}步测试
-      </div>
-    </Space>
-  )
-
-  const renderLatencyDistResult = (result: LoadTestLatencyDistResult) => (
-    <Space direction="vertical" size="small">
-      <div>测试级别: {result.levels?.length || 0}个并发级别</div>
-      {result.levels && result.levels.length > 0 && (
+  const renderQpsLimitResult = (result: LoadTestQpsLimitResult) => {
+    const failed = result.step_results?.filter(s => (s.failed_count || 0) > 0).length || 0
+    return (
+      <Space direction="vertical" size="small">
+        <div>最大QPS: <Text strong style={{ color: '#52c41a' }}>{result.max_qps.toFixed(2)}</Text></div>
+        <div>对应并发: {result.max_concurrency}</div>
+        {result.stop_reason && (
+          <div style={{ fontSize: 12, color: result.stop_reason === 'max_concurrency_reached' ? '#52c41a' : '#fa8c16' }}>
+            {STOP_REASON_TEXT[result.stop_reason] || result.stop_reason}
+            {result.stopped_at_concurrency ? ` (并发=${result.stopped_at_concurrency})` : ''}
+          </div>
+        )}
+        {failed > 0 && (
+          <Tag color="error" icon={<ExclamationCircleOutlined />}>{failed}个并发级别存在失败</Tag>
+        )}
         <div style={{ fontSize: 12, color: '#888' }}>
-          最高QPS: {Math.max(...result.levels.map(l => l.qps)).toFixed(2)}
+          阈值: {result.latency_threshold}s, 共{result.step_results?.length || 0}步测试
         </div>
-      )}
-    </Space>
-  )
+      </Space>
+    )
+  }
 
-  const renderResult = (result: LoadTest['result']) => {
+  const renderLatencyDistResult = (result: LoadTestLatencyDistResult) => {
+    const failed = result.levels?.filter(l => (l.failed_count || 0) > 0).length || 0
+    return (
+      <Space direction="vertical" size="small">
+        <div>测试级别: {result.levels?.length || 0}个并发级别</div>
+        {result.levels && result.levels.length > 0 && (
+          <div style={{ fontSize: 12, color: '#888' }}>
+            最高QPS: {Math.max(...result.levels.map(l => l.qps)).toFixed(2)}
+          </div>
+        )}
+        {failed > 0 && (
+          <Tag color="error" icon={<ExclamationCircleOutlined />}>{failed}个并发级别存在失败</Tag>
+        )}
+      </Space>
+    )
+  }
+
+  const renderResult = (result: LoadTest['result'], record?: LoadTest) => {
+    if (record?.error) {
+      return (
+        <Tooltip title={record.error}>
+          <Tag color="error" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {record.error.slice(0, 50)}
+          </Tag>
+        </Tooltip>
+      )
+    }
     if (!result) return '-'
     if (result.test_mode === 'qps_limit') {
       return renderQpsLimitResult(result as LoadTestQpsLimitResult)
     } else {
       return renderLatencyDistResult(result as LoadTestLatencyDistResult)
     }
+  }
+
+  // 错误分类统计渲染
+  const renderErrorSummary = (summary: LoadTestErrorSummary) => {
+    const cats = Object.entries(summary.error_categories || {})
+    return (
+      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        <Space wrap size={4}>
+          {cats.map(([cat, count]) => (
+            <Tag key={cat} color={ERROR_CATEGORY_COLORS[cat] || 'default'}>
+              {cat}: {count}
+            </Tag>
+          ))}
+        </Space>
+        {summary.top_errors?.length > 0 && (
+          <div>
+            {summary.top_errors.slice(0, 5).map((e, i) => (
+              <div key={i} style={{ fontSize: 12, color: '#cf1322', wordBreak: 'break-all' }}>
+                • {e}
+              </div>
+            ))}
+          </div>
+        )}
+      </Space>
+    )
+  }
+
+  // 结果详情弹窗（含每个并发级别的失败详情）
+  const showDetail = (test: LoadTest) => {
+    setDetailTest(test)
+    setDetailOpen(true)
+  }
+
+  const renderDetail = () => {
+    const test = detailTest
+    if (!test) return null
+    const result = test.result
+    const steps: Array<any> = result?.test_mode === 'qps_limit'
+      ? (result as LoadTestQpsLimitResult).step_results || []
+      : result?.test_mode === 'latency_dist'
+        ? (result as LoadTestLatencyDistResult).levels || []
+        : []
+
+    return (
+      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        {test.status === 'failed' && (
+          <Alert
+            type="error"
+            showIcon
+            message="任务执行失败"
+            description={<div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{test.error}</div>}
+          />
+        )}
+        {test.status === 'completed' && result?.test_mode === 'qps_limit' && (
+          <Row gutter={16}>
+            <Col span={8}><Statistic title="最大QPS" value={(result as LoadTestQpsLimitResult).max_qps.toFixed(2)} /></Col>
+            <Col span={8}><Statistic title="最大达标并发" value={(result as LoadTestQpsLimitResult).max_concurrency} /></Col>
+            <Col span={8}>
+              <Statistic
+                title="终止原因"
+                value={STOP_REASON_TEXT[(result as LoadTestQpsLimitResult).stop_reason || ''] || '-'}
+                valueStyle={{ fontSize: 14 }}
+              />
+            </Col>
+          </Row>
+        )}
+        {steps.length > 0 && (
+          <Table
+            size="small"
+            rowKey={(r: any) => r.concurrency}
+            dataSource={steps}
+            pagination={false}
+            expandable={{
+              rowExpandable: (r: any) => !!r.error_summary && Object.keys(r.error_summary.error_categories || {}).length > 0,
+              expandedRowRender: (r: any) => renderErrorSummary(r.error_summary),
+            }}
+            columns={[
+              { title: '并发', dataIndex: 'concurrency', key: 'concurrency', width: 70 },
+              { title: 'QPS', dataIndex: 'qps', key: 'qps', render: (v: number) => v.toFixed(2), width: 80 },
+              {
+                title: '成功率',
+                key: 'success_rate',
+                width: 100,
+                render: (_: unknown, r: any) => {
+                  const rate = r.success_rate ?? 1
+                  return <span style={{ color: rate < 1 ? '#cf1322' : undefined }}>{(rate * 100).toFixed(0)}%</span>
+                },
+              },
+              {
+                title: '失败数',
+                key: 'failed',
+                width: 80,
+                render: (_: unknown, r: any) => (r.failed_count || 0) > 0
+                  ? <Tag color="error">{r.failed_count}</Tag>
+                  : <span>0</span>,
+              },
+              {
+                title: '最大延迟(s)',
+                key: 'max_latency',
+                width: 100,
+                render: (_: unknown, r: any) => r.latency_stats ? r.latency_stats.max?.toFixed(2) : '-',
+              },
+              {
+                title: 'P99(s)',
+                key: 'p99',
+                width: 80,
+                render: (_: unknown, r: any) => r.latency_stats ? r.latency_stats.p99?.toFixed(2) : '-',
+              },
+              {
+                title: '达标',
+                dataIndex: 'meets_threshold',
+                key: 'meets_threshold',
+                width: 80,
+                render: (v: boolean) => <Tag color={v ? 'success' : 'warning'}>{v ? '达标' : '未达标'}</Tag>,
+              },
+            ]}
+          />
+        )}
+        {steps.length === 0 && test.status === 'completed' && (
+          <Alert type="info" message="暂无分步结果数据" />
+        )}
+      </Space>
+    )
   }
 
   const renderTestConfig = (record: LoadTest) => {
@@ -172,10 +355,16 @@ const LoadTests: React.FC = () => {
   const columns = [
     { title: '名称', dataIndex: 'name', key: 'name' },
     {
-      title: 'RAG系统',
-      dataIndex: 'rag_system_id',
-      key: 'rag_system_id',
-      render: (id: string) => ragSystems.find(r => r.id === id)?.name || id
+      title: '压测对象',
+      key: 'target',
+      render: (_: unknown, record: LoadTest) => {
+        if (record.target_model_id) {
+          const name = llmModels.find(m => m.id === record.target_model_id)?.name
+          return <Tag color="geekblue">模型: {name || record.target_model_id.slice(0, 8)}</Tag>
+        }
+        const name = ragSystems.find(r => r.id === record.rag_system_id)?.name
+        return <Tag color="purple">RAG: {name || record.rag_system_id?.slice(0, 8) || '-'}</Tag>
+      }
     },
     {
       title: '测试模式',
@@ -211,7 +400,7 @@ const LoadTests: React.FC = () => {
     {
       title: '结果',
       key: 'result',
-      render: (_: unknown, record: LoadTest) => renderResult(record.result)
+      render: (_: unknown, record: LoadTest) => renderResult(record.result, record)
     },
     {
       title: '创建时间',
@@ -233,9 +422,14 @@ const LoadTests: React.FC = () => {
             <Tag color="processing">运行中</Tag>
           )}
           {(record.status === 'completed' || record.status === 'failed') && (
-            <Button type="link" size="small" icon={<ReloadOutlined />} onClick={() => handleRun(record)}>
-              重新测试
-            </Button>
+            <>
+              <Button type="link" size="small" icon={<ReloadOutlined />} onClick={() => handleRun(record)}>
+                重新测试
+              </Button>
+              <Button type="link" size="small" onClick={() => showDetail(record)}>
+                详情
+              </Button>
+            </>
           )}
           {record.status !== 'running' && (
             <Popconfirm title="确定删除?" onConfirm={() => handleDelete(record)}>
@@ -260,6 +454,17 @@ const LoadTests: React.FC = () => {
     >
       <Table dataSource={loadTests} columns={columns} rowKey="id" loading={loading} />
 
+      {/* 结果详情弹窗 */}
+      <Modal
+        title={`压测详情 - ${detailTest?.name || ''}`}
+        open={detailOpen}
+        onCancel={() => setDetailOpen(false)}
+        footer={null}
+        width={920}
+      >
+        {renderDetail()}
+      </Modal>
+
       <Modal
         title="新建压测任务"
         open={modalVisible}
@@ -273,14 +478,37 @@ const LoadTests: React.FC = () => {
             <Input placeholder="压测任务名称" />
           </Form.Item>
 
-          <Form.Item name="rag_system_id" label="RAG系统" rules={[{ required: true }]}>
-            <Select
-              placeholder="选择RAG系统"
-              showSearch
-              optionFilterProp="label"
-              options={ragSystems.map(r => ({ value: r.id, label: r.name }))}
-            />
+          <Form.Item label="压测对象" style={{ marginBottom: 8 }}>
+            <Radio.Group value={targetKind} onChange={(e) => setTargetKind(e.target.value)}>
+              <Radio.Button value="rag">RAG系统</Radio.Button>
+              <Radio.Button value="llm">大模型直连</Radio.Button>
+            </Radio.Group>
           </Form.Item>
+
+          {targetKind === 'rag' ? (
+            <Form.Item name="rag_system_id" label="RAG系统" rules={[{ required: true, message: '请选择RAG系统' }]}>
+              <Select
+                placeholder="选择RAG系统"
+                showSearch
+                optionFilterProp="label"
+                options={ragSystems.map(r => ({ value: r.id, label: r.name }))}
+              />
+            </Form.Item>
+          ) : (
+            <Form.Item
+              name="target_model_id"
+              label="大模型"
+              rules={[{ required: true, message: '请选择大模型' }]}
+              extra="直接对模型发压测请求（走直连LLM适配器），适合评估模型服务本身的吞吐与延迟"
+            >
+              <Select
+                placeholder="选择 LLM 模型"
+                showSearch
+                optionFilterProp="label"
+                options={llmModels.map(m => ({ value: m.id, label: m.name }))}
+              />
+            </Form.Item>
+          )}
 
           <Form.Item name="test_mode" label="测试模式" rules={[{ required: true }]}>
             <Radio.Group onChange={(e) => setTestMode(e.target.value)}>

@@ -1,7 +1,7 @@
 # API v1 Module
 from fastapi import APIRouter
 
-from . import health, models, rag_systems, datasets, evaluations, metrics, tags, data_sources, files, graph, hot_news, invocations, load_tests, open_source_datasets, doc_explanations, doc_explanation_evaluations, annotation_corrections, prompts, training_data_evals, vibe_agent, model_logs, model_mappings, proxy
+from . import health, models, rag_systems, datasets, evaluations, metrics, tags, data_sources, files, graph, hot_news, invocations, load_tests, open_source_datasets, doc_explanations, doc_explanation_evaluations, annotation_corrections, prompts, training_data_evals, vibe_agent, model_logs, model_mappings, proxy, doc_parser
 
 api_router = APIRouter()
 
@@ -24,6 +24,7 @@ api_router.include_router(invocations.router, prefix="/invocations", tags=["Invo
 api_router.include_router(load_tests.router, prefix="/load-tests", tags=["Load Tests"])
 api_router.include_router(open_source_datasets.router, prefix="/open-source-datasets", tags=["Open Source Datasets"])
 api_router.include_router(doc_explanations.router, prefix="/doc-explanations", tags=["Doc Explanations"])
+api_router.include_router(doc_parser.router, prefix="/doc-parser", tags=["Doc Parser"])
 api_router.include_router(doc_explanation_evaluations.router, prefix="/doc-explanation-evaluations", tags=["Doc Explanation Evaluations"])
 api_router.include_router(annotation_corrections.router, prefix="/annotation-corrections", tags=["Annotation Corrections"])
 api_router.include_router(prompts.router, tags=["Prompts"])

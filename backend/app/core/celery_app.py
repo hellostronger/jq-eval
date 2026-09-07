@@ -86,6 +86,9 @@ celery_app.conf.update(
         "app.tasks.health_tasks",
         "app.tasks.crawler_tasks",
         "app.tasks.load_test_tasks",
+        "app.tasks.doc_explanation_tasks",
+        "app.tasks.training_data_eval_tasks",
+        "app.tasks.doc_parse_tasks",
     ],
 )
 

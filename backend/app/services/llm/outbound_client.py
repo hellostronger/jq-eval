@@ -201,7 +201,7 @@ async def stream_call(target: Model, req: InternalRequest,
     """流式出站调用，产出内部流式事件。
 
     openai 上游对 stream_options.include_usage 支持参差（部分兼容网关报 400），
-    首次 400 时去掉该参数重试一次。
+    首次因该参数 400 时去掉参数重试一次。
     """
     outbound = _resolve_outbound(target, outbound)
 
@@ -210,24 +210,13 @@ async def stream_call(target: Model, req: InternalRequest,
             yield event
         return
 
-    # openai 出站：先带 include_usage 尝试，400 则去参重试
+    # openai 出站：先带 include_usage 尝试；若上游因该参数报 400，去参重试一次
     try:
-        first = True
-        async for event in _openai_stream_iter_with_retry(target, req):
-            if event.kind == "error" and first and "stream_options" in str(event.raw):
-                # 上游不认识 stream_options，降级重试
-                first = False
-                async for retry_event in _openai_stream_iter(target, req, include_usage=False):
-                    yield retry_event
-                return
+        async for event in _openai_stream_iter(target, req, include_usage=True):
             yield event
-            if event.kind in ("final", "error"):
-                return
-    except OutboundError:
-        raise
-
-
-async def _openai_stream_iter_with_retry(target: Model, req: InternalRequest) -> AsyncIterator[InternalStreamEvent]:
-    """带 include_usage 的 openai 流式（首事件用于探测上游兼容性）"""
-    async for event in _openai_stream_iter(target, req, include_usage=True):
-        yield event
+    except OutboundError as e:
+        if "stream_options" in e.message or "stream_options" in str(e.body):
+            async for event in _openai_stream_iter(target, req, include_usage=False):
+                yield event
+        else:
+            raise

@@ -1,5 +1,5 @@
 import { request } from './request'
-import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, DataSource, SyncTask, ModelConfig, SystemStats, NewsSource, HotArticle, NewsStats, InvocationBatch, InvocationResult, LoadTest, DocExplanation, DocExplanationEvaluation, DocExplanationEvalResult, OpenSourceDataset, AnnotationCorrection, TrainingDataEval, TrainingDataTemplate, TrainingDataMetricDefinition } from '@/types'
+import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, DataSource, SyncTask, ModelConfig, SystemStats, NewsSource, HotArticle, NewsStats, InvocationBatch, InvocationResult, LoadTest, DocExplanation, DocExplanationEvaluation, DocExplanationEvalResult, OpenSourceDataset, AnnotationCorrection } from '@/types'
 
 // 文档和分片API
 export interface DocumentInfo {
@@ -112,6 +112,8 @@ export const getLogStats = (modelId?: string) => {
     logs_by_status: Record<string, number>
     avg_latency_ms?: number
     replay_count: number
+    token_usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+    logs_with_usage?: number
   }>('/model-logs/stats', { params: modelId ? { model_id: modelId } : undefined })
 }
 
@@ -213,6 +215,13 @@ export const uploadDatasetFile = (datasetId: string, file: File) => {
   return request.post<{ object_name?: string; file_path?: string }>(`/datasets/${datasetId}/import`, formData)
 }
 
+// 上传文件到 MinIO 指定 bucket（如 documents，供数据集生成等场景使用）
+export const uploadFileToMinio = (bucket: string, file: File) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request.post<{ success: boolean; bucket: string; object_name: string; original_name: string; size: number; url?: string; error?: string }>(`/files/upload/${bucket}`, formData)
+}
+
 // 删除QA记录
 export const deleteQARecord = (datasetId: string, recordId: string) => {
   return request.delete(`/datasets/${datasetId}/qa-records/${recordId}`)
@@ -225,9 +234,8 @@ export const batchDeleteQARecords = (datasetId: string, recordIds: string[]) => 
 
 // 下载导入数据模板
 export const downloadTemplate = (format: 'json' | 'jsonl' | 'csv') => {
-  // 直接使用 fetch下载，避免 axios 拦截器处理
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
-  const url = `${baseUrl}/datasets/templates/${format}`
+  // 直接使用 fetch下载，避免 axios 拦截器处理；与 axios 同源走 '/api/v1'（开发环境由 vite 代理转发）
+  const url = `/api/v1/datasets/templates/${format}`
   return fetch(url).then(async response => {
     if (!response.ok) {
       throw new Error('下载失败')
@@ -315,10 +323,6 @@ interface EvaluationResultsResponse {
 
 export const getEvaluationResults = (id: string) => {
   return request.get<EvaluationResultsResponse>(`/evaluations/${id}/results`)
-}
-
-export const getEvaluationSummary = (id: string) => {
-  return request.get(`/evaluations/${id}/summary`)
 }
 
 export const compareEvaluations = (evalIds: string[]) => {
@@ -574,7 +578,8 @@ export const getDocumentChunks = (datasetId: string, docId: string, params?: { p
 export interface LoadTestCreateParams {
   name: string
   description?: string
-  rag_system_id: string
+  rag_system_id?: string
+  target_model_id?: string  // 大模型直连压测（与 rag_system_id 二选一）
   test_mode: 'qps_limit' | 'latency_dist'
   test_type: 'first_token' | 'full_response'
   latency_threshold?: number
@@ -677,6 +682,135 @@ export const uploadGlobalDocument = (file: File, chunkSize?: number, chunkOverla
   if (chunkSize) params.append('chunk_size', chunkSize.toString())
   if (chunkOverlap) params.append('chunk_overlap', chunkOverlap.toString())
   return request.post<DocumentInfo>(`/doc-explanations/documents/upload?${params.toString()}`, formData)
+}
+
+// 获取文档详情（全文，用于预览）
+export const getDocumentDetail = (id: string) => {
+  return request.get<DocumentInfo>(`/doc-explanations/documents/${id}`)
+}
+
+// 删除文档（级联删除分片与文档解释）
+export const deleteDocument = (id: string) => {
+  return request.delete(`/doc-explanations/documents/${id}`)
+}
+
+// 从粘贴文本创建文档（不关联数据集，自动分片）
+export const createGlobalDocumentFromText = (data: { title?: string; content: string; chunk_size?: number; chunk_overlap?: number }) => {
+  return request.post<DocumentInfo>('/doc-explanations/documents/text', data)
+}
+
+// ---------- 文档解析（minerU 等解析服务） ----------
+
+export interface DocParseSourceFile {
+  object_name: string
+  file_name: string
+  size: number
+  parseable: boolean
+  last_modified?: string
+  etag?: string
+  content_type?: string
+}
+
+export interface DocParseBatchInfo {
+  id: string
+  name: string
+  parser_model_id: string
+  parser_model_name?: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  progress: number
+  error?: string
+  config: Record<string, any>
+  total_files: number
+  success_files: number
+  failed_files: number
+  evaluation_summary?: {
+    total: number
+    avg_score: number
+    max_score: number
+    min_score: number
+    good_count: number
+    poor_count: number
+    files: { file_name: string; score: number }[]
+  }
+  started_at?: string
+  completed_at?: string
+  created_at?: string
+}
+
+export interface DocParseResultInfo {
+  id: string
+  batch_id: string
+  file_name: string
+  object_name: string
+  file_size?: number
+  status: 'pending' | 'running' | 'success' | 'failed'
+  error?: string
+  md_content?: string
+  has_content_list: boolean
+  doc_id?: string
+  duration?: number
+  evaluation?: {
+    score: number
+    metrics: Record<string, number>
+    stats: Record<string, any>
+    suggestions: string[]
+  }
+  completed_at?: string
+  created_at?: string
+}
+
+// 列出可解析的源文件（MinIO documents bucket）
+export const getParseSourceFiles = () => {
+  return request.get<{ items: DocParseSourceFile[]; total: number }>('/doc-parser/files')
+}
+
+// 上传源文件（保存待解析）
+export const uploadParseSourceFile = (file: File) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request.post<DocParseSourceFile & { success: boolean; object_name: string }>('/doc-parser/files/upload', formData)
+}
+
+// 删除源文件
+export const deleteParseSourceFile = (objectName: string) => {
+  return request.delete(`/doc-parser/files/${objectName.split('/').map(encodeURIComponent).join('/')}`)
+}
+
+// 创建解析批次（挑选源文件提交解析）
+export const createDocParseBatch = (data: { name?: string; parser_model_id: string; object_names: string[]; config?: Record<string, any> }) => {
+  return request.post<DocParseBatchInfo>('/doc-parser/batches', data)
+}
+
+// 解析批次列表
+export const getDocParseBatches = () => {
+  return request.get<DocParseBatchInfo[]>('/doc-parser/batches')
+}
+
+// 解析批次详情
+export const getDocParseBatch = (id: string) => {
+  return request.get<DocParseBatchInfo>(`/doc-parser/batches/${id}`)
+}
+
+// 批次解析结果列表（with_content=true 时返回完整 Markdown）
+export const getDocParseResults = (batchId: string, withContent?: boolean) => {
+  return request.get<DocParseResultInfo[]>(`/doc-parser/batches/${batchId}/results`, {
+    params: withContent ? { with_content: true } : undefined,
+  })
+}
+
+// 单条解析结果详情（含完整 Markdown）
+export const getDocParseResult = (resultId: string) => {
+  return request.get<DocParseResultInfo>(`/doc-parser/results/${resultId}`)
+}
+
+// 删除解析批次
+export const deleteDocParseBatch = (id: string) => {
+  return request.delete(`/doc-parser/batches/${id}`)
+}
+
+// 评估解析批次结果
+export const evaluateDocParseBatch = (batchId: string) => {
+  return request.post<{ message: string; evaluated: number; evaluation_summary: DocParseBatchInfo['evaluation_summary'] }>(`/doc-parser/batches/${batchId}/evaluate`)
 }
 
 // 开源数据集API
@@ -790,6 +924,9 @@ export interface TrainingDataEvalCreateParams {
     threshold?: number
     threshold_type?: string
   }>
+  // 评估用模型（指标 requires_llm / requires_embedding 时由前端必填校验）
+  llm_model_id?: string
+  embedding_model_id?: string
 }
 
 export const getTrainingDataEvals = (params?: { status?: string; dataset_id?: string; data_type?: string }) => {

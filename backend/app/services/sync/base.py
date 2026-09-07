@@ -43,8 +43,45 @@ class BaseSyncAdapter(ABC):
     display_name: str
 
     def __init__(self, connection_config: Dict[str, Any]):
-        self.connection_config = connection_config
+        self.connection_config = self._normalize_config(connection_config or {})
         self._connection = None
+
+    @staticmethod
+    def _normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
+        """把前端传入的 db_url 形式配置解析成 host/port/database/username 等标准键"""
+        if "db_url" in config and "host" not in config:
+            try:
+                from urllib.parse import urlparse, unquote
+
+                db_url = config["db_url"]
+                parsed = urlparse(db_url)
+                # host:port/db 简写会被 urlparse 当作 scheme=host，补 // 走标准解析
+                if parsed.scheme and not parsed.hostname and "://" not in db_url:
+                    parsed = urlparse("//" + db_url)
+                if parsed.scheme and parsed.hostname:
+                    if not config.get("db_type"):
+                        config["db_type"] = parsed.scheme
+                    config["host"] = parsed.hostname
+                    if parsed.port:
+                        config["port"] = parsed.port
+                    if parsed.path and len(parsed.path) > 1:
+                        config["database"] = parsed.path.lstrip("/")
+                    if parsed.username:
+                        config["username"] = unquote(parsed.username)
+                    config["password"] = config.get("password") or (unquote(parsed.password) if parsed.password else None)
+                elif "://" not in db_url:
+                    # host:port/db 简写
+                    host_part, _, db_part = db_url.partition("/")
+                    host, _, port = host_part.partition(":")
+                    if host:
+                        config["host"] = host
+                    if port.isdigit():
+                        config["port"] = int(port)
+                    if db_part:
+                        config["database"] = db_part
+            except Exception:
+                pass
+        return config
 
     @abstractmethod
     async def connect(self) -> bool:

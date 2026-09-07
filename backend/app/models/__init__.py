@@ -13,6 +13,7 @@ from .sync import DataSource, SyncTask, SchemaMapping, DataSourceType
 from .hot_news import HotNewsSource, HotArticle
 from .load_test import LoadTest, LoadTestStatus, LoadTestType, LoadTestMode
 from .doc_explanation import DocExplanation, DocExplanationEvaluation, DocExplanationEvalResult, DocExplanationEvalStatus
+from .doc_parse import DocParseBatch, DocParseResult
 from .open_source_dataset import OpenSourceDataset
 from .annotation_correction import AnnotationCorrection
 from .prompt import PromptVersion, PromptVersionHistory, PromptFramework
@@ -65,6 +66,8 @@ __all__ = [
     "DocExplanationEvaluation",
     "DocExplanationEvalResult",
     "DocExplanationEvalStatus",
+    "DocParseBatch",
+    "DocParseResult",
     "OpenSourceDataset",
     "AnnotationCorrection",
     "PromptVersion",

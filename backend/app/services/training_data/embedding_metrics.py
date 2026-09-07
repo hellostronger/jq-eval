@@ -1,10 +1,14 @@
 # Embedding训练数据评估指标
 from typing import Optional, List, Dict, Any
+import logging
 import numpy as np
 from .base import BaseTrainingDataMetric, TrainingDataMetricResult
+from .reranker_metrics import _EmbedMixin
+
+logger = logging.getLogger(__name__)
 
 
-class EmbeddingQualityMetric(BaseTrainingDataMetric):
+class EmbeddingQualityMetric(_EmbedMixin, BaseTrainingDataMetric):
     """Embedding数据质量指标"""
     name = "embedding_quality"
     display_name = "Embedding质量"
@@ -13,6 +17,14 @@ class EmbeddingQualityMetric(BaseTrainingDataMetric):
     data_types = ["embedding"]
     requires_embedding = True
     default_threshold = 0.75
+
+    @staticmethod
+    def _tokenize(text: str) -> List[str]:
+        """字符 bigram 分词：兼容中英文的简单退化方案"""
+        text = (text or "").lower().strip()
+        if len(text) < 2:
+            return [text] if text else []
+        return [text[i:i + 2] for i in range(len(text) - 1)]
 
     async def compute(
         self,
@@ -25,26 +37,43 @@ class EmbeddingQualityMetric(BaseTrainingDataMetric):
         """评估Embedding数据质量"""
         embedding_model = kwargs.get('embedding_model')
 
-        if not embedding_model or not contexts:
+        if not contexts:
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error="需要Embedding模型和上下文数据"
+                error="需要上下文数据"
             )
 
         try:
             # 计算问题和上下文之间的语义相似度
-            similarities = []
-            for ctx in contexts:
-                if ctx.strip():
-                    # 使用简单字符匹配作为相似度估计
-                    q_words = set(question.lower().split())
-                    c_words = set(ctx.lower().split())
-                    if len(q_words) > 0:
-                        overlap = len(q_words & c_words) / len(q_words)
-                        similarities.append(overlap)
+            # 有 embedding 模型时用向量余弦相似度，否则退化为词重叠
+            valid_contexts = [ctx for ctx in (contexts or []) if ctx.strip()]
+            if embedding_model and valid_contexts and question.strip():
+                try:
+                    q_vec = await self._embed(embedding_model, question)
+                    sims = []
+                    for ctx in valid_contexts:
+                        c_vec = await self._embed(embedding_model, ctx)
+                        sims.append(self._cosine(q_vec, c_vec))
+                    avg_similarity = float(np.mean(sims)) if sims else 0.0
+                    similarity_method = "embedding_cosine"
+                except Exception as embed_err:
+                    logger.warning(f"Embedding 相似度计算失败，退化为词重叠: {embed_err}")
+                    avg_similarity = None
+            else:
+                avg_similarity = None
 
-            avg_similarity = np.mean(similarities) if similarities else 0.0
+            if avg_similarity is None:
+                # 词重叠退化路径：用字符 n-gram 兼容中文（按空格分词对中文无效）
+                similarities = []
+                q_tokens = set(self._tokenize(question))
+                for ctx in valid_contexts:
+                    c_tokens = set(self._tokenize(ctx))
+                    if len(q_tokens) > 0:
+                        overlap = len(q_tokens & c_tokens) / len(q_tokens)
+                        similarities.append(overlap)
+                avg_similarity = float(np.mean(similarities)) if similarities else 0.0
+                similarity_method = "word_overlap"
 
             # 评估文本质量
             text_quality = 1.0
@@ -65,6 +94,7 @@ class EmbeddingQualityMetric(BaseTrainingDataMetric):
                 passed=self.check_threshold(score),
                 details={
                     "semantic_similarity": avg_similarity,
+                    "similarity_method": similarity_method,
                     "text_quality": text_quality
                 },
                 suggestions=suggestions

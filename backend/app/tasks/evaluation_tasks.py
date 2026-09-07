@@ -62,7 +62,7 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
             # 获取QA记录
             qa_records = await db.execute(
                 text("""
-                SELECT id, question, answer, ground_truth, target_chunk_ids FROM qa_records
+                SELECT id, question, answer, ground_truth, target_chunk_ids, snapshot FROM qa_records
                 WHERE dataset_id = :dataset_id
                 ORDER BY created_at
                 """),
@@ -100,6 +100,16 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
             llm = await _init_model(llm_config) if llm_config else None
             embedding_model = await _init_model(embedding_config) if embedding_config else None
 
+            # 按模型的 save_logs 开关挂接调用日志（失败不影响评估）
+            if llm is not None and llm_config is not None:
+                try:
+                    from app.services.llm import create_log_recorder, LLMCallLogger
+                    recorder = await create_log_recorder(db, llm_config.id)
+                    if recorder.is_enabled():
+                        llm = LLMCallLogger(llm, recorder, request_type="chat")
+                except Exception as e:
+                    logger.warning(f"挂接模型调用日志失败: {e}")
+
             logger.info(f"初始化后的模型: llm={llm}, embedding_model={embedding_model}")
 
             # 检查是否有必要的模型配置
@@ -123,25 +133,27 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
             for qa in qa_list:
                 qa_id = str(qa["id"])
                 # 如果有调用结果且 reuse_invocation=True，使用调用结果
+                qa_snapshot = qa.get("snapshot") or {}
                 if evaluation.reuse_invocation and qa_id in invocation_results_map:
                     ir = invocation_results_map[qa_id]
                     eval_item = {
                         "id": qa["id"],
                         "question": qa["question"],
                         "answer": ir.answer or qa.get("answer"),
-                        "contexts": ir.contexts or qa.get("contexts"),
+                        "contexts": ir.contexts or qa_snapshot.get("contexts"),
                         "ground_truth": qa.get("ground_truth"),
                         "retrieval_ids": ir.retrieval_ids or [],
                         "target_chunk_ids": qa.get("target_chunk_ids") or [],
                         "invocation_result_id": ir.id,
                     }
                 else:
-                    # 使用 QARecord 的原始数据
+                    # 使用 QARecord 的原始数据（contexts 存于 snapshot 字段）
+                    snapshot = qa.get("snapshot") or {}
                     eval_item = {
                         "id": qa["id"],
                         "question": qa["question"],
                         "answer": qa.get("answer"),
-                        "contexts": qa.get("contexts"),
+                        "contexts": snapshot.get("contexts"),
                         "ground_truth": qa.get("ground_truth"),
                         "retrieval_ids": [],
                         "target_chunk_ids": qa.get("target_chunk_ids") or [],
@@ -238,6 +250,7 @@ async def _init_model(model_config: Model) -> Any:
             api_key=model_config.api_key_encrypted,
             base_url=model_config.endpoint,
             temperature=params.get("temperature", 0.7),
+            model_kwargs=params.get("extra_params") or {},
         )
         # 验证 LLM 是否正确初始化
         logger.info(f"ChatOpenAI 初始化完成: model={llm.model_name}, api_base={llm.openai_api_base}, has_api_key={bool(llm.openai_api_key)}")

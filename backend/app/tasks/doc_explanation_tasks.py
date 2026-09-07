@@ -82,6 +82,14 @@ async def _run_doc_explanation_eval(task, eval_id: UUID) -> Dict[str, Any]:
 
             # 初始化LLM
             llm = await _init_llm(llm_model)
+            # 按模型的 save_logs 开关挂接调用日志（失败不影响评估）
+            try:
+                from app.services.llm import create_log_recorder
+                recorder = await create_log_recorder(db, llm_model.id)
+                if recorder.is_enabled():
+                    llm = LLMCallLogger(llm, recorder, request_type="chat")
+            except Exception as e:
+                logger.warning(f"挂接模型调用日志失败: {e}")
 
             # 执行评估
             metrics = evaluation.metrics or ["completeness", "accuracy", "info_missing", "explanation_error"]
@@ -150,6 +158,7 @@ async def _init_llm(model_config: Model) -> Any:
         api_key=model_config.api_key_encrypted,
         base_url=model_config.endpoint,
         temperature=params.get("temperature", 0.0),
+        model_kwargs=params.get("extra_params") or {},
     )
     return llm
 
@@ -161,7 +170,7 @@ async def _evaluate_explanation(
     explanation: str,
     metrics: List[str]
 ) -> Dict[str, Any]:
-    """使用LLM评估文档解释"""
+    """使用LLM评估文档解释（llm 可能被 LLMCallLogger 包装，ainvoke 接口兼容）"""
     prompt = f"""请对以下文档解释进行评估。
 
 文档标题: {doc_title or '未知'}

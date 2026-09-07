@@ -8,6 +8,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from ...core.database import get_db
+from ...core.utc_datetime import UTCDatetime
 from ...models import InvocationBatch, InvocationResult, Dataset, QARecord, RAGSystem
 
 router = APIRouter()
@@ -30,9 +31,9 @@ class InvocationBatchResponse(BaseModel):
     completed_count: int
     failed_count: int
     error: Optional[str] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    created_at: Optional[datetime] = None
+    started_at: Optional[UTCDatetime] = None
+    completed_at: Optional[UTCDatetime] = None
+    created_at: Optional[UTCDatetime] = None
 
     class Config:
         from_attributes = True
@@ -49,7 +50,7 @@ class InvocationResultResponse(BaseModel):
     latency: Optional[float] = None
     status: str
     error: Optional[str] = None
-    created_at: Optional[datetime] = None
+    created_at: Optional[UTCDatetime] = None
     ground_truth: Optional[str] = None  # 标准答案（从QA记录关联获取）
 
     class Config:

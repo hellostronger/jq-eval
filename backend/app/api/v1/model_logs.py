@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from ...core.database import get_db
+from ...core.utc_datetime import UTCDatetime
 from ...models import Model, ModelRequestLog, ModelMapping
 from ...services.llm.llm_client import create_llm_from_config
 
@@ -28,6 +29,7 @@ class LogResponse(BaseModel):
     prompt: str
     system_prompt: Optional[str]
     params: Optional[dict]
+    messages: Optional[list] = None
     response: Optional[str]
     response_metadata: Optional[dict]
     status: str
@@ -39,7 +41,7 @@ class LogResponse(BaseModel):
     source: Optional[str] = "direct"
     mapping_id: Optional[UUID] = None
     mapping_name: Optional[str] = None
-    created_at: datetime
+    created_at: UTCDatetime
 
     class Config:
         from_attributes = True
@@ -93,6 +95,8 @@ class LogStatsResponse(BaseModel):
     logs_by_status: dict
     avg_latency_ms: Optional[float]
     replay_count: int
+    token_usage: dict = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    logs_with_usage: int = 0
 
 
 def log_to_response(log: ModelRequestLog, model_name: Optional[str] = None,
@@ -189,6 +193,95 @@ async def list_logs(
     return {"items": items, "total": total}
 
 
+@router.get("/stats", response_model=LogStatsResponse)
+async def get_stats(
+    model_id: Optional[UUID] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """获取日志统计信息（所有聚合均应用相同的 model_id 过滤，与列表页口径一致）"""
+    # 统一过滤条件（列表页与统计页共用同一套筛选语义）
+    def _apply_filters(query):
+        if model_id:
+            query = query.where(ModelRequestLog.model_id == model_id)
+        return query
+
+    # 基础查询
+    base_query = _apply_filters(select(ModelRequestLog))
+
+    # 总数
+    total_result = await db.execute(
+        select(func.count()).select_from(base_query.subquery())
+    )
+    total_logs = total_result.scalar() or 0
+
+    # 按模型统计
+    model_stats_result = await db.execute(
+        _apply_filters(select(ModelRequestLog.model_id, func.count()))
+        .group_by(ModelRequestLog.model_id)
+    )
+    logs_by_model = {str(row[0]): row[1] for row in model_stats_result}
+
+    # 按类型统计
+    type_stats_result = await db.execute(
+        _apply_filters(select(ModelRequestLog.request_type, func.count()))
+        .group_by(ModelRequestLog.request_type)
+    )
+    logs_by_type = {row[0]: row[1] for row in type_stats_result}
+
+    # 按状态统计
+    status_stats_result = await db.execute(
+        _apply_filters(select(ModelRequestLog.status, func.count()))
+        .group_by(ModelRequestLog.status)
+    )
+    logs_by_status = {row[0]: row[1] for row in status_stats_result}
+
+    # 平均延迟
+    avg_latency_result = await db.execute(
+        _apply_filters(select(func.avg(ModelRequestLog.latency_ms)))
+        .where(ModelRequestLog.latency_ms.isnot(None))
+    )
+    avg_latency_ms = avg_latency_result.scalar()
+
+    # 回放数量
+    replay_count_result = await db.execute(
+        _apply_filters(select(func.count()))
+        .where(ModelRequestLog.is_replay == True)
+    )
+    replay_count = replay_count_result.scalar() or 0
+
+    # Token 用量统计：usage 落在 response_metadata JSONB 里
+    # （log_recorder 直调链路写入 usage_tokens 键，mapping 链路写入 usage 键）
+    token_result = await db.execute(
+        _apply_filters(select(ModelRequestLog.response_metadata))
+    )
+    token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    logs_with_usage = 0
+    for (meta,) in token_result:
+        usage = None
+        if isinstance(meta, dict):
+            usage = meta.get("usage_tokens") or meta.get("usage")
+        if not isinstance(usage, dict):
+            continue
+        prompt = usage.get("prompt_tokens") or usage.get("input_tokens") or 0
+        completion = usage.get("completion_tokens") or usage.get("output_tokens") or 0
+        total = usage.get("total_tokens") or (prompt + completion)
+        token_usage["prompt_tokens"] += prompt or 0
+        token_usage["completion_tokens"] += completion or 0
+        token_usage["total_tokens"] += total or 0
+        logs_with_usage += 1
+
+    return {
+        "total_logs": total_logs,
+        "logs_by_model": logs_by_model,
+        "logs_by_type": logs_by_type,
+        "logs_by_status": logs_by_status,
+        "avg_latency_ms": float(avg_latency_ms) if avg_latency_ms else None,
+        "replay_count": replay_count,
+        "token_usage": token_usage,
+        "logs_with_usage": logs_with_usage,
+    }
+
+
 @router.get("/{log_id}", response_model=LogResponse)
 async def get_log(
     log_id: UUID,
@@ -255,16 +348,31 @@ async def replay_log(
     llm = await create_llm_from_config(target_model)
 
     # 构建消息
-    from langchain_core.messages import HumanMessage, SystemMessage
+    # 日志里 messages 的 role 有两种风格：langchain 风格（human/ai/system）与
+    # openai 风格（user/assistant/system，映射代理写入），此处统一兼容
+    from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
+    role_map = {
+        "human": "human", "user": "human",
+        "ai": "ai", "assistant": "ai",
+        "system": "system", "developer": "system",
+        "tool": "tool",
+    }
     messages = []
-    if source_log.system_prompt:
-        messages.append(SystemMessage(content=source_log.system_prompt))
     if source_log.messages:
         for msg in source_log.messages:
-            if msg.get("role") == "system":
-                messages.append(SystemMessage(content=msg.get("content", "")))
-            elif msg.get("role") == "human":
-                messages.append(HumanMessage(content=msg.get("content", "")))
+            role = role_map.get(msg.get("role", ""), None)
+            content = msg.get("content", "") or ""
+            if role == "system":
+                messages.append(SystemMessage(content=content))
+            elif role == "human":
+                messages.append(HumanMessage(content=content))
+            elif role == "ai":
+                messages.append(AIMessage(content=content))
+            elif role == "tool":
+                messages.append(ToolMessage(content=content, tool_call_id=msg.get("tool_call_id", "") or ""))
+        # messages 字段存在但全部无法解析时，回退到 prompt，避免空消息列表调用
+        if not messages:
+            messages.append(HumanMessage(content=source_log.prompt))
     else:
         messages.append(HumanMessage(content=source_log.prompt))
 
@@ -277,6 +385,10 @@ async def replay_log(
         status = "success"
         error = None
 
+        # 提取 token 用量（与 log_recorder 同口径）
+        from ...services.llm import extract_usage_tokens
+        usage_tokens = extract_usage_tokens(response)
+
         # 保存回放日志
         replay_log = ModelRequestLog(
             model_id=target_model.id,
@@ -287,6 +399,7 @@ async def replay_log(
             messages=source_log.messages,
             params=source_log.params,
             response=response_content,
+            response_metadata=({"usage_tokens": usage_tokens} if usage_tokens else None),
             status=status,
             latency_ms=latency_ms,
             is_replay=True,
@@ -427,64 +540,3 @@ async def delete_log(
     await db.delete(log)
     await db.commit()
     return {"message": "删除成功"}
-
-
-@router.get("/stats", response_model=LogStatsResponse)
-async def get_stats(
-    model_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db)
-):
-    """获取日志统计信息"""
-    # 基础查询
-    base_query = select(ModelRequestLog)
-    if model_id:
-        base_query = base_query.where(ModelRequestLog.model_id == model_id)
-
-    # 总数
-    total_result = await db.execute(
-        select(func.count()).select_from(base_query.subquery())
-    )
-    total_logs = total_result.scalar() or 0
-
-    # 按模型统计
-    model_stats_result = await db.execute(
-        select(ModelRequestLog.model_id, func.count())
-        .group_by(ModelRequestLog.model_id)
-    )
-    logs_by_model = {str(row[0]): row[1] for row in model_stats_result}
-
-    # 按类型统计
-    type_stats_result = await db.execute(
-        select(ModelRequestLog.request_type, func.count())
-        .group_by(ModelRequestLog.request_type)
-    )
-    logs_by_type = {row[0]: row[1] for row in type_stats_result}
-
-    # 按状态统计
-    status_stats_result = await db.execute(
-        select(ModelRequestLog.status, func.count())
-        .group_by(ModelRequestLog.status)
-    )
-    logs_by_status = {row[0]: row[1] for row in status_stats_result}
-
-    # 平均延迟
-    avg_latency_result = await db.execute(
-        select(func.avg(ModelRequestLog.latency_ms))
-        .where(ModelRequestLog.latency_ms.isnot(None))
-    )
-    avg_latency_ms = avg_latency_result.scalar()
-
-    # 回放数量
-    replay_count_result = await db.execute(
-        select(func.count()).where(ModelRequestLog.is_replay == True)
-    )
-    replay_count = replay_count_result.scalar() or 0
-
-    return {
-        "total_logs": total_logs,
-        "logs_by_model": logs_by_model,
-        "logs_by_type": logs_by_type,
-        "logs_by_status": logs_by_status,
-        "avg_latency_ms": float(avg_latency_ms) if avg_latency_ms else None,
-        "replay_count": replay_count,
-    }

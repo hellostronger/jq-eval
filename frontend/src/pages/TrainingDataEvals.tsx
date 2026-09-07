@@ -11,9 +11,9 @@ import dayjs from 'dayjs'
 import {
   getTrainingDataEvals, createTrainingDataEval, runTrainingDataEval,
   deleteTrainingDataEval, getTrainingDataEvalStatus, getAvailableTrainingDataMetrics,
-  getDatasets
+  getTrainingDataEvalResults, getDatasets, getModels
 } from '@/api'
-import type { TrainingDataEval, Dataset, TrainingDataMetricDefinition } from '@/types'
+import type { TrainingDataEval, Dataset, TrainingDataMetricDefinition, TrainingDataEvalResult, ModelConfig } from '@/types'
 import type { TrainingDataEvalCreateParams } from '@/api'
 
 const { Option } = Select
@@ -33,12 +33,16 @@ const DATA_TYPE_OPTIONS = [
 const TrainingDataEvals: React.FC = () => {
   const [evaluations, setEvaluations] = useState<TrainingDataEval[]>([])
   const [datasets, setDatasets] = useState<Dataset[]>([])
+  const [llmModels, setLlmModels] = useState<ModelConfig[]>([])
+  const [embeddingModels, setEmbeddingModels] = useState<ModelConfig[]>([])
   const [availableMetrics, setAvailableMetrics] = useState<TrainingDataMetricDefinition[]>([])
   const [loading, setLoading] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)
   const [detailModalVisible, setDetailModalVisible] = useState(false)
   const [selectedEval, setSelectedEval] = useState<TrainingDataEval | null>(null)
   const [saving, setSaving] = useState(false)
+  const [results, setResults] = useState<TrainingDataEvalResult[]>([])
+  const [resultsLoading, setResultsLoading] = useState(false)
   const [form] = Form.useForm()
   const [pollingIntervals, setPollingIntervals] = useState<Record<string, number>>({})
 
@@ -91,43 +95,50 @@ const TrainingDataEvals: React.FC = () => {
     })
   }, [evaluations])
 
-  const fetchMetrics = async (dataType: string) => {
+  const fetchMetrics = async (dataType: string): Promise<TrainingDataMetricDefinition[]> => {
     try {
       const data = await getAvailableTrainingDataMetrics(dataType)
       setAvailableMetrics(data.metrics)
+      return data.metrics
     } catch (e) {
       console.error('加载指标失败:', e)
+      return []
     }
   }
 
-  
+  // 打开创建弹窗时加载数据集和评估用模型列表
+  const loadBaseOptions = async () => {
+    if (datasets.length > 0) return
+    try {
+      const [datasetData, llmData, embeddingData] = await Promise.all([
+        getDatasets().catch(() => []),
+        getModels('llm').catch(() => []),
+        getModels('embedding').catch(() => []),
+      ])
+      setDatasets(datasetData)
+      setLlmModels(llmData)
+      setEmbeddingModels(embeddingData)
+    } catch (e) {
+      // 错误已在拦截器处理
+    }
+  }
+
+
   const showCreateDialog = () => {
     form.resetFields()
     form.setFieldsValue({
       config: { batch_size: 10 },
       metrics: []
     })
+    setAvailableMetrics([])
+    loadBaseOptions()
     setModalVisible(true)
   }
 
-  const handleDataTypeChange = (value: string) => {
-    fetchMetrics(value)
-    // 自动选择默认指标
-    const defaultMetrics = getDefaultMetrics(value)
-    form.setFieldsValue({ metrics: defaultMetrics })
-  }
-
-  const getDefaultMetrics = (dataType: string): string[] => {
-    const defaults: Record<string, string[]> = {
-      llm: ['llm_response_quality', 'llm_coherence', 'llm_response_length'],
-      embedding: ['embedding_quality', 'embedding_diversity', 'embedding_completeness'],
-      reranker: ['reranker_pair_quality', 'reranker_label_consistency'],
-      reward_model: ['reward_model_consistency', 'reward_model_separation'],
-      dpo: ['dpo_pair_quality', 'dpo_preference_strength'],
-      vlm: ['vlm_image_text_alignment', 'vlm_question_relevance'],
-      vla: ['vla_action_reasoning', 'vla_instruction_clarity']
-    }
-    return defaults[dataType] || []
+  const handleDataTypeChange = async (value: string) => {
+    // 拉取该类型全部注册指标并自动全选（避免默认指标名与注册表不一致）
+    const metricList = await fetchMetrics(value)
+    form.setFieldsValue({ metrics: metricList.map(m => m.name) })
   }
 
   const saveEvaluation = async () => {
@@ -154,7 +165,9 @@ const TrainingDataEvals: React.FC = () => {
         data_type: values.data_type,
         config: values.config || { batch_size: 10 },
         metrics: values.metrics,
-        metric_configs: metricConfigs
+        metric_configs: metricConfigs,
+        llm_model_id: values.llm_model_id,
+        embedding_model_id: values.embedding_model_id,
       }
 
       await createTrainingDataEval(params)
@@ -194,9 +207,18 @@ const TrainingDataEvals: React.FC = () => {
     })
   }
 
-  const showDetail = (evaluation: TrainingDataEval) => {
+  const showDetail = async (evaluation: TrainingDataEval) => {
     setSelectedEval(evaluation)
     setDetailModalVisible(true)
+    if (evaluation.status === 'completed') {
+      setResultsLoading(true)
+      try {
+        const { results: data } = await getTrainingDataEvalResults(evaluation.id)
+        setResults(data)
+      } finally {
+        setResultsLoading(false)
+      }
+    }
   }
 
   const getStatusTag = (status: string) => {
@@ -395,6 +417,38 @@ const TrainingDataEvals: React.FC = () => {
             </Select>
           </Form.Item>
 
+          {/* 评估用模型：按指标依赖显示 */}
+          {availableMetrics.some(m => m.requires_llm) && (
+            <Form.Item
+              name="llm_model_id"
+              label="评估用 LLM 模型"
+              rules={[{ required: true, message: '所选指标需要 LLM 模型打分' }]}
+              extra="用于评估打分的 LLM（与被评估的数据集无关）"
+            >
+              <Select
+                placeholder="选择评估用 LLM"
+                showSearch
+                optionFilterProp="label"
+                options={llmModels.map(m => ({ value: m.id, label: m.name }))}
+              />
+            </Form.Item>
+          )}
+
+          {availableMetrics.some(m => m.requires_embedding) && (
+            <Form.Item
+              name="embedding_model_id"
+              label="评估用 Embedding 模型"
+              rules={[{ required: true, message: '所选指标需要 Embedding 模型' }]}
+            >
+              <Select
+                placeholder="选择评估用 Embedding"
+                showSearch
+                optionFilterProp="label"
+                options={embeddingModels.map(m => ({ value: m.id, label: m.name }))}
+              />
+            </Form.Item>
+          )}
+
           <Form.Item
             name="metrics"
             label="评估指标"
@@ -404,7 +458,7 @@ const TrainingDataEvals: React.FC = () => {
               mode="multiple"
               placeholder="选择评估指标"
               options={availableMetrics.map(m => ({
-                label: `${m.display_name} (${m.category})`,
+                label: `${m.display_name} (${m.category})${m.requires_llm ? ' (LLM)' : m.requires_embedding ? ' (Embedding)' : ''}`,
                 value: m.name
               }))}
             />
@@ -526,6 +580,49 @@ const TrainingDataEvals: React.FC = () => {
                 />
               )}
             </TabPane>
+
+            {selectedEval.status === 'completed' && (
+              <TabPane tab="样本结果" key="results">
+                <Table
+                  loading={resultsLoading}
+                  dataSource={results}
+                  rowKey="id"
+                  pagination={{ pageSize: 10 }}
+                  columns={[
+                    {
+                      title: '问题',
+                      dataIndex: 'question',
+                      key: 'question',
+                      ellipsis: true,
+                    },
+                    {
+                      title: '状态',
+                      dataIndex: 'status',
+                      key: 'status',
+                      width: 90,
+                      render: (status: string) => {
+                        const color = status === 'passed' ? 'success' : status === 'warning' ? 'warning' : 'error'
+                        const text = status === 'passed' ? '通过' : status === 'warning' ? '警告' : '失败'
+                        return <Tag color={color}>{text}</Tag>
+                      },
+                    },
+                    {
+                      title: '综合得分',
+                      dataIndex: 'overall_score',
+                      key: 'overall_score',
+                      width: 100,
+                      render: (score: number) => (score * 100).toFixed(1),
+                    },
+                    {
+                      title: '问题数',
+                      key: 'issues',
+                      width: 80,
+                      render: (_: any, record: TrainingDataEvalResult) => record.issues?.length || 0,
+                    },
+                  ]}
+                />
+              </TabPane>
+            )}
           </Tabs>
         )}
       </Modal>

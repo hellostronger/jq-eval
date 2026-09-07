@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from ...core.database import get_db
+from ...core.utc_datetime import UTCDatetime
 from ...models import AnnotationCorrection, InvocationResult, QARecord, InvocationBatch, Model
 from ...services.annotation_correction import create_correction_service
 
@@ -40,11 +41,11 @@ class CorrectionResponse(BaseModel):
     is_doubtful: bool
     doubt_reason: Optional[str]
     is_confirmed: bool
-    confirmed_at: Optional[datetime]
+    confirmed_at: Optional[UTCDatetime]
     summary: Optional[str]
     analysis_duration: Optional[str]
     error: Optional[str]
-    created_at: Optional[datetime]
+    created_at: Optional[UTCDatetime]
 
     class Config:
         from_attributes = True

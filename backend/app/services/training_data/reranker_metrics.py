@@ -1,10 +1,40 @@
 # Reranker训练数据评估指标
 from typing import Optional, List, Dict, Any
+import asyncio
 import numpy as np
 from .base import BaseTrainingDataMetric, TrainingDataMetricResult
 
 
-class RerankerPairQualityMetric(BaseTrainingDataMetric):
+# 向量相似度辅助函数（供 embedding 相关指标使用）
+
+async def _embed_text(embedding_model, text: str):
+    """调用 LangChain Embeddings 计算向量（兼容 aembed_query / embed_query）"""
+    if hasattr(embedding_model, "aembed_query"):
+        return await embedding_model.aembed_query(text)
+    return embedding_model.embed_query(text)
+
+
+def _cosine_similarity(vec_a, vec_b) -> float:
+    """计算两个向量的余弦相似度"""
+    a = np.asarray(vec_a, dtype=float)
+    b = np.asarray(vec_b, dtype=float)
+    norm = np.linalg.norm(a) * np.linalg.norm(b)
+    if norm == 0:
+        return 0.0
+    return float(np.dot(a, b) / norm)
+
+
+class _EmbedMixin:
+    """为指标提供 embedding 相似度能力"""
+
+    async def _embed(self, embedding_model, text: str):
+        return await _embed_text(embedding_model, text)
+
+    def _cosine(self, vec_a, vec_b) -> float:
+        return _cosine_similarity(vec_a, vec_b)
+
+
+class RerankerPairQualityMetric(_EmbedMixin, BaseTrainingDataMetric):
     """Reranker正负样本对质量指标"""
     name = "reranker_pair_quality"
     display_name = "样本对质量"
@@ -62,9 +92,35 @@ class RerankerPairQualityMetric(BaseTrainingDataMetric):
                     "difference": difference
                 }
             else:
-                score = 0.7
-                suggestions = []
-                details = {"message": "embedding模型评估"}
+                # 有 embedding 模型时，用向量相似度评估正负样本与查询的相关度差异
+                try:
+                    q_vec, pos_vec, neg_vec = await asyncio.gather(
+                        self._embed(embedding_model, question),
+                        self._embed(embedding_model, positive_doc),
+                        self._embed(embedding_model, negative_doc),
+                    )
+                    pos_sim = self._cosine(q_vec, pos_vec)
+                    neg_sim = self._cosine(q_vec, neg_vec)
+                    difference = pos_sim - neg_sim
+
+                    if difference <= 0:
+                        score = 0.3
+                        suggestions = ["正样本与查询的相似度应高于负样本"]
+                    else:
+                        score = min(0.5 + difference, 1.0)
+                        suggestions = []
+
+                    details = {
+                        "positive_similarity": round(pos_sim, 4),
+                        "negative_similarity": round(neg_sim, 4),
+                        "difference": round(difference, 4)
+                    }
+                except Exception as embed_err:
+                    return TrainingDataMetricResult(
+                        score=0.0,
+                        passed=False,
+                        error=f"Embedding 相似度计算失败: {embed_err}"
+                    )
 
             return TrainingDataMetricResult(
                 score=score,
@@ -391,7 +447,6 @@ class RerankerDocumentLengthBalanceMetric(BaseTrainingDataMetric):
             )
 
 
-# Reranker训练数据评估指标注册表
 RERANKER_METRICS = {
     "reranker_pair_quality": RerankerPairQualityMetric,
     "reranker_label_consistency": RerankerLabelConsistencyMetric,

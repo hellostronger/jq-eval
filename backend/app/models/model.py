@@ -23,5 +23,8 @@ class Model(BaseModel):
     dimension = Column(Integer, nullable=True)  # 向量维度
     max_input_length = Column(Integer, nullable=True)  # 最大输入长度
 
+    # LLM特有字段
+    is_vlm = Column(Boolean, default=False)  # 是否为视觉语言模型（支持识别图片）
+
     # 日志保存
     save_logs = Column(Boolean, default=False)  # 是否保存请求响应日志

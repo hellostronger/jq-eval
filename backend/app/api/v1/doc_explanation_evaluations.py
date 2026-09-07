@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from ...core.database import get_db
+from ...core.utc_datetime import UTCDatetime
 from ...models import DocExplanationEvaluation, DocExplanationEvalResult, DocExplanation, Document, Model
 
 router = APIRouter()
@@ -36,9 +37,9 @@ class DocExplanationEvalResponse(BaseModel):
     progress: int
     error: Optional[str] = None
     summary: Optional[Dict[str, Any]] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    created_at: Optional[datetime] = None
+    started_at: Optional[UTCDatetime] = None
+    completed_at: Optional[UTCDatetime] = None
+    created_at: Optional[UTCDatetime] = None
 
     class Config:
         from_attributes = True
@@ -54,7 +55,7 @@ class DocExplanationEvalResultResponse(BaseModel):
     explanation: Optional[str] = None
     scores: Dict[str, Any]
     details: Optional[Dict[str, Any]] = None
-    created_at: Optional[datetime] = None
+    created_at: Optional[UTCDatetime] = None
 
 
 @router.post("", response_model=DocExplanationEvalResponse)

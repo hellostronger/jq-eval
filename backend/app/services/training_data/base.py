@@ -41,8 +41,13 @@ class BaseTrainingDataMetric(ABC):
     default_threshold: float = 0.5
     threshold_type: str = "min"  # min/max/range
 
-    def __init__(self, params: Dict[str, Any] = None):
+    def __init__(self, params: Dict[str, Any] = None, llm=None, embedding_model=None):
         self.params = params or {}
+        # 引擎会按指标依赖注入模型实例，指标内通过 kwargs / 实例属性均可访问
+        if llm is not None:
+            self.llm = llm
+        if embedding_model is not None:
+            self.embedding_model = embedding_model
 
     @abstractmethod
     async def compute(

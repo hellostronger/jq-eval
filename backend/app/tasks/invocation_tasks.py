@@ -39,6 +39,11 @@ async def _prepare_direct_llm_config(connection_config: Dict[str, Any], db) -> D
         if model.params:
             config["temperature"] = connection_config.get("temperature") or model.params.get("temperature", 0.7)
             config["max_tokens"] = connection_config.get("max_tokens") or model.params.get("max_tokens", 2048)
+            # 额外请求参数：调用方配置可覆盖模型默认
+            extra = dict(model.params.get("extra_params") or {})
+            extra.update(connection_config.get("extra_params") or {})
+            if extra:
+                config["extra_params"] = extra
 
         return config
     except Exception as e:

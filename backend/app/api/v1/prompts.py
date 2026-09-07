@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from ...core.database import get_db
+from ...core.utc_datetime import UTCDatetime
 from ...models.prompt import PromptVersion, PromptVersionHistory, PromptFramework
 
 router = APIRouter(prefix="/prompts", tags=["Prompt 管理"])
@@ -55,7 +56,7 @@ class PromptVersionResponse(BaseModel):
     usage_scenario: Optional[str]
     usage_count: int
     version_count: int
-    created_at: datetime
+    created_at: UTCDatetime
 
     class Config:
         from_attributes = True
@@ -116,41 +117,7 @@ async def get_framework(
 
 # ========== Prompt 版本管理 API ==========
 # 注意：路由顺序很重要！静态路由必须放在动态路由之前
-
-# 框架相关路由 - 必须放在 /{prompt_id} 之前
-@router.get("/frameworks", response_model=List[PromptFrameworkResponse])
-async def list_frameworks(
-    complexity: Optional[str] = None,
-    domain: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
-):
-    """获取 Prompt 框架列表"""
-    query = select(PromptFramework).where(PromptFramework.is_active == True)
-
-    if complexity:
-        query = query.where(PromptFramework.complexity == complexity)
-    if domain:
-        query = query.where(PromptFramework.domain == domain)
-
-    query = query.order_by(PromptFramework.sort_order, PromptFramework.display_name)
-
-    result = await db.execute(query)
-    return result.scalars().all()
-
-
-@router.get("/frameworks/{framework_id}", response_model=PromptFrameworkResponse)
-async def get_framework(
-    framework_id: UUID,
-    db: AsyncSession = Depends(get_db)
-):
-    """获取框架详情"""
-    result = await db.execute(
-        select(PromptFramework).where(PromptFramework.id == framework_id)
-    )
-    framework = result.scalar_one_or_none()
-    if not framework:
-        raise HTTPException(status_code=404, detail="框架不存在")
-    return framework
+# （框架路由 /frameworks 定义在上方，勿在此重复注册）
 
 
 # 以下是 Prompt 相关路由 - 动态路由

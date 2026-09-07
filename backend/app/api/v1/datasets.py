@@ -12,6 +12,7 @@ import csv
 import json
 
 from ...core.database import get_db
+from ...core.utc_datetime import UTCDatetime
 from ...models import Dataset, QARecord, Model
 from ...models.document import Document, Chunk
 
@@ -35,7 +36,7 @@ class DatasetResponse(BaseModel):
     has_ground_truth: bool
     has_contexts: bool
     status: str
-    created_at: Optional[datetime] = None
+    created_at: Optional[UTCDatetime] = None
 
     class Config:
         from_attributes = True
@@ -49,6 +50,11 @@ class QARecordCreate(BaseModel):
     question_type: Optional[str] = None
     difficulty: Optional[str] = None
     metadata: dict = {}
+    # 训练数据评估专属字段（reranker/dpo/vlm 等指标所需），随 qa_metadata 存储：
+    # positive_doc/negative_doc/label/doc_content/is_hard_negative,
+    # chosen/rejected/preference_score/confidence,
+    # image_description/action
+    metric_fields: Optional[Dict[str, Any]] = None
 
 
 class QARecordResponse(BaseModel):
@@ -270,7 +276,7 @@ async def create_qa_record(
         ground_truth=data.ground_truth,
         question_type=data.question_type,
         difficulty=data.difficulty,
-        qa_metadata=data.metadata
+        qa_metadata={**data.metadata, **(data.metric_fields or {})}
     )
 
     # 处理 contexts，存储到 snapshot 字段
@@ -1150,6 +1156,26 @@ async def upload_document(
     db.add(document)
     await db.flush()  # 获取文档ID
 
+    # 将文档关联到数据集（通过最新 QARecord 的 doc_ids 引用），
+    # 保证"上传文档 -> 文档查看/生成数据(existing_doc 源)"链路闭环
+    latest_record_result = await db.execute(
+        select(QARecord).where(QARecord.dataset_id == dataset_id).order_by(QARecord.created_at.desc()).limit(1)
+    )
+    latest_record = latest_record_result.scalar_one_or_none()
+    if latest_record:
+        doc_ids = list(latest_record.doc_ids or [])
+        doc_ids.append(document.id)
+        latest_record.doc_ids = doc_ids
+    else:
+        placeholder = QARecord(
+            dataset_id=dataset_id,
+            question=f"[文档源] {file.filename or document.title}",
+            answer=None,
+            qa_metadata={"placeholder_for_docs": True}
+        )
+        placeholder.doc_ids = [document.id]
+        db.add(placeholder)
+
     # 分片处理
     chunks = _split_text(content, chunk_size, chunk_overlap)
 
@@ -1264,6 +1290,27 @@ async def create_documents_from_news(
             "article_id": str(article.id)
         })
 
+    # 将创建的文档关联到数据集（与 documents/upload 相同的占位逻辑）
+    if created_docs:
+        latest_record_result = await db.execute(
+            select(QARecord).where(QARecord.dataset_id == dataset_id).order_by(QARecord.created_at.desc()).limit(1)
+        )
+        latest_record = latest_record_result.scalar_one_or_none()
+        new_doc_ids = [UUID(d["document_id"]) for d in created_docs]
+        if latest_record:
+            doc_ids = list(latest_record.doc_ids or [])
+            doc_ids.extend(new_doc_ids)
+            latest_record.doc_ids = doc_ids
+        else:
+            placeholder = QARecord(
+                dataset_id=dataset_id,
+                question=f"[文档源] 新闻文档x{len(created_docs)}",
+                answer=None,
+                qa_metadata={"placeholder_for_docs": True}
+            )
+            placeholder.doc_ids = new_doc_ids
+            db.add(placeholder)
+
     await db.commit()
 
     logger.info(f"从新闻创建文档成功: 共 {len(created_docs)} 个文档")
@@ -1322,6 +1369,25 @@ async def create_document_from_text(
         )
         db.add(chunk_record)
         chunk_records.append(chunk_record)
+
+    # 将文档关联到数据集（与 documents/upload 相同的占位逻辑）
+    latest_record_result = await db.execute(
+        select(QARecord).where(QARecord.dataset_id == dataset_id).order_by(QARecord.created_at.desc()).limit(1)
+    )
+    latest_record = latest_record_result.scalar_one_or_none()
+    if latest_record:
+        doc_ids = list(latest_record.doc_ids or [])
+        doc_ids.append(document.id)
+        latest_record.doc_ids = doc_ids
+    else:
+        placeholder = QARecord(
+            dataset_id=dataset_id,
+            question=f"[文档源] {document.title}",
+            answer=None,
+            qa_metadata={"placeholder_for_docs": True}
+        )
+        placeholder.doc_ids = [document.id]
+        db.add(placeholder)
 
     await db.commit()
 

@@ -1,5 +1,5 @@
 import React from 'react'
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Layout, Menu } from 'antd'
 import {
   DashboardOutlined,
@@ -64,6 +64,7 @@ const menuItems = [
 
 const App: React.FC = () => {
   const location = useLocation()
+  const navigate = useNavigate()
 
   return (
     <Layout style={{ height: '100vh' }}>
@@ -77,7 +78,7 @@ const App: React.FC = () => {
           mode="inline"
           selectedKeys={[location.pathname]}
           items={menuItems}
-          onClick={({ key }) => window.location.href = key}
+          onClick={({ key }) => navigate(key)}
           style={{ background: '#001529' }}
         />
       </Sider>

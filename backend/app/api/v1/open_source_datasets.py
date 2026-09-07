@@ -10,6 +10,7 @@ import httpx
 import re
 
 from ...core.database import get_db
+from ...core.utc_datetime import UTCDatetime
 from ...models import OpenSourceDataset
 
 router = APIRouter()
@@ -57,8 +58,8 @@ class OpenSourceDatasetResponse(BaseModel):
     is_public: bool
     tags: List[str]
     status: str
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     class Config:
         from_attributes = True

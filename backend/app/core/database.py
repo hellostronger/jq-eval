@@ -74,7 +74,7 @@ async def init_db():
     """初始化数据库（创建所有表）"""
     async with async_engine.begin() as conn:
         # 导入所有模型
-        from ..models import document, dataset, evaluation, model, model_log, model_mapping, rag_system, metric, sync, hot_news, load_test, prompt, vibe_agent
+        from ..models import document, dataset, evaluation, model, model_log, model_mapping, rag_system, metric, sync, hot_news, load_test, prompt, vibe_agent, doc_parse
 
         # 创建所有表
         await conn.run_sync(Base.metadata.create_all)
@@ -91,6 +91,17 @@ async def init_db():
             await conn.execute(text("""
                 ALTER TABLE models
                 ADD COLUMN save_logs BOOLEAN DEFAULT false
+            """))
+
+        # models.is_vlm
+        result = await conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'models' AND column_name = 'is_vlm'
+        """))
+        if result.fetchone() is None:
+            await conn.execute(text("""
+                ALTER TABLE models
+                ADD COLUMN is_vlm BOOLEAN DEFAULT false
             """))
 
         # metric_definitions.eval_stage
@@ -172,6 +183,26 @@ async def init_db():
             await conn.execute(text("""
                 CREATE INDEX IF NOT EXISTS ix_model_request_logs_mapping_id
                 ON model_request_logs (mapping_id)
+            """))
+
+        # load_tests.target_model_id（大模型直连压测）
+        result = await conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'load_tests' AND column_name = 'target_model_id'
+        """))
+        if result.fetchone() is None:
+            await conn.execute(text("""
+                ALTER TABLE load_tests
+                ADD COLUMN target_model_id UUID
+            """))
+            await conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_load_tests_target_model_id
+                ON load_tests (target_model_id)
+            """))
+            # 旧数据 rag_system_id 为 NOT NULL，放宽为可空以兼容两种压测对象
+            await conn.execute(text("""
+                ALTER TABLE load_tests
+                ALTER COLUMN rag_system_id DROP NOT NULL
             """))
 
 

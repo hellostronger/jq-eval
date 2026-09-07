@@ -10,6 +10,7 @@ from .embedding_metrics import EMBEDDING_METRICS
 from .reranker_metrics import RERANKER_METRICS
 from .vlm_vla_metrics import VLM_VLA_METRICS
 from .dpo_metrics import DPO_METRICS
+from .reward_model_metrics import REWARD_MODEL_METRICS
 
 
 # 训练数据评估指标注册表
@@ -19,6 +20,7 @@ TRAINING_DATA_METRIC_REGISTRY.update(EMBEDDING_METRICS)
 TRAINING_DATA_METRIC_REGISTRY.update(RERANKER_METRICS)
 TRAINING_DATA_METRIC_REGISTRY.update(VLM_VLA_METRICS)
 TRAINING_DATA_METRIC_REGISTRY.update(DPO_METRICS)
+TRAINING_DATA_METRIC_REGISTRY.update(REWARD_MODEL_METRICS)
 
 
 class TrainingDataMetricEngine:
@@ -53,11 +55,11 @@ class TrainingDataMetricEngine:
                 if self.data_type not in metric_class.data_types:
                     continue
 
-                # 根据指标依赖注入模型
+                # 根据指标依赖注入模型（仅 requires_llm / requires_embedding 时）
                 kwargs = {'params': params}
                 if metric_class.requires_llm:
                     kwargs['llm'] = self.llm
-                if metric_class.requires_embedding:
+                elif metric_class.requires_embedding:
                     kwargs['embedding_model'] = self.embedding_model
 
                 self.metrics[metric_name] = metric_class(**kwargs)
@@ -262,26 +264,39 @@ def get_training_data_engine(
     data_type: str,
     llm=None,
     embedding_model=None,
-    metric_names: List[str] = None
+    metric_names: List[str] = None,
+    metric_configs: Optional[List[Dict[str, Any]]] = None
 ) -> TrainingDataMetricEngine:
-    """创建训练数据评估引擎"""
-    metric_configs = []
+    """创建训练数据评估引擎
 
-    if metric_names:
+    Args:
+        metric_names: 指标名称列表（无自定义参数时使用）
+        metric_configs: 完整指标配置列表（含 params/threshold，优先于 metric_names）
+    """
+    configs = []
+
+    if metric_configs:
+        # 使用完整配置，过滤掉不适用于当前数据类型的指标
+        for config in metric_configs:
+            name = config.get("metric_name") or config.get("name")
+            cls = TRAINING_DATA_METRIC_REGISTRY.get(name)
+            if cls and data_type in cls.data_types:
+                configs.append(config)
+    elif metric_names:
         for name in metric_names:
             if name in TRAINING_DATA_METRIC_REGISTRY:
                 metric_class = TRAINING_DATA_METRIC_REGISTRY[name]
                 if data_type in metric_class.data_types:
-                    metric_configs.append({"metric_name": name})
+                    configs.append({"metric_name": name})
     else:
         # 自动选择适用于该数据类型的所有指标
         for name, cls in TRAINING_DATA_METRIC_REGISTRY.items():
             if data_type in cls.data_types:
-                metric_configs.append({"metric_name": name})
+                configs.append({"metric_name": name})
 
     return TrainingDataMetricEngine(
         data_type=data_type,
         llm=llm,
         embedding_model=embedding_model,
-        metric_configs=metric_configs
+        metric_configs=configs
     )

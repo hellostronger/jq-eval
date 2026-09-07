@@ -16,6 +16,8 @@ export interface ModelConfig {
   params: {
     temperature?: number
     max_tokens?: number
+    // 额外请求参数，顶层透传给LLM API（如关闭思考）
+    extra_params?: Record<string, any>
     // 文档解析服务配置（doc_parser 类型）
     output_format?: string
     language?: string
@@ -24,6 +26,7 @@ export interface ModelConfig {
   api_key?: string  // 仅用于创建/更新时传递
   dimension?: number
   max_input_length?: number
+  is_vlm?: boolean  // 是否为视觉语言模型（支持识别图片）
   is_default: boolean
   status: string
   save_logs?: boolean  // 是否保存请求响应日志
@@ -269,7 +272,8 @@ export interface LoadTest {
   id: string
   name: string
   description?: string
-  rag_system_id: string
+  rag_system_id?: string
+  target_model_id?: string  // 大模型直连压测（与 rag_system_id 二选一）
   test_mode: 'qps_limit' | 'latency_dist'
   test_type: 'first_token' | 'full_response'
   latency_threshold?: number  // latency_dist模式下可选
@@ -291,6 +295,20 @@ export interface LoadTest {
 // 压测结果类型
 export type LoadTestResult = LoadTestQpsLimitResult | LoadTestLatencyDistResult
 
+// 错误分类汇总（压测失败原因）
+export interface LoadTestErrorSummary {
+  error_categories: Record<string, number>  // 分类 -> 次数（如 请求超时/连接失败/限流(429)/延迟超阈值）
+  failed_samples: Array<{
+    index: number
+    fail_type: 'exception' | 'request_error' | 'slow'
+    latency?: number
+    error: string
+  }>
+  top_errors: string[]
+  slow_count: number
+  request_fail_count: number
+}
+
 // QPS上限测试结果
 export interface LoadTestQpsLimitResult {
   test_mode: 'qps_limit'
@@ -298,12 +316,16 @@ export interface LoadTestQpsLimitResult {
   max_concurrency: number
   latency_threshold: number
   test_type: string
+  stopped_at_concurrency?: number | null
+  stop_reason?: 'request_failed' | 'latency_exceeded' | 'max_concurrency_reached' | string
   step_results: Array<{
     concurrency: number
     qps: number
     success_rate: number
     latency_stats: LatencyStats
     meets_threshold: boolean
+    failed_count?: number
+    error_summary?: LoadTestErrorSummary
   }>
 }
 
@@ -318,6 +340,8 @@ export interface LoadTestLatencyDistResult {
     success_rate: number
     latency_stats: LatencyStats
     meets_threshold?: boolean
+    failed_count?: number
+    error_summary?: LoadTestErrorSummary
   }>
 }
 

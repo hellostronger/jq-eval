@@ -3,8 +3,6 @@ import time
 import logging
 from typing import Dict, Any, Optional, List
 from uuid import UUID
-from datetime import datetime
-import asyncio
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -29,19 +27,12 @@ class LogRecorder:
         self.model_id = model_id
         self.session_id = session_id
         self._enabled = False
-        self._check_enabled()
+        # 异步环境下不能在构造函数里同步查库（run_until_complete 在运行中的
+        # 事件循环里会抛 RuntimeError），统一由 create_log_recorder / check_and_enable 异步初始化
 
     def _check_enabled(self):
-        """检查模型是否启用了日志保存"""
-        try:
-            # 同步检查（在异步上下文中可能需要调整）
-            result = asyncio.get_event_loop().run_until_complete(
-                self._async_check_enabled()
-            )
-            self._enabled = result
-        except RuntimeError:
-            # 如果没有事件循环，使用缓存值或默认关闭
-            self._enabled = False
+        """兼容旧调用：仅返回当前缓存状态，不做 IO"""
+        return self._enabled
 
     async def _async_check_enabled(self) -> bool:
         """异步检查模型是否启用了日志保存"""
@@ -196,6 +187,36 @@ async def create_log_recorder(
     return recorder
 
 
+def extract_usage_tokens(response: Any) -> Optional[Dict[str, int]]:
+    """从 LangChain 响应中提取 token 用量，统一为 openai 键名。
+
+    优先 langchain 标准的 usage_metadata，兜底 response_metadata /
+    additional_kwargs 中的 openai 风格 token_usage。
+    """
+    usage_metadata = getattr(response, "usage_metadata", None)
+    if isinstance(usage_metadata, dict):
+        prompt = usage_metadata.get("input_tokens") or 0
+        completion = usage_metadata.get("output_tokens") or 0
+        return {
+            "prompt_tokens": prompt,
+            "completion_tokens": completion,
+            "total_tokens": usage_metadata.get("total_tokens") or (prompt + completion),
+        }
+
+    raw_meta = getattr(response, "response_metadata", None) or {}
+    raw_usage = raw_meta.get("token_usage") or raw_meta.get("usage") \
+        or (getattr(response, "additional_kwargs", None) or {}).get("token_usage")
+    if isinstance(raw_usage, dict) and (raw_usage.get("prompt_tokens") or raw_usage.get("completion_tokens")):
+        prompt = raw_usage.get("prompt_tokens") or 0
+        completion = raw_usage.get("completion_tokens") or 0
+        return {
+            "prompt_tokens": prompt,
+            "completion_tokens": completion,
+            "total_tokens": raw_usage.get("total_tokens") or (prompt + completion),
+        }
+    return None
+
+
 class LLMCallLogger:
     """LLM调用日志包装器，用于包装LangChain调用"""
 
@@ -215,8 +236,19 @@ class LLMCallLogger:
         self.recorder = recorder
         self.request_type = request_type
 
-    async def ainvoke(self, messages: List, **kwargs):
-        """异步调用并记录日志"""
+    async def generate(self, prompt: str, **kwargs):
+        """兼容简化调用约定：await llm.generate(prompt) 返回文本。
+
+        LangChain 的 generate(messages) 是同步且要求消息列表，这里统一转 ainvoke，
+        并返回纯文本内容，方便指标/评估代码直接使用。
+        """
+        response = await self.ainvoke(prompt, **kwargs)
+        if hasattr(response, "content"):
+            return response.content
+        return str(response)
+
+    async def ainvoke(self, messages, **kwargs):
+        """异步调用并记录日志（messages 支持纯字符串或 LangChain 消息列表）"""
         if not self.recorder or not self.recorder.is_enabled():
             return await self.llm.ainvoke(messages, **kwargs)
 
@@ -225,16 +257,20 @@ class LLMCallLogger:
         system_prompt = None
         messages_data = []
 
-        for msg in messages:
-            msg_dict = {
-                "role": msg.type if hasattr(msg, "type") else "unknown",
-                "content": msg.content if hasattr(msg, "content") else str(msg),
-            }
-            messages_data.append(msg_dict)
-            if msg.type == "system":
-                system_prompt = msg.content
-            elif msg.type == "human":
-                prompt = msg.content
+        if isinstance(messages, str):
+            prompt = messages
+            messages_data = [{"role": "user", "content": messages}]
+        else:
+            for msg in messages:
+                msg_dict = {
+                    "role": msg.type if hasattr(msg, "type") else "unknown",
+                    "content": msg.content if hasattr(msg, "content") else str(msg),
+                }
+                messages_data.append(msg_dict)
+                if msg.type == "system":
+                    system_prompt = msg.content
+                elif msg.type == "human":
+                    prompt = msg.content
 
         params = {
             "temperature": getattr(self.llm, "temperature", None),
@@ -258,9 +294,14 @@ class LLMCallLogger:
 
             # 提取响应
             response_content = response.content if hasattr(response, "content") else str(response)
-            metadata = {
+            metadata: Dict[str, Any] = {
                 "response_type": type(response).__name__,
             }
+
+            # 提取 token 用量
+            usage = extract_usage_tokens(response)
+            if usage:
+                metadata["usage_tokens"] = usage
 
             # 记录响应
             await self.recorder.record_response(
