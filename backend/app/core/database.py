@@ -219,15 +219,21 @@ CeleryAsyncSessionLocal = None
 
 
 def _create_celery_engine():
-    """在 Celery worker 进程中创建数据库引擎"""
+    """在 Celery worker 进程中创建数据库引擎
+
+    注意：Celery 任务通过 run_async() 每次使用全新的 event loop，
+    asyncpg 连接绑定创建时的 event loop，跨 loop 复用池中连接会报
+    'NoneType' object has no attribute 'send'。因此这里必须关闭连接池
+    （poolclass=NullPool），每次借出连接都是新建，用完即真正关闭。
+    """
     global celery_async_engine, CeleryAsyncSessionLocal
     if celery_async_engine is None:
+        from sqlalchemy.pool import NullPool
         celery_async_engine = create_async_engine(
             settings.DATABASE_URL,
             echo=settings.APP_DEBUG,
             pool_pre_ping=True,
-            pool_size=5,
-            max_overflow=10
+            poolclass=NullPool
         )
         CeleryAsyncSessionLocal = async_sessionmaker(
             bind=celery_async_engine,
