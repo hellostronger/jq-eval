@@ -884,7 +884,7 @@ const DocExplanations: React.FC = () => {
                       size="small"
                       pagination={{ pageSize: 8, showTotal: t => `共 ${t} 个文件` }}
                       rowSelection={{ selectedRowKeys: selectedFileKeys, onChange: setSelectedFileKeys }}
-                      locale={{ emptyText: <Empty description="暂无源文件，点击上方「上传源文件」保存 PDF/图片等待解析" /> }}
+                      locale={{ emptyText: <Empty description="暂无源文件，点击上方「上传源文件」保存 PDF/图片等待解析（仅存储原文件，不做分片）" /> }}
                     />
                   </div>
                   <div style={{ flex: '1 1 480px', minWidth: 0 }}>

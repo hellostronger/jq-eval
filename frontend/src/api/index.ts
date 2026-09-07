@@ -764,7 +764,7 @@ export const getParseSourceFiles = () => {
   return request.get<{ items: DocParseSourceFile[]; total: number }>('/doc-parser/files')
 }
 
-// 上传源文件（保存待解析）
+// 上传源文件（保存待解析，仅存储原文件，不做分片）
 export const uploadParseSourceFile = (file: File) => {
   const formData = new FormData()
   formData.append('file', file)

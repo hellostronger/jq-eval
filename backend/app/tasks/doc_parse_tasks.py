@@ -1,4 +1,4 @@
-# 文档解析Celery任务：批量调用 minerU 等解析服务，产物写入 Document+Chunk
+# 文档解析Celery任务：批量调用 minerU 等解析服务，产物保存为 Document（不自动分片）
 import asyncio
 import time
 from typing import Dict, List, Any
@@ -50,9 +50,10 @@ async def _load_file(minio, object_name: str) -> bytes:
 
 
 async def _save_document(db, batch: DocParseBatch, file_name: str, md_content: str) -> Document:
-    """把解析出的 Markdown 写入 Document+Chunk（source_type=mineru）"""
-    from app.api.v1.datasets import _split_text
+    """把解析出的 Markdown 保存为 Document（source_type=mineru）
 
+    注意：解析产物不自动分片——分片属于数据集构建环节（生成数据集时按需处理）。
+    """
     document = Document(
         title=file_name.rsplit(".", 1)[0] if "." in file_name else file_name,
         content=md_content,
@@ -66,16 +67,6 @@ async def _save_document(db, batch: DocParseBatch, file_name: str, md_content: s
     )
     db.add(document)
     await db.flush()
-
-    for i, chunk in enumerate(_split_text(md_content, 500, 50)):
-        from app.models.document import Chunk
-        db.add(Chunk(
-            doc_id=document.id,
-            content=chunk["content"],
-            chunk_index=i,
-            start_char=chunk["start"],
-            end_char=chunk["end"],
-        ))
     return document
 
 
@@ -172,7 +163,7 @@ async def _run_doc_parse_task(task, batch_id: UUID) -> Dict[str, Any]:
                     batch.progress = int((idx + 1) / len(results) * 90)
                     await db.commit()
 
-            # 成功的产物写入 Document+Chunk
+            # 成功的产物保存为 Document（不分片）
             for r in results:
                 if r.status == "success" and r.md_content and not r.doc_id:
                     document = await _save_document(db, batch, r.file_name, r.md_content)
