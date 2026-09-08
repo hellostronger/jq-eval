@@ -6,6 +6,7 @@ from .ragas_metrics import (
     RagasContextPrecision,
     RagasContextRecall,
     RagasAnswerRelevance,
+    RagasAnswerCorrectness,
 )
 from .evalscope_metrics import (
     EvalScopeBLEU,
@@ -32,6 +33,7 @@ __all__ = [
     "RagasContextPrecision",
     "RagasContextRecall",
     "RagasAnswerRelevance",
+    "RagasAnswerCorrectness",
     "EvalScopeBLEU",
     "EvalScopeROUGE",
     "SemanticSimilarity",

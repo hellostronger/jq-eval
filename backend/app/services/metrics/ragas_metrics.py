@@ -13,6 +13,22 @@ async def _run_sync(func, *args, **kwargs):
     return await asyncio.to_thread(func, *args, **kwargs)
 
 
+async def _ragas_evaluate_single(metric_obj, metric_key: str, data_dict: dict, llm=None) -> MetricResult:
+    """Ragas 指标公共计算路径：构造单条数据集 -> evaluate -> 取分数
+
+    ragas.evaluate 是同步函数，放到线程中执行；ragas 未安装时由调用方走简化计算。
+    """
+    from ragas import evaluate
+    from datasets import Dataset
+
+    if llm:
+        metric_obj.llm = llm
+
+    data = Dataset.from_dict(data_dict)
+    result = await _run_sync(evaluate, data, metrics=[metric_obj])
+    return MetricResult(score=float(result[metric_key][0]))
+
+
 class RagasFaithfulness(BaseMetric):
     """忠实度 - Ragas实现"""
 
@@ -47,34 +63,17 @@ class RagasFaithfulness(BaseMetric):
             return MetricResult(score=0.0, error="缺少contexts数据")
 
         try:
-            # 尝试使用ragas库
-            try:
-                from ragas import evaluate
-                from ragas.metrics import faithfulness
-                from datasets import Dataset
+            from ragas.metrics import faithfulness
 
-                if self.llm:
-                    faithfulness.llm = self.llm
-
-                # 确保 contexts 是字符串列表
-                contexts_list = [str(c) if c else "" for c in contexts]
-
-                data = Dataset.from_dict({
-                    "question": [question],
-                    "answer": [answer],
-                    "contexts": [contexts_list]
-                })
-
-                # ragas.evaluate 是同步函数，需要在线程中执行
-                result = await _run_sync(evaluate, data, metrics=[faithfulness])
-                score = result['faithfulness'][0]
-
-                return MetricResult(score=float(score))
-
-            except ImportError:
-                # ragas库未安装，使用简化计算
-                return await self._compute_simple(question, answer, contexts)
-
+            contexts_list = [str(c) if c else "" for c in contexts]
+            return await _ragas_evaluate_single(
+                faithfulness, "faithfulness",
+                {"question": [question], "answer": [answer], "contexts": [contexts_list]},
+                llm=self.llm,
+            )
+        except ImportError:
+            # ragas库未安装，使用简化计算
+            return await self._compute_simple(question, answer, contexts)
         except Exception as e:
             return MetricResult(score=0.0, error=str(e))
 
@@ -137,31 +136,16 @@ class RagasContextPrecision(BaseMetric):
             return MetricResult(score=0.0, error="缺少contexts数据")
 
         try:
-            try:
-                from ragas import evaluate
-                from ragas.metrics import context_precision
-                from datasets import Dataset
+            from ragas.metrics import context_precision
 
-                if self.llm:
-                    context_precision.llm = self.llm
-
-                # 确保 contexts 是字符串列表
-                contexts_list = [str(c) if c else "" for c in contexts]
-
-                data = Dataset.from_dict({
-                    "question": [question],
-                    "contexts": [contexts_list]
-                })
-
-                # ragas.evaluate 是同步函数，需要在线程中执行
-                result = await _run_sync(evaluate, data, metrics=[context_precision])
-                score = result['context_precision'][0]
-
-                return MetricResult(score=float(score))
-
-            except ImportError:
-                return await self._compute_simple(question, contexts or [])
-
+            contexts_list = [str(c) if c else "" for c in contexts]
+            return await _ragas_evaluate_single(
+                context_precision, "context_precision",
+                {"question": [question], "contexts": [contexts_list]},
+                llm=self.llm,
+            )
+        except ImportError:
+            return await self._compute_simple(question, contexts or [])
         except Exception as e:
             return MetricResult(score=0.0, error=str(e))
 
@@ -226,32 +210,16 @@ class RagasContextRecall(BaseMetric):
             return MetricResult(score=0.0, error="缺少contexts数据")
 
         try:
-            try:
-                from ragas import evaluate
-                from ragas.metrics import context_recall
-                from datasets import Dataset
+            from ragas.metrics import context_recall
 
-                if self.llm:
-                    context_recall.llm = self.llm
-
-                # 确保 contexts 是字符串列表
-                contexts_list = [str(c) if c else "" for c in contexts]
-
-                data = Dataset.from_dict({
-                    "question": [question],
-                    "ground_truth": [ground_truth],
-                    "contexts": [contexts_list]
-                })
-
-                # ragas.evaluate 是同步函数，需要在线程中执行
-                result = await _run_sync(evaluate, data, metrics=[context_recall])
-                score = result['context_recall'][0]
-
-                return MetricResult(score=float(score))
-
-            except ImportError:
-                return await self._compute_simple(ground_truth, contexts)
-
+            contexts_list = [str(c) if c else "" for c in contexts]
+            return await _ragas_evaluate_single(
+                context_recall, "context_recall",
+                {"question": [question], "ground_truth": [ground_truth], "contexts": [contexts_list]},
+                llm=self.llm,
+            )
+        except ImportError:
+            return await self._compute_simple(ground_truth, contexts)
         except Exception as e:
             return MetricResult(score=0.0, error=str(e))
 
@@ -318,32 +286,16 @@ class RagasAnswerRelevance(BaseMetric):
             return MetricResult(score=0.0, error="缺少contexts数据")
 
         try:
-            try:
-                from ragas import evaluate
-                from ragas.metrics import answer_relevancy
-                from datasets import Dataset
+            from ragas.metrics import answer_relevancy
 
-                if self.llm:
-                    answer_relevancy.llm = self.llm
-
-                # 确保 contexts 是字符串列表
-                contexts_list = [str(c) if c else "" for c in contexts]
-
-                data = Dataset.from_dict({
-                    "question": [question],
-                    "answer": [answer],
-                    "contexts": [contexts_list]  # ragas 0.1.7 需要此字段
-                })
-
-                # ragas.evaluate 是同步函数，需要在线程中执行
-                result = await _run_sync(evaluate, data, metrics=[answer_relevancy])
-                score = result['answer_relevancy'][0]
-
-                return MetricResult(score=float(score))
-
-            except ImportError:
-                return await self._compute_simple(question, answer)
-
+            contexts_list = [str(c) if c else "" for c in contexts]
+            return await _ragas_evaluate_single(
+                answer_relevancy, "answer_relevancy",
+                {"question": [question], "answer": [answer], "contexts": [contexts_list]},  # ragas 0.1.7 需要 contexts
+                llm=self.llm,
+            )
+        except ImportError:
+            return await self._compute_simple(question, answer)
         except Exception as e:
             return MetricResult(score=0.0, error=str(e))
 
@@ -412,33 +364,19 @@ class RagasAnswerCorrectness(BaseMetric):
             return MetricResult(score=0.0, error="缺少ground_truth")
 
         try:
-            try:
-                from ragas import evaluate
-                from ragas.metrics import answer_correctness
-                from datasets import Dataset
+            from ragas.metrics import answer_correctness
 
-                logger.info(f"[answer_correctness] llm={self.llm}, embedding_model={self.embedding_model}")
-
-                if self.llm:
-                    answer_correctness.llm = self.llm
-
-                data = Dataset.from_dict({
-                    "question": [question],
-                    "answer": [answer],
-                    "ground_truth": [ground_truth]
-                })
-
-                logger.info(f"[answer_correctness] 调用ragas evaluate")
-                result = await _run_sync(evaluate, data, metrics=[answer_correctness])
-                score = result['answer_correctness'][0]
-
-                logger.info(f"[answer_correctness] 计算完成, score={score}")
-                return MetricResult(score=float(score))
-
-            except ImportError:
-                logger.warning("[answer_correctness] ragas未安装，使用简化计算")
-                return await self._compute_simple(answer, ground_truth)
-
+            logger.info(f"[answer_correctness] llm={self.llm}, embedding_model={self.embedding_model}")
+            result = await _ragas_evaluate_single(
+                answer_correctness, "answer_correctness",
+                {"question": [question], "answer": [answer], "ground_truth": [ground_truth]},
+                llm=self.llm,
+            )
+            logger.info(f"[answer_correctness] 计算完成, score={result.score}")
+            return result
+        except ImportError:
+            logger.warning("[answer_correctness] ragas未安装，使用简化计算")
+            return await self._compute_simple(answer, ground_truth)
         except Exception as e:
             logger.error(f"[answer_correctness] 计算失败: {e}")
             return MetricResult(score=0.0, error=str(e))
