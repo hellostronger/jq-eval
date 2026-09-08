@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Card, Table, Button, Tag, Modal, Form, Input, message, Popconfirm, Select, InputNumber, Space } from 'antd'
 import { PlusOutlined, SyncOutlined, LoadingOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import dayjs from 'dayjs'
+import { formatTime } from '@/utils/format'
 import { getDatasets, createDataset, deleteDataset, createDataSource, executeSync, testDataSourceConnection } from '@/api'
 import type { Dataset } from '@/types'
 
@@ -162,7 +162,7 @@ const Datasets: React.FC = () => {
       title: '创建时间',
       dataIndex: 'created_at',
       key: 'created_at',
-      render: (date: string) => dayjs(date).format('YYYY-MM-DD HH:mm'),
+      render: (date: string) => formatTime(date),
     },
     {
       title: '操作',

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Card, Table, Upload, Button, message, Tabs, Tag, Space, Divider, Popconfirm, Modal, Descriptions, Input, Select, Spin, Alert, Typography } from 'antd'
 import { UploadOutlined, DownloadOutlined, DeleteOutlined, EyeOutlined, PlusOutlined, FileTextOutlined, EnvironmentOutlined } from '@ant-design/icons'
 import { useParams } from 'react-router-dom'
-import dayjs from 'dayjs'
+import { formatShortTime } from '@/utils/format'
 import { getDataset, getQARecords, uploadDatasetFile, downloadTemplate, deleteQARecord, batchDeleteQARecords, getDatasetDocuments, getDatasetChunks, uploadGlobalDocument, createDocumentFromText, createDocumentsFromNews, getDocumentChunks, getHotArticles } from '@/api'
 import GeneratePanel from '@/components/GeneratePanel'
 import DatasetDocParse from '@/components/DatasetDocParse'
@@ -313,7 +313,7 @@ const DatasetDetail: React.FC = () => {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 120,
-      render: (date: string) => dayjs(date).format('MM-DD HH:mm'),
+      render: (date: string) => formatShortTime(date),
     },
     {
       title: '操作',

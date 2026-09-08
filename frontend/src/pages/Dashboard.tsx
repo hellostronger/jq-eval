@@ -7,7 +7,7 @@ import {
   ApiOutlined,
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
-import dayjs from 'dayjs'
+import { formatShortTime } from '@/utils/format'
 import { getSystemStats, getHealth, getEvaluations } from '@/api'
 import type { SystemStats, Evaluation } from '@/types'
 
@@ -87,7 +87,7 @@ const Dashboard: React.FC = () => {
       title: '创建时间',
       dataIndex: 'created_at',
       key: 'created_at',
-      render: (date: string) => dayjs(date).format('MM-DD HH:mm'),
+      render: (date: string) => formatShortTime(date),
     },
   ]
 

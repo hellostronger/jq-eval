@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Card, Table, Button, Tag, Modal, Form, Input, message, Popconfirm, Select, Space, Switch, Row, Col, Statistic, Divider, InputNumber } from 'antd'
 import { PlusOutlined, EditOutlined, LinkOutlined, DeleteOutlined, SearchOutlined, ReloadOutlined, CloudDownloadOutlined, DownloadOutlined } from '@ant-design/icons'
-import dayjs from 'dayjs'
+import { formatTime } from '@/utils/format'
 import { getOpenSourceDatasets, createOpenSourceDataset, updateOpenSourceDataset, deleteOpenSourceDataset, searchHFDatasets, importHFDataset } from '@/api'
 import type { OpenSourceDataset } from '@/types'
 import type { HFDatasetSearchResult } from '@/api'
@@ -232,7 +232,7 @@ const OpenSourceDatasets: React.FC = () => {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 120,
-      render: (date: string) => dayjs(date).format('YYYY-MM-DD HH:mm'),
+      render: (date: string) => formatTime(date),
     },
     {
       title: '操作',

@@ -7,7 +7,7 @@ import {
   PlusOutlined, PlayCircleOutlined, DeleteOutlined, EyeOutlined,
   ReloadOutlined, FileTextOutlined, CheckCircleOutlined, CloseCircleOutlined
 } from '@ant-design/icons'
-import dayjs from 'dayjs'
+import { formatTime, formatTimeFull } from '@/utils/format'
 import {
   getTrainingDataEvals, createTrainingDataEval, runTrainingDataEval,
   deleteTrainingDataEval, getTrainingDataEvalStatus, getAvailableTrainingDataMetrics,
@@ -303,7 +303,7 @@ const TrainingDataEvals: React.FC = () => {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 180,
-      render: (date: string) => dayjs(date).format('YYYY-MM-DD HH:mm')
+      render: (date: string) => formatTime(date)
     },
     {
       title: '操作',
@@ -499,12 +499,10 @@ const TrainingDataEvals: React.FC = () => {
                   {(selectedEval.pass_rate * 100).toFixed(2)}%
                 </Descriptions.Item>
                 <Descriptions.Item label="创建时间">
-                  {dayjs(selectedEval.created_at).format('YYYY-MM-DD HH:mm:ss')}
+                  {formatTimeFull(selectedEval.created_at)}
                 </Descriptions.Item>
                 <Descriptions.Item label="完成时间">
-                  {selectedEval.completed_at
-                    ? dayjs(selectedEval.completed_at).format('YYYY-MM-DD HH:mm:ss')
-                    : '-'}
+                  {formatTimeFull(selectedEval.completed_at)}
                 </Descriptions.Item>
               </Descriptions>
 

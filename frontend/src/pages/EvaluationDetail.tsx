@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Card, Descriptions, Table, Tag, Tabs, Row, Col, Statistic, Button, message, Space, Modal, Switch } from 'antd'
 import { useParams } from 'react-router-dom'
 import { ReloadOutlined } from '@ant-design/icons'
-import dayjs from 'dayjs'
+import { formatShortTime, formatTime } from '@/utils/format'
 import ReactECharts from 'echarts-for-react'
 import { getEvaluation, getEvaluationResults, retryEvaluationWithOption } from '@/api'
 import type { Evaluation } from '@/types'
@@ -130,7 +130,7 @@ const EvaluationDetail: React.FC = () => {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 100,
-      render: (date?: string) => date ? dayjs(date).format('MM-DD HH:mm') : '-',
+      render: (date?: string) => formatShortTime(date),
     },
   ]
 
@@ -246,10 +246,10 @@ const EvaluationDetail: React.FC = () => {
           {evaluation?.metrics?.map(m => <Tag key={m}>{m}</Tag>)}
         </Descriptions.Item>
         <Descriptions.Item label="开始时间">
-          {evaluation?.started_at ? dayjs(evaluation.started_at).format('YYYY-MM-DD HH:mm') : '-'}
+          {formatTime(evaluation?.started_at)}
         </Descriptions.Item>
         <Descriptions.Item label="完成时间">
-          {evaluation?.completed_at ? dayjs(evaluation.completed_at).format('YYYY-MM-DD HH:mm') : '-'}
+          {formatTime(evaluation?.completed_at)}
         </Descriptions.Item>
       </Descriptions>
 

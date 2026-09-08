@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Card, Table, Button, Tag, Modal, Form, Input, Select, message, Popconfirm, Tabs, Statistic, Row, Col, Space, Switch, Dropdown } from 'antd'
 import { PlusOutlined, SyncOutlined, FireOutlined, LinkOutlined, DeleteOutlined, DownOutlined } from '@ant-design/icons'
-import dayjs from 'dayjs'
+import { formatShortTime, formatDate } from '@/utils/format'
 import { getNewsSources, createNewsSource, updateNewsSource, deleteNewsSource, testNewsSource, triggerCrawl, getHotArticles, getNewsStats, getDomains, getSupportedTypes, deleteArticle, batchDeleteArticles } from '@/api'
 import type { NewsSource, HotArticle, NewsStats } from '@/types'
 
@@ -270,7 +270,7 @@ const HotNews: React.FC = () => {  const [sources, setSources] = useState<NewsSo
       title: '最后爬取',
       dataIndex: 'last_crawl_at',
       key: 'last_crawl_at',
-      render: (date?: string) => date ? dayjs(date).format('MM-DD HH:mm') : '-',
+      render: (date?: string) => formatShortTime(date),
     },
     {
       title: '操作',
@@ -349,13 +349,13 @@ const HotNews: React.FC = () => {  const [sources, setSources] = useState<NewsSo
       title: '发布时间',
       dataIndex: 'published_at',
       key: 'published_at',
-      render: (date?: string) => date ? dayjs(date).format('YYYY-MM-DD') : '-',
+      render: (date?: string) => formatDate(date),
     },
     {
       title: '爬取时间',
       dataIndex: 'crawled_at',
       key: 'crawled_at',
-      render: (date: string) => dayjs(date).format('MM-DD HH:mm'),
+      render: (date: string) => formatShortTime(date),
     },
     {
       title: '操作',
@@ -549,7 +549,7 @@ const HotNews: React.FC = () => {  const [sources, setSources] = useState<NewsSo
                 {selectedArticle.category && <span>分类: {selectedArticle.category}</span>}
                 {selectedArticle.language && <span>语言: {languageMap[selectedArticle.language] || selectedArticle.language}</span>}
                 {selectedArticle.content_length && <span>长度: {selectedArticle.content_length}字</span>}
-                {selectedArticle.published_at && <span>发布: {dayjs(selectedArticle.published_at).format('YYYY-MM-DD')}</span>}
+                {selectedArticle.published_at && <span>发布: {formatDate(selectedArticle.published_at)}</span>}
               </Space>
             </div>
             <ArticleContent content={selectedArticle.content} />

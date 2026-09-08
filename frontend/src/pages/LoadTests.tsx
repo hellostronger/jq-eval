@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Card, Table, Button, Tag, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm, Radio, Divider, Typography, Alert, Statistic, Row, Col, Tooltip } from 'antd'
 import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, ReloadOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
-import dayjs from 'dayjs'
+import { formatTime } from '@/utils/format'
 import { getLoadTests, createLoadTest, runLoadTest, deleteLoadTest, getRAGSystems, getDatasets, getModels } from '@/api'
 import type { LoadTest, RAGSystem, Dataset, LoadTestQpsLimitResult, LoadTestLatencyDistResult, LoadTestErrorSummary } from '@/types'
 
@@ -413,7 +413,7 @@ const LoadTests: React.FC = () => {
       title: '创建时间',
       dataIndex: 'created_at',
       key: 'created_at',
-      render: (date: string) => dayjs(date).format('YYYY-MM-DD HH:mm')
+      render: (date: string) => formatTime(date)
     },
     {
       title: '操作',

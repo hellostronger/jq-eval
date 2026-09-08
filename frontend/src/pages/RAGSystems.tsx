@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Card, Table, Button, Tag, Modal, Form, Input, Select, Switch, message, Popconfirm, Spin, List } from 'antd'
 import { PlusOutlined, MessageOutlined, SendOutlined } from '@ant-design/icons'
-import dayjs from 'dayjs'
+import { formatDate } from '@/utils/format'
 import { getRAGSystems, createRAGSystem, updateRAGSystem, deleteRAGSystem, testRAGSystem, queryRAGSystem, getLLMModels } from '@/api'
 import type { RAGSystem } from '@/types'
 
@@ -234,7 +234,7 @@ const RAGSystems: React.FC = () => {
       title: '创建时间',
       dataIndex: 'created_at',
       key: 'created_at',
-      render: (date: string) => dayjs(date).format('YYYY-MM-DD'),
+      render: (date: string) => formatDate(date),
     },
     {
       title: '操作',

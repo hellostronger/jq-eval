@@ -7,7 +7,7 @@ import {
   PlusOutlined, EditOutlined, DeleteOutlined, UploadOutlined, EyeOutlined,
   FileTextOutlined, SearchOutlined, InboxOutlined, ThunderboltOutlined, ReloadOutlined,
 } from '@ant-design/icons'
-import dayjs from 'dayjs'
+import { formatTime, formatShortTime } from '@/utils/format'
 import {
   getDocExplanations, createDocExplanation, updateDocExplanation, deleteDocExplanation,
   getDocuments, uploadGlobalDocument, getDocumentDetail, deleteDocument, createGlobalDocumentFromText,
@@ -485,7 +485,7 @@ const DocExplanations: React.FC = () => {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 150,
-      render: (date: string) => dayjs(date).format('YYYY-MM-DD HH:mm'),
+      render: (date: string) => formatTime(date),
     },
     {
       title: '操作',
@@ -670,7 +670,7 @@ const DocExplanations: React.FC = () => {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 140,
-      render: (d: string) => (d ? dayjs(d).format('MM-DD HH:mm') : '-'),
+      render: (d: string) => formatShortTime(d),
     },
     {
       title: '操作',
@@ -1025,7 +1025,7 @@ const DocExplanations: React.FC = () => {
             <div style={{ marginTop: 16 }}>
               {renderSource(viewingExp.source)} {renderStatus(viewingExp.status)}
               <span style={{ color: '#999', marginLeft: 8, fontSize: 12 }}>
-                创建于 {viewingExp.created_at ? dayjs(viewingExp.created_at).format('YYYY-MM-DD HH:mm') : '-'}
+                创建于 {formatTime(viewingExp.created_at)}
               </span>
             </div>
           </>

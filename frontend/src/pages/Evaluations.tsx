@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Card, Table, Button, Tag, Modal, Form, Input, Select, InputNumber, message, Space, Switch, Divider } from 'antd'
 import { PlusOutlined, PlayCircleOutlined, SwitcherOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import dayjs from 'dayjs'
+import { formatTime } from '@/utils/format'
 import { getEvaluations, createEvaluation, startEvaluation, getDatasets, getModels, getInvocationBatches } from '@/api'
 import type { Evaluation, Dataset, ModelConfig, InvocationBatch } from '@/types'
 
@@ -126,7 +126,7 @@ const Evaluations: React.FC = () => {
     },
     {
       title: '创建时间', dataIndex: 'created_at', key: 'created_at',
-      render: (date: string) => dayjs(date).format('YYYY-MM-DD HH:mm'),
+      render: (date: string) => formatTime(date),
     },
     {
       title: '操作', key: 'action',

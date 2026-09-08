@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Table, Button, Tag, Space, Popconfirm, Modal, Form, Input, Select, Upload, Empty, Progress, message } from 'antd'
 import { UploadOutlined, DeleteOutlined, EyeOutlined, ThunderboltOutlined, ReloadOutlined } from '@ant-design/icons'
-import dayjs from 'dayjs'
+import { formatShortTime } from '@/utils/format'
 import {
   getParseSourceFiles, uploadParseSourceFile, deleteParseSourceFile,
   createDocParseBatch, getDocParseBatches, getDocParseResults, getDocParseResult,
@@ -296,7 +296,7 @@ const DatasetDocParse: React.FC<DatasetDocParseProps> = ({ datasetId, onDocsChan
       dataIndex: 'created_at',
       key: 'created_at',
       width: 120,
-      render: (d: string) => (d ? dayjs(d).format('MM-DD HH:mm') : '-'),
+      render: (d: string) => formatShortTime(d),
     },
     {
       title: '操作',

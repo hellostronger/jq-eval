@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Card, Table, Button, Tag, Modal, Form, Input, Select, message, Popconfirm } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
-import dayjs from 'dayjs'
+import { formatDate } from '@/utils/format'
 import { getDataSources, createDataSource, testDataSourceConnection, deleteDataSource } from '@/api'
 import type { DataSource } from '@/types'
 
@@ -78,7 +78,7 @@ const DataSources: React.FC = () => {
       title: '创建时间',
       dataIndex: 'created_at',
       key: 'created_at',
-      render: (date: string) => dayjs(date).format('YYYY-MM-DD'),
+      render: (date: string) => formatDate(date),
     },
     {
       title: '操作',

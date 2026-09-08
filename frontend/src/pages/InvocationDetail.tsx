@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Card, Table, Button, Tag, Space, Progress, message, Popconfirm, Modal, Spin, Select, Descriptions, Divider, Alert } from 'antd'
 import { ReloadOutlined, PlayCircleOutlined, ArrowLeftOutlined, EyeOutlined, CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
-import dayjs from 'dayjs'
+import { formatTimeFull } from '@/utils/format'
 import {
   getInvocationBatch,
   getInvocationResults,
@@ -301,8 +301,8 @@ const InvocationDetail: React.FC = () => {
           </span>
           <span>完成: {batch.completed_count}/{batch.total_count}</span>
           {batch.failed_count > 0 && <span><Tag color="error">{batch.failed_count} 失败</Tag></span>}
-          {batch.started_at && <span>开始: {dayjs(batch.started_at).format('YYYY-MM-DD HH:mm:ss')}</span>}
-          {batch.completed_at && <span>完成: {dayjs(batch.completed_at).format('YYYY-MM-DD HH:mm:ss')}</span>}
+          {batch.started_at && <span>开始: {formatTimeFull(batch.started_at)}</span>}
+          {batch.completed_at && <span>完成: {formatTimeFull(batch.completed_at)}</span>}
         </Space>
       </div>
 

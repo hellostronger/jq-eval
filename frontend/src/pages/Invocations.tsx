@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Card, Table, Button, Tag, Modal, Form, Input, Select, message, Space, Progress, Popconfirm } from 'antd'
 import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, ReloadOutlined, FileSearchOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import dayjs from 'dayjs'
+import { formatTime } from '@/utils/format'
 import { getInvocationBatches, createInvocationBatch, runInvocationBatch, retryInvocationBatch, deleteInvocationBatch, getDatasets, getRAGSystems } from '@/api'
 import type { InvocationBatch, Dataset, RAGSystem } from '@/types'
 
@@ -139,7 +139,7 @@ const Invocations: React.FC = () => {
       title: '创建时间',
       dataIndex: 'created_at',
       key: 'created_at',
-      render: (date: string) => dayjs(date).format('YYYY-MM-DD HH:mm'),
+      render: (date: string) => formatTime(date),
     },
     {
       title: '操作',
