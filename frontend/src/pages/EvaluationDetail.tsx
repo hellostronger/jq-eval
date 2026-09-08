@@ -27,6 +27,7 @@ const EvaluationDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null)
   const [results, setResults] = useState<EvalResult[]>([])
+  const [total, setTotal] = useState(0)
   const [summary, setSummary] = useState<Summary | null>(null)
   const [loading, setLoading] = useState(false)
   const [retrying, setRetrying] = useState(false)
@@ -48,8 +49,9 @@ const EvaluationDetail: React.FC = () => {
     setLoading(true)
     try {
       const data = await getEvaluationResults(id)
-      // 后端返回 { results: [...], summary: ... }，提取 results 数组和 summary
+      // 后端返回 { results: [...], total, summary }，提取 results 数组和 summary
       setResults(data?.results || [])
+      setTotal(data?.total || data?.results?.length || 0)
       setSummary(data?.summary || null)
     } finally {
       setLoading(false)
@@ -201,6 +203,7 @@ const EvaluationDetail: React.FC = () => {
           columns={metricsColumns}
           rowKey="id"
           loading={loading}
+          pagination={{ pageSize: 50, total, showSizeChanger: true }}
           scroll={{ x: 'max-content' }}
         />
       ),

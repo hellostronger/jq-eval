@@ -1,7 +1,7 @@
 # 评估执行路由
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime
@@ -324,18 +324,22 @@ async def get_evaluation_results(
     """获取评估结果，包含每条 QA 记录的详细信息和得分"""
     evaluation = await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
 
-    # JOIN QARecord 表获取问题内容
-    results = await db.execute(
+    base_query = (
         select(EvalResult, QARecord)
         .join(QARecord, EvalResult.qa_record_id == QARecord.id)
         .where(EvalResult.eval_id == eval_id)
-        .offset(skip)
-        .limit(limit)
     )
+    total = ((await db.execute(
+        select(func.count(EvalResult.id)).where(EvalResult.eval_id == eval_id)
+    )).scalar()) or 0
+
+    # JOIN QARecord 表获取问题内容
+    results = await db.execute(base_query.offset(skip).limit(limit))
 
     return {
         "eval_id": str(eval_id),
         "summary": evaluation.summary,
+        "total": total,
         "results": [
             {
                 "id": str(er.id),

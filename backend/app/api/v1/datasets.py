@@ -16,7 +16,11 @@ from ...core.database import get_db
 from ...core.utc_datetime import UTCDatetime
 from ...models import Dataset, QARecord, Model
 from ...models.document import Document, Chunk
-from ...services.documents import extract_text_from_upload, create_document as create_doc_record
+from ...services.documents import (
+    extract_text_from_upload,
+    create_document as create_doc_record,
+    refresh_dataset_stats,
+)
 from ._common import get_or_404
 
 router = APIRouter()
@@ -284,11 +288,11 @@ async def create_qa_record(
         qa_record.snapshot = {"contexts": data.contexts}
 
     # 更新数据集统计
-    dataset.record_count += 1
-    if data.ground_truth:
-        dataset.has_ground_truth = True
-    if data.contexts or data.target_chunk_ids:
-        dataset.has_contexts = True
+    await refresh_dataset_stats(
+        db, dataset_id, added=1,
+        mark_ground_truth=bool(data.ground_truth),
+        mark_contexts=bool(data.contexts or data.target_chunk_ids),
+    )
 
     db.add(qa_record)
     await db.commit()
@@ -320,20 +324,7 @@ async def delete_qa_record(
     await db.delete(qa_record)
 
     # 更新数据集统计
-    dataset = (await db.execute(select(Dataset).where(Dataset.id == dataset_id))).scalar_one_or_none()
-    if dataset:
-        dataset.record_count -= 1
-        # 重新检查是否有 ground_truth 和 contexts
-        gt_count = await db.execute(
-            select(func.count(QARecord.id))
-            .where(QARecord.dataset_id == dataset_id, QARecord.ground_truth != None)
-        )
-        ctx_count = await db.execute(
-            select(func.count(QARecord.id))
-            .where(QARecord.dataset_id == dataset_id, QARecord.snapshot != None)
-        )
-        dataset.has_ground_truth = gt_count.scalar() > 0
-        dataset.has_contexts = ctx_count.scalar() > 0
+    await refresh_dataset_stats(db, dataset_id, removed=1)
 
     await db.commit()
 
@@ -367,20 +358,7 @@ async def batch_delete_qa_records(
         await db.delete(record)
 
     # 更新数据集统计
-    dataset = (await db.execute(select(Dataset).where(Dataset.id == dataset_id))).scalar_one_or_none()
-    if dataset:
-        dataset.record_count -= deleted_count
-        # 重新检查是否有 ground_truth 和 contexts
-        gt_count = await db.execute(
-            select(func.count(QARecord.id))
-            .where(QARecord.dataset_id == dataset_id, QARecord.ground_truth != None)
-        )
-        ctx_count = await db.execute(
-            select(func.count(QARecord.id))
-            .where(QARecord.dataset_id == dataset_id, QARecord.snapshot != None)
-        )
-        dataset.has_ground_truth = gt_count.scalar() > 0
-        dataset.has_contexts = ctx_count.scalar() > 0
+    await refresh_dataset_stats(db, dataset_id, removed=deleted_count)
 
     await db.commit()
 
@@ -569,14 +547,16 @@ async def import_data(
     logger.info(f"成功添加 {saved_count} 条QA记录到数据库")
 
     # 更新统计
-    dataset.record_count += len(records)
-    dataset.has_ground_truth = any(
-        r.get("ground_truth") or r.get("gold_answer") or r.get("answers") for r in records
-    )
-    dataset.has_contexts = any(
-        r.get("contexts") or r.get("gold_contexts")
-        or r.get("target_chunk_ids") or r.get("gold_chunk_ids")
-        for r in records
+    await refresh_dataset_stats(
+        db, dataset_id, added=len(records),
+        mark_ground_truth=any(
+            r.get("ground_truth") or r.get("gold_answer") or r.get("answers") for r in records
+        ),
+        mark_contexts=any(
+            r.get("contexts") or r.get("gold_contexts")
+            or r.get("target_chunk_ids") or r.get("gold_chunk_ids")
+            for r in records
+        ),
     )
     dataset.status = "ready"
 

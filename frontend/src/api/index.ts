@@ -292,6 +292,7 @@ export const retryEvaluation = (id: string) => {
 }
 
 interface EvaluationResultsResponse {
+  total?: number
   results: Array<{
     id: string
     qa_record_id: string
@@ -853,6 +854,7 @@ export const getTrainingDataEvalResults = (id: string, params?: { status?: strin
   return request.get<{
     eval_id: string
     summary?: Record<string, any>
+    total?: number
     results: import('@/types').TrainingDataEvalResult[]
   }>(`/training-data-evals/${id}/results`, { params })
 }

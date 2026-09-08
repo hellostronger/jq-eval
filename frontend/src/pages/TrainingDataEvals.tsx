@@ -43,6 +43,7 @@ const TrainingDataEvals: React.FC = () => {
   const [selectedEval, setSelectedEval] = useState<TrainingDataEval | null>(null)
   const [saving, setSaving] = useState(false)
   const [results, setResults] = useState<TrainingDataEvalResult[]>([])
+  const [resultsTotal, setResultsTotal] = useState(0)
   const [resultsLoading, setResultsLoading] = useState(false)
   const [form] = Form.useForm()
 
@@ -200,8 +201,9 @@ const TrainingDataEvals: React.FC = () => {
     if (evaluation.status === 'completed') {
       setResultsLoading(true)
       try {
-        const { results: data } = await getTrainingDataEvalResults(evaluation.id)
+        const { results: data, total: totalCount } = await getTrainingDataEvalResults(evaluation.id)
         setResults(data)
+        setResultsTotal(totalCount ?? data.length)
       } finally {
         setResultsLoading(false)
       }
@@ -574,7 +576,7 @@ const TrainingDataEvals: React.FC = () => {
                   loading={resultsLoading}
                   dataSource={results}
                   rowKey="id"
-                  pagination={{ pageSize: 10 }}
+                  pagination={{ pageSize: 10, total: resultsTotal }}
                   columns={[
                     {
                       title: '问题',

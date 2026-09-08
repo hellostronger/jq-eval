@@ -1,7 +1,7 @@
 # 训练数据评估 API 路由
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime
@@ -286,12 +286,18 @@ async def get_training_data_eval_results(
     if status:
         query = query.where(TrainingDataEvalResult.status == status)
 
+    total = ((await db.execute(select(func.count(TrainingDataEvalResult.id)).where(
+        TrainingDataEvalResult.eval_id == eval_id,
+        *([TrainingDataEvalResult.status == status] if status else [])
+    ))).scalar()) or 0
+
     # 分页查询
     results = await db.execute(query.offset(skip).limit(limit))
 
     return {
         "eval_id": str(eval_id),
         "summary": evaluation.summary,
+        "total": total,
         "results": [
             {
                 "id": str(er.id),
