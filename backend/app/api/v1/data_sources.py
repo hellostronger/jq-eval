@@ -47,12 +47,6 @@ class SyncRequest(BaseModel):
     incremental: bool = False
 
 
-class FieldMappingRequest(BaseModel):
-    source_field: str
-    target_field: str
-    transform: Optional[str] = None
-
-
 @router.get("/supported-systems")
 async def get_supported_systems():
     """获取支持的数据源系统列表"""

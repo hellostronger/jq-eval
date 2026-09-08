@@ -317,21 +317,3 @@ async def parse_batch_mineru_official(
                 results.append({"name": name, "status": "failed",
                                 "error": item.get("err_msg") or "解析失败"})
     return results
-
-
-async def _parse_mineru_official(
-    file_content: bytes,
-    filename: str,
-    api_key: Optional[str],
-    params: dict,
-) -> str:
-    """MinerU 官方API 单文件解析（兼容旧调用，内部走批量接口）"""
-    result = await parse_batch_mineru_official(
-        [{"name": filename, "content": file_content}],
-        api_key=api_key,
-        params=params,
-    )
-    item = result[0]
-    if item["status"] != "success":
-        raise DocParseError(item.get("error") or "解析失败")
-    return item["md_content"]

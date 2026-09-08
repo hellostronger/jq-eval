@@ -6,7 +6,7 @@ from .conversation import ConversationManager, ConversationState
 from .code_generator import LangGraphCodeGenerator
 from .mermaid_generator import MermaidGenerator
 from .websocket import ConnectionManager
-from .executor import get_executor, reset_executor
+from .executor import get_executor
 from ...core.config import settings
 
 
@@ -251,10 +251,3 @@ def get_engine(llm_config: Dict = None, use_settings: bool = True) -> VibeAgentE
 def create_engine(llm_config: Dict, connection_manager: ConnectionManager = None) -> VibeAgentEngine:
     """创建新引擎实例（自定义配置）"""
     return VibeAgentEngine(llm_config=llm_config, connection_manager=connection_manager, use_settings=False)
-
-
-def reset_engine():
-    """重置引擎实例（用于配置变更后重新初始化）"""
-    global _engine_instance
-    _engine_instance = None
-    reset_executor()

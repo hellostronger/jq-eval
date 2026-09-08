@@ -85,22 +85,6 @@ Extract entities and relationships from the input text in Data to be Processed b
 <Output>
 """
 
-PROMPTS["entity_continue_extraction_user_prompt"] = """---Task---
-Based on the last extraction task, identify and extract any **missed or incorrectly formatted** entities and relationships from the input text.
-
----Instructions---
-1.  **Strict Adherence to System Format:** Strictly adhere to all format requirements.
-2.  **Focus on Corrections/Additions:**
-    *   **Do NOT** re-output entities and relationships that were **correctly and fully** extracted.
-    *   If an entity or relationship was **missed** in the last task, extract and output it now.
-    *   If an entity or relationship was **incorrectly formatted**, re-output the corrected version.
-3.  **Output Content Only:** Output *only* the extracted list.
-4.  **Completion Signal:** Output `{completion_delimiter}` as the final line.
-
-<Output>
-"""
-
-
 def get_entity_types(language: str = "Chinese") -> list[str]:
     """Get entity types based on language"""
     if language.lower() in ["chinese", "中文", "zh"]:
@@ -133,21 +117,6 @@ def format_user_prompt(
     """Format user prompt with input text"""
     return PROMPTS["entity_extraction_user_prompt"].format(
         entity_types=", ".join(entity_types),
-        input_text=input_text,
-        tuple_delimiter=tuple_delimiter,
-        completion_delimiter=completion_delimiter,
-        language=language
-    )
-
-
-def format_continue_prompt(
-    input_text: str,
-    tuple_delimiter: str = PROMPTS["DEFAULT_TUPLE_DELIMITER"],
-    completion_delimiter: str = PROMPTS["DEFAULT_COMPLETION_DELIMITER"],
-    language: str = "Chinese"
-) -> str:
-    """Format continue extraction prompt"""
-    return PROMPTS["entity_continue_extraction_user_prompt"].format(
         input_text=input_text,
         tuple_delimiter=tuple_delimiter,
         completion_delimiter=completion_delimiter,

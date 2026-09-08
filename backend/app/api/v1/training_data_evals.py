@@ -73,21 +73,6 @@ class TrainingDataEvalResponse(BaseModel):
         from_attributes = True
 
 
-class TrainingDataEvalResultResponse(BaseModel):
-    id: UUID
-    eval_id: UUID
-    qa_record_id: UUID
-    question: Optional[str]
-    answer: Optional[str]
-    scores: Dict[str, Any]
-    quality_tags: List[str]
-    issues: List[str]
-    suggestions: List[str]
-    status: str
-    overall_score: float
-    created_at: Optional[UTCDatetime] = None
-
-
 @router.post("", response_model=TrainingDataEvalResponse)
 async def create_training_data_eval(
     data: TrainingDataEvalCreate,

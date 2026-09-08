@@ -243,11 +243,5 @@ def get_milvus_service() -> MilvusService:
         _milvus_service = MilvusService()
     return _milvus_service
 
-
-def get_milvus_client() -> MilvusService:
-    """获取Milvus客户端实例"""
-    return get_milvus_service()
-
-
 # 别名，保持向后兼容
 MilvusClient = MilvusService

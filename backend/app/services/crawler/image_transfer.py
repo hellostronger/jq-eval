@@ -43,19 +43,6 @@ def _get_client() -> Minio:
     return _client
 
 
-def ensure_bucket() -> bool:
-    """确保 hot-news bucket 存在且匿名可读"""
-    try:
-        client = _get_client()
-        if not client.bucket_exists(BUCKET):
-            client.make_bucket(BUCKET)
-            logger.info(f"Created bucket: {BUCKET}")
-        return True
-    except Exception as e:
-        logger.warning(f"确保 bucket 失败: {e}")
-        return False
-
-
 def _ext_from_content_type(content_type: str) -> str:
     """根据 Content-Type 推断扩展名"""
     mapping = {

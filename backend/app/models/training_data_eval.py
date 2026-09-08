@@ -7,17 +7,6 @@ from sqlalchemy.orm import relationship
 from .base import BaseModel
 
 
-class TrainingDataType(str, enum.Enum):
-    """训练数据类型"""
-    LLM = "llm"  # 大模型训练数据
-    EMBEDDING = "embedding"  # Embedding训练数据
-    RERANKER = "reranker"  # Reranker训练数据
-    REWARD_MODEL = "reward_model"  # 奖励模型训练数据
-    DPO = "dpo"  # DPO训练数据
-    VLM = "vlm"  # VLM训练数据
-    VLA = "vla"  # VLA训练数据
-
-
 class TrainingDataEvalStatus(str, enum.Enum):
     """训练数据评估状态"""
     PENDING = "pending"

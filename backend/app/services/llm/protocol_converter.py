@@ -283,11 +283,6 @@ def _internal_tool_choice_to_openai(tool_choice: Optional[Any]) -> Optional[Any]
     return "auto"
 
 
-def _anthropic_tool_choice_to_internal_full(tool_choice: Optional[Any]) -> Optional[Any]:
-    """anthropic tool_choice -> 内部格式（含 none 语义处理占位）"""
-    return _anthropic_tool_choice_to_internal(tool_choice)
-
-
 # ---------------------------------------------------------------------------
 # 入站请求 -> 内部表示
 # ---------------------------------------------------------------------------

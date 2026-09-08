@@ -68,19 +68,6 @@ class DocParseResultResponse(BaseModel):
     created_at: Optional[UTCDatetime] = None
 
 
-class SourceFileResponse(BaseModel):
-    """MinIO 源文件信息"""
-    object_name: str
-    file_name: str
-    size: int
-    last_modified: Optional[str] = None
-    etag: Optional[str] = None
-    content_type: Optional[str] = None
-    parseable: bool
-    # 数据集内触发解析时，新增的源文件可标注归属（仅信息展示，MinIO 不分区）
-    dataset_id: Optional[UUID] = None
-
-
 # ---------- 源文件管理 ----------
 
 @router.get("/files")

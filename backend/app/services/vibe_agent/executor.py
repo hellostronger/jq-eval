@@ -311,9 +311,3 @@ def get_executor(
             sandbox_url=sandbox_url,
         )
     return _executor_instance
-
-
-def reset_executor():
-    """重置执行器实例"""
-    global _executor_instance
-    _executor_instance = None

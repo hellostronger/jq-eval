@@ -13,14 +13,6 @@ class SyncConfig(BaseModel):
     target_types: List[str] = ["chunks", "qa_records"]
 
 
-class SyncResult(BaseModel):
-    """同步结果"""
-    total: int = 0
-    synced: int = 0
-    failed: int = 0
-    errors: List[Dict[str, Any]] = []
-
-
 class SchemaInfo(BaseModel):
     """Schema信息"""
     table_name: str
