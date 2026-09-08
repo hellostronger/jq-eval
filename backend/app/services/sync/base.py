@@ -1,8 +1,11 @@
 # 数据同步适配器基类
+import logging
 from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional, AsyncIterator
 from pydantic import BaseModel
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 class SyncConfig(BaseModel):
@@ -71,8 +74,9 @@ class BaseSyncAdapter(ABC):
                         config["port"] = int(port)
                     if db_part:
                         config["database"] = db_part
-            except Exception:
-                pass
+            except Exception as e:
+                # db_url 解析失败时保留原始配置继续尝试连接，但需留痕便于排查
+                logger.warning(f"db_url 解析失败，使用原始配置: {e}")
         return config
 
     @abstractmethod

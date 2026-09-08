@@ -222,7 +222,7 @@ async def debug_dataset(
     dataset = (await db.execute(select(Dataset).where(Dataset.id == dataset_id))).scalar_one_or_none()
 
     if not dataset:
-        return {"error": "数据集不存在", "dataset_id": str(dataset_id)}
+        raise HTTPException(status_code=404, detail="数据集不存在")
 
     # 查询所有QA记录（不分页）
     all_records_result = await db.execute(

@@ -261,8 +261,9 @@ def dispose_celery_engine():
                 loop.create_task(celery_async_engine.dispose())
             else:
                 loop.run_until_complete(celery_async_engine.dispose())
-        except Exception:
-            pass
+        except Exception as e:
+            # 引擎清理失败不应阻塞 worker 退出，但要留痕
+            logging.getLogger(__name__).warning(f"Celery 数据库引擎清理失败: {e}")
         celery_async_engine = None
         CeleryAsyncSessionLocal = None
 

@@ -2,7 +2,10 @@
 import asyncpg
 import json
 import re
+import logging
 from typing import Dict, List, Any, AsyncIterator
+
+logger = logging.getLogger(__name__)
 
 from .base import (
     BaseSyncAdapter,
@@ -325,8 +328,9 @@ class CustomDBSyncAdapter(BaseSyncAdapter):
                 schema = await self._get_table_schema(table)
                 count = await self._count_table(table)
                 schemas.append(SchemaInfo(table_name=table, columns=schema, row_count=count))
-            except Exception:
-                pass
+            except Exception as e:
+                # 单表 schema 读取失败不影响其余表，记录后继续
+                logger.warning(f"读取表 {table} schema 失败: {e}")
         return schemas
 
     async def _get_table_schema(self, table: str) -> List[Dict[str, Any]]:

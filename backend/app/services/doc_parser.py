@@ -144,8 +144,9 @@ class MineruBatchClient:
                 elif name.endswith("_content_list.json"):
                     try:
                         content_list = __import__("json").loads(zf.read(name).decode("utf-8", errors="ignore"))
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        # content_list 是辅助产物，失败不阻断主流程，但要留痕
+                        logger.warning(f"解析结果 content_list 解析失败: {e}")
         if not md_content:
             raise DocParseError("解析结果中未找到 Markdown 文件")
         return {"md_content": md_content, "content_list": content_list}
