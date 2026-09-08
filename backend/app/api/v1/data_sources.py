@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from ...core.database import get_db
+from ._common import get_or_404
 from ...models import DataSource, SyncTask, SchemaMapping, DataSourceType
 
 router = APIRouter()
@@ -122,10 +123,7 @@ async def get_data_source(
     db: AsyncSession = Depends(get_db)
 ):
     """获取数据源详情"""
-    result = await db.execute(select(DataSource).where(DataSource.id == source_id))
-    data_source = result.scalar_one_or_none()
-    if not data_source:
-        raise HTTPException(status_code=404, detail="数据源不存在")
+    data_source = await get_or_404(db, DataSource, source_id, "数据源不存在")
     return data_source
 
 
@@ -135,10 +133,7 @@ async def delete_data_source(
     db: AsyncSession = Depends(get_db)
 ):
     """删除数据源"""
-    result = await db.execute(select(DataSource).where(DataSource.id == source_id))
-    data_source = result.scalar_one_or_none()
-    if not data_source:
-        raise HTTPException(status_code=404, detail="数据源不存在")
+    data_source = await get_or_404(db, DataSource, source_id, "数据源不存在")
 
     await db.delete(data_source)
     await db.commit()
@@ -151,10 +146,7 @@ async def test_connection(
     db: AsyncSession = Depends(get_db)
 ):
     """测试连接"""
-    result = await db.execute(select(DataSource).where(DataSource.id == source_id))
-    data_source = result.scalar_one_or_none()
-    if not data_source:
-        raise HTTPException(status_code=404, detail="数据源不存在")
+    data_source = await get_or_404(db, DataSource, source_id, "数据源不存在")
 
     # 用对应适配器真实探测连接
     try:
@@ -178,10 +170,7 @@ async def get_tables(
     db: AsyncSession = Depends(get_db)
 ):
     """获取数据源的表/集合列表"""
-    result = await db.execute(select(DataSource).where(DataSource.id == source_id))
-    data_source = result.scalar_one_or_none()
-    if not data_source:
-        raise HTTPException(status_code=404, detail="数据源不存在")
+    data_source = await get_or_404(db, DataSource, source_id, "数据源不存在")
 
     # TODO: 实现实际的表列表获取
     return {
@@ -196,10 +185,7 @@ async def get_schema(
     db: AsyncSession = Depends(get_db)
 ):
     """获取数据源Schema"""
-    result = await db.execute(select(DataSource).where(DataSource.id == source_id))
-    data_source = result.scalar_one_or_none()
-    if not data_source:
-        raise HTTPException(status_code=404, detail="数据源不存在")
+    data_source = await get_or_404(db, DataSource, source_id, "数据源不存在")
 
     # TODO: 实现实际的Schema获取
     return {
@@ -216,10 +202,7 @@ async def preview_data(
     db: AsyncSession = Depends(get_db)
 ):
     """预览表数据"""
-    result = await db.execute(select(DataSource).where(DataSource.id == source_id))
-    data_source = result.scalar_one_or_none()
-    if not data_source:
-        raise HTTPException(status_code=404, detail="数据源不存在")
+    data_source = await get_or_404(db, DataSource, source_id, "数据源不存在")
 
     # TODO: 实现实际的数据预览
     return {
@@ -235,10 +218,7 @@ async def get_default_mappings(
     db: AsyncSession = Depends(get_db)
 ):
     """获取系统默认字段映射"""
-    result = await db.execute(select(DataSource).where(DataSource.id == source_id))
-    data_source = result.scalar_one_or_none()
-    if not data_source:
-        raise HTTPException(status_code=404, detail="数据源不存在")
+    data_source = await get_or_404(db, DataSource, source_id, "数据源不存在")
 
     # TODO: 根据系统类型返回默认映射
     return {
@@ -254,10 +234,7 @@ async def execute_sync(
     db: AsyncSession = Depends(get_db)
 ):
     """执行数据同步"""
-    result = await db.execute(select(DataSource).where(DataSource.id == source_id))
-    data_source = result.scalar_one_or_none()
-    if not data_source:
-        raise HTTPException(status_code=404, detail="数据源不存在")
+    data_source = await get_or_404(db, DataSource, source_id, "数据源不存在")
 
     # 验证数据集存在
     from ...models import Dataset

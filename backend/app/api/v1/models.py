@@ -14,7 +14,9 @@ from ...models import Model
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-from ._common import mask_api_key# Pydantic Schemas
+from ._common import mask_api_key, get_or_404
+
+# Pydantic Schemas
 class ModelCreate(BaseModel):
     name: str
     model_type: str  # llm/embedding/reranker/doc_parser
@@ -134,10 +136,7 @@ async def get_model(
     db: AsyncSession = Depends(get_db)
 ):
     """获取模型详情"""
-    result = await db.execute(select(Model).where(Model.id == model_id))
-    model = result.scalar_one_or_none()
-    if not model:
-        raise HTTPException(status_code=404, detail="模型不存在")
+    model = await get_or_404(db, Model, model_id, "模型不存在")
     return model_to_response(model)
 
 
@@ -148,10 +147,7 @@ async def update_model(
     db: AsyncSession = Depends(get_db)
 ):
     """更新模型配置"""
-    result = await db.execute(select(Model).where(Model.id == model_id))
-    model = result.scalar_one_or_none()
-    if not model:
-        raise HTTPException(status_code=404, detail="模型不存在")
+    model = await get_or_404(db, Model, model_id, "模型不存在")
 
     model.name = data.name
     model.model_type = data.model_type
@@ -184,10 +180,7 @@ async def delete_model(
     db: AsyncSession = Depends(get_db)
 ):
     """删除模型配置"""
-    result = await db.execute(select(Model).where(Model.id == model_id))
-    model = result.scalar_one_or_none()
-    if not model:
-        raise HTTPException(status_code=404, detail="模型不存在")
+    model = await get_or_404(db, Model, model_id, "模型不存在")
 
     await db.delete(model)
     await db.commit()
@@ -204,8 +197,7 @@ async def test_model(
     logger.info(f"开始测试模型 {model_id}")
     test_prompt = data.test_prompt if data else "Hello, this is a test."
 
-    result = await db.execute(select(Model).where(Model.id == model_id))
-    model = result.scalar_one_or_none()
+    model = await db.get(Model, model_id)
     if not model:
         logger.warning(f"模型 {model_id} 不存在")
         raise HTTPException(status_code=404, detail="模型不存在")

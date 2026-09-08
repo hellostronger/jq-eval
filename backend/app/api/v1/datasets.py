@@ -216,8 +216,7 @@ async def debug_dataset(
 ):
     """调试接口：检查数据集和QA记录状态"""
     # 查询数据集
-    dataset_result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-    dataset = dataset_result.scalar_one_or_none()
+    dataset = (await db.execute(select(Dataset).where(Dataset.id == dataset_id))).scalar_one_or_none()
 
     if not dataset:
         return {"error": "数据集不存在", "dataset_id": str(dataset_id)}
@@ -321,8 +320,7 @@ async def delete_qa_record(
     await db.delete(qa_record)
 
     # 更新数据集统计
-    dataset_result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-    dataset = dataset_result.scalar_one_or_none()
+    dataset = (await db.execute(select(Dataset).where(Dataset.id == dataset_id))).scalar_one_or_none()
     if dataset:
         dataset.record_count -= 1
         # 重新检查是否有 ground_truth 和 contexts
@@ -369,8 +367,7 @@ async def batch_delete_qa_records(
         await db.delete(record)
 
     # 更新数据集统计
-    dataset_result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-    dataset = dataset_result.scalar_one_or_none()
+    dataset = (await db.execute(select(Dataset).where(Dataset.id == dataset_id))).scalar_one_or_none()
     if dataset:
         dataset.record_count -= deleted_count
         # 重新检查是否有 ground_truth 和 contexts
@@ -692,8 +689,7 @@ async def get_generate_status(
     task_result = AsyncResult(task_id, app=celery_app)
 
     # 获取数据集并更新任务状态
-    result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-    dataset = result.scalar_one_or_none()
+    dataset = (await db.execute(select(Dataset).where(Dataset.id == dataset_id))).scalar_one_or_none()
 
     response = {
         "task_id": task_id,
@@ -732,11 +728,7 @@ async def get_current_generate_task(
     db: AsyncSession = Depends(get_db)
 ):
     """获取当前数据集的生成任务信息（用于恢复轮询）"""
-    result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-    dataset = result.scalar_one_or_none()
-
-    if not dataset:
-        raise HTTPException(status_code=404, detail="数据集不存在")
+    dataset = await get_or_404(db, Dataset, dataset_id, "数据集不存在")
 
     return {
         "task_id": dataset.generate_task_id,
@@ -939,11 +931,7 @@ async def list_dataset_documents(
     db: AsyncSession = Depends(get_db)
 ):
     """获取数据集关联的文档列表（按文档归属 dataset_id 查询）"""
-    # 检查数据集是否存在
-    dataset_result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-    dataset = dataset_result.scalar_one_or_none()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="数据集不存在")
+    await get_or_404(db, Dataset, dataset_id, "数据集不存在")
 
     # 查询归属该数据集的文档总数
     total = (await db.execute(
@@ -994,11 +982,7 @@ async def get_document_detail(
     db: AsyncSession = Depends(get_db)
 ):
     """获取文档详情"""
-    result = await db.execute(select(Document).where(Document.id == doc_id))
-    document = result.scalar_one_or_none()
-
-    if not document:
-        raise HTTPException(status_code=404, detail="文档不存在")
+    document = await get_or_404(db, Document, doc_id, "文档不存在")
 
     # 查询 chunk 数量
     count_result = await db.execute(
@@ -1126,11 +1110,7 @@ async def get_chunk_detail(
     db: AsyncSession = Depends(get_db)
 ):
     """获取分片详情"""
-    result = await db.execute(select(Chunk).where(Chunk.id == chunk_id))
-    chunk = result.scalar_one_or_none()
-
-    if not chunk:
-        raise HTTPException(status_code=404, detail="分片不存在")
+    chunk = await get_or_404(db, Chunk, chunk_id, "分片不存在")
 
     # 获取文档标题
     doc_result = await db.execute(
@@ -1157,10 +1137,7 @@ async def upload_document(
     db: AsyncSession = Depends(get_db)
 ):
     """上传文档（仅保存原文，不做分片/解析——分片属于数据集构建环节）"""
-    # 检查数据集是否存在
-    dataset_result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-    if not dataset_result.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="数据集不存在")
+    await get_or_404(db, Dataset, dataset_id, "数据集不存在")
 
     file_content = await file.read()
     content = extract_text_from_upload(file_content, file.filename)
@@ -1198,10 +1175,7 @@ async def create_documents_from_news(
     """从热点新闻创建文档（仅保存原文，不做分片/解析）"""
     from ...models.hot_news import HotArticle
 
-    # 检查数据集是否存在
-    dataset_result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-    if not dataset_result.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="数据集不存在")
+    await get_or_404(db, Dataset, dataset_id, "数据集不存在")
 
     if not data.article_ids:
         raise HTTPException(status_code=400, detail="请选择至少一篇新闻文章")
@@ -1267,10 +1241,7 @@ async def create_document_from_text(
     db: AsyncSession = Depends(get_db)
 ):
     """从粘贴文本创建文档（仅保存原文，不做分片/解析）"""
-    # 检查数据集是否存在
-    dataset_result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-    if not dataset_result.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="数据集不存在")
+    await get_or_404(db, Dataset, dataset_id, "数据集不存在")
 
     if not data.content:
         raise HTTPException(status_code=400, detail="文档内容不能为空")
