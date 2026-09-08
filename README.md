@@ -71,16 +71,33 @@ cp .env.example .env
 jq-eval/
 ├── backend/                 # 后端代码
 │   ├── app/
-│   │   ├── api/            # API路由
-│   │   ├── core/           # 核心配置
-│   │   ├── models/         # 数据库模型
-│   │   ├── schemas/        # Pydantic Schema
-│   │   └── services/       # 业务服务
-│   └── migrations/         # 数据库迁移
+│   │   ├── api/v1/         # API路由（24个路由模块，224个端点）
+│   │   ├── core/           # 配置/数据库/Celery
+│   │   ├── models/         # SQLAlchemy 模型（19张业务表）
+│   │   ├── tasks/          # Celery 异步任务（评估/生成/解析/压测/爬虫）
+│   │   └── services/       # 业务服务（adapters/metrics/llm/graph/training_data/vibe_agent...）
+│   └── requirements.txt
+├── frontend/                # React 18 + Vite 前端
+│   └── src/
+│       ├── pages/          # 22个页面（懒加载路由）
+│       ├── api/            # 接口封装（axios 拦截器统一错误处理）
+│       ├── components/     # 通用组件
+│       ├── hooks/          # 轮询/WebSocket 复用钩子
+│       └── types/          # TS 类型定义
+├── docs/API.md             # API 文档
 ├── docker-compose.yml      # 中间件编排
 ├── .env.example            # 环境变量模板
 └── 需求说明.md              # 设计文档
 ```
+
+## 架构亮点（面试重点）
+
+- **调用与评估分离的两段式设计**：先批量调用RAG/模型产出结果（invocation_results），评估任务可复用历史调用结果换指标重评，避免重复调用大模型浪费Token
+- **OpenAI/Anthropic 双协议代理**：入站请求统一转内部表示（protocol_converter），出站按目标模型协议转换，SSE流式透传，映射密钥鉴权（hmac比对），调用日志记录请求/响应/时延
+- **指标插件化**：所有指标实现 BaseMetric 接口并注册 REGISTRY，前端"指标市场"动态勾选组合，检索指标与生成指标按评估阶段分组
+- **多源数据同步**：Dify/FastGPT/n8n/自定义库 四种同步适配器，字段映射可配置，同步前先探测连接/预览Schema，快照机制保证历史可追溯
+- **Celery 工程化**：NullPool 规避 asyncpg 跨 event loop 连接崩溃；任务失败统一 rollback+重取+标记 FAILED；PROGRESS 状态实时上报；任务超时与 acks_late 配置
+- **前端工程化**：路由级代码分割 + vendor按依赖分包（echarts/antd/mermaid独立chunk）；轮询串行化防请求堆积；WebSocket 卸载防泄漏；统一错误拦截器
 
 ## 功能特性
 
@@ -91,6 +108,26 @@ jq-eval/
 - **根因分析**: 评估结果分析与调参建议
 - **快照机制**: 历史数据冻结，保证可追溯
 - **向量检索**: Milvus高性能向量检索
+- **调用与评估解耦**: 调用批次(Invocation)与评估(Evaluation)分离，支持复用调用结果重评（reuse_invocation），同一批对话可换指标/换模型反复评估
+- **模型调用映射代理**: 对外暴露 OpenAI/Anthropic 协议端点（/v1/chat/completions、/v1/messages），按映射转发到目标模型，协议自动互转，调用日志全量落库，支持流式
+- **大模型压测**: QPS上限探测与响应时间分布两种模式，直连模型或RAG系统，输出P50/P90/P99延迟、错误分类汇总与失败样本
+- **文档解析**: 集成 minerU 官方API批量解析 PDF/图片/Office 文档，解析产物入库支持二次评估
+- **训练数据质量评估**: 面向 LLM/Embedding/Reranker/DPO/奖励模型 等训练数据的专项指标引擎，输出质量标签与改进建议
+- **Prompt管理**: 提示词版本管理、A/B 对比与自动优化
+- **标注纠错闭环**: 评估结果可转标注任务，LLM辅助生成纠错建议
+- **VibeAgent**: 对话式生成 RAG 工作流（自然语言→Mermaid 流程图→可运行代码）
+- **知识图谱构建**: LightRAG 实体/关系抽取，构建知识图谱
+
+## 技术栈
+
+| 层 | 技术 |
+|----|------|
+| 前端 | React 18 + TypeScript + Ant Design 5 + ECharts + Vite |
+| 后端 | Python 3.11+ / FastAPI (async) / SQLAlchemy 2 (asyncpg) |
+| 异步任务 | Celery + Redis（Beat 定时调度，任务进度实时上报） |
+| 存储 | PostgreSQL (JSONB) / Milvus (向量) / MinIO (对象) / Redis |
+| 评估 | Ragas / EvalScope / 自研指标引擎（检索与生成阶段解耦） |
+| LLM接入 | LangChain（统一超时/重试），多模型映射代理 |
 
 ## 常用命令
 
@@ -228,4 +265,6 @@ celery -A app.core.celery_app beat --loglevel=info
 
 ## 开发
 
-详见 [需求说明.md](./需求说明.md)
+- 设计文档：[需求说明.md](./需求说明.md)
+- API 接口文档：[docs/API.md](./docs/API.md)（核心接口；全部 224 个端点可启动后端后访问 http://localhost:8000/docs 查看交互式文档）
+- 检索与分析思路：[检索分析.md](./检索分析.md)
