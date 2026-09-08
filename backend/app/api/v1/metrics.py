@@ -159,7 +159,7 @@ async def rate_metric(
     rating: int,
     db: AsyncSession = Depends(get_db)
 ):
-    """对指标评分"""
+    """对指标评分（增量更新平均分与评分数）"""
     if rating < 1 or rating > 5:
         raise HTTPException(status_code=400, detail="评分必须在1-5之间")
 
@@ -170,5 +170,11 @@ async def rate_metric(
     if not metric:
         raise HTTPException(status_code=404, detail="指标不存在")
 
-    # TODO: 实现评分逻辑（需要用户系统）
-    return {"message": "评分成功", "metric_id": str(metric_id), "rating": rating}
+    count = (metric.rating_count or 0) + 1
+    avg = ((metric.rating_avg or 0) * (count - 1) + rating) / count
+    metric.rating_avg = round(avg, 4)
+    metric.rating_count = count
+    await db.commit()
+
+    return {"message": "评分成功", "metric_id": str(metric_id), "rating": rating,
+            "rating_avg": metric.rating_avg, "rating_count": metric.rating_count}

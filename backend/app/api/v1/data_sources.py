@@ -90,7 +90,6 @@ async def create_data_source(
     db: AsyncSession = Depends(get_db)
 ):
     """创建数据源"""
-    # TODO: 测试连接
     data_source = DataSource(
         name=data.name,
         source_type=data.source_type,
@@ -172,11 +171,15 @@ async def get_tables(
     """获取数据源的表/集合列表"""
     data_source = await get_or_404(db, DataSource, source_id, "数据源不存在")
 
-    # TODO: 实现实际的表列表获取
-    return {
-        "tables": [],
-        "source_id": str(source_id)
-    }
+    try:
+        from ...services.sync import SyncAdapterFactory
+        adapter = SyncAdapterFactory.create(data_source.system_type or "custom", data_source.connection_config)
+        await adapter.connect()
+        tables = await adapter.get_tables()
+        await adapter.disconnect()
+        return {"tables": tables, "source_id": str(source_id)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取表列表失败: {e}")
 
 
 @router.get("/{source_id}/schema")
@@ -187,11 +190,18 @@ async def get_schema(
     """获取数据源Schema"""
     data_source = await get_or_404(db, DataSource, source_id, "数据源不存在")
 
-    # TODO: 实现实际的Schema获取
-    return {
-        "schemas": [],
-        "source_id": str(source_id)
-    }
+    try:
+        from ...services.sync import SyncAdapterFactory
+        adapter = SyncAdapterFactory.create(data_source.system_type or "custom", data_source.connection_config)
+        await adapter.connect()
+        schemas = await adapter.get_schema()
+        await adapter.disconnect()
+        return {
+            "schemas": [s.model_dump() for s in schemas],
+            "source_id": str(source_id)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取Schema失败: {e}")
 
 
 @router.get("/{source_id}/preview/{table}")
@@ -204,12 +214,21 @@ async def preview_data(
     """预览表数据"""
     data_source = await get_or_404(db, DataSource, source_id, "数据源不存在")
 
-    # TODO: 实现实际的数据预览
-    return {
-        "data": [],
-        "table": table,
-        "source_id": str(source_id)
-    }
+    try:
+        from ...services.sync import SyncAdapterFactory
+        from ...services.sync.base import SyncConfig
+        adapter = SyncAdapterFactory.create(data_source.system_type or "custom", data_source.connection_config)
+        await adapter.connect()
+        sync_config = SyncConfig(batch_size=limit)
+        rows = []
+        async for row in adapter.fetch_data(table, sync_config):
+            rows.append(row)
+            if len(rows) >= limit:
+                break
+        await adapter.disconnect()
+        return {"data": rows, "table": table, "source_id": str(source_id)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"预览数据失败: {e}")
 
 
 @router.get("/{source_id}/default-mappings")
@@ -220,10 +239,12 @@ async def get_default_mappings(
     """获取系统默认字段映射"""
     data_source = await get_or_404(db, DataSource, source_id, "数据源不存在")
 
-    # TODO: 根据系统类型返回默认映射
+    from ...services.sync import SyncAdapterFactory
+    adapter = SyncAdapterFactory.create(data_source.system_type or "custom", data_source.connection_config)
+    mappings = adapter.get_default_mappings()
     return {
         "system_type": data_source.system_type,
-        "mappings": {}
+        "mappings": {table: [m.model_dump() for m in fields] for table, fields in mappings.items()}
     }
 
 

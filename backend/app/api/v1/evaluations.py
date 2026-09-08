@@ -356,45 +356,6 @@ async def get_evaluation_results(
     }
 
 
-@router.get("/{eval_id}/analysis")
-async def get_analysis(
-    eval_id: UUID,
-    db: AsyncSession = Depends(get_db)
-):
-    """获取根因分析"""
-    evaluation = await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
-
-    if evaluation.status != "completed":
-        raise HTTPException(status_code=400, detail="评估任务尚未完成")
-
-    # TODO: 实现根因分析逻辑
-    return {
-        "eval_id": str(eval_id),
-        "analysis": {
-            "retrieval_analysis": {},
-            "generation_analysis": {},
-            "recommendations": []
-        }
-    }
-
-
-@router.get("/{eval_id}/export")
-async def export_report(
-    eval_id: UUID,
-    format: str = "json",
-    db: AsyncSession = Depends(get_db)
-):
-    """导出评估报告"""
-    evaluation = await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
-
-    # TODO: 实现报告导出逻辑
-    return {
-        "message": "报告导出功能开发中",
-        "eval_id": str(eval_id),
-        "format": format
-    }
-
-
 @router.get("/task/{task_id}")
 async def get_task_status(task_id: str):
     """获取 Celery 任务状态（从 Redis 查询）

@@ -4,8 +4,6 @@ import uuid
 from typing import Dict, List, Any, Optional, BinaryIO
 from datetime import datetime, timedelta
 import logging
-from pathlib import Path
-
 from minio import Minio
 from minio.error import S3Error
 from minio.deleteobjects import DeleteObject
@@ -86,39 +84,6 @@ class MinIOService:
             logger.error(f"Upload failed: {e}")
             return {"success": False, "error": str(e)}
 
-    async def upload_from_path(
-        self,
-        bucket: str,
-        file_path: str,
-        object_name: str = None
-    ) -> Dict[str, Any]:
-        """从本地路径上传文件"""
-        try:
-            path = Path(file_path)
-            if not path.exists():
-                return {"success": False, "error": "File not found"}
-
-            if not object_name:
-                object_name = f"{datetime.utcnow().strftime('%Y/%m/%d')}/{uuid.uuid4()}_{path.name}"
-
-            self.client.fput_object(
-                bucket_name=bucket,
-                object_name=object_name,
-                file_path=file_path
-            )
-
-            return {
-                "success": True,
-                "bucket": bucket,
-                "object_name": object_name,
-                "original_name": path.name,
-                "size": path.stat().st_size
-            }
-
-        except S3Error as e:
-            logger.error(f"Upload from path failed: {e}")
-            return {"success": False, "error": str(e)}
-
     async def download_file(
         self,
         bucket: str,
@@ -140,26 +105,6 @@ class MinIOService:
 
         except S3Error as e:
             logger.error(f"Download failed: {e}")
-            return {"success": False, "error": str(e)}
-
-    async def download_to_path(
-        self,
-        bucket: str,
-        object_name: str,
-        file_path: str
-    ) -> Dict[str, Any]:
-        """下载文件到本地路径"""
-        try:
-            self.client.fget_object(bucket, object_name, file_path)
-            return {
-                "success": True,
-                "bucket": bucket,
-                "object_name": object_name,
-                "local_path": file_path
-            }
-
-        except S3Error as e:
-            logger.error(f"Download to path failed: {e}")
             return {"success": False, "error": str(e)}
 
     def get_presigned_url(

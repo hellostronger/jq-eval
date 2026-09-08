@@ -1,5 +1,6 @@
 # 训练数据评估 API 路由
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func
 from typing import List, Optional, Dict, Any
@@ -436,7 +437,27 @@ async def export_training_data_eval_report(
     if format == "json":
         return report
     elif format == "csv":
-        # TODO: 实现 CSV 导出
-        return {"message": "CSV导出功能开发中", "report": report}
+        import csv
+        import io
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["question", "answer", "status", "overall_tags", "issues", "suggestions"])
+        for d in report["details"]:
+            writer.writerow([
+                d["question"],
+                d["answer"] or "",
+                d["status"],
+                ",".join(d["quality_tags"] or []),
+                "; ".join(d["issues"] or []),
+                "; ".join(d["suggestions"] or []),
+            ])
+        buf.seek(0)
+        filename = f"training_eval_{eval_id}.csv"
+        return StreamingResponse(
+            iter([buf.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
     else:
         raise HTTPException(status_code=400, detail="不支持的导出格式")
