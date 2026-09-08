@@ -84,6 +84,9 @@ async def create_session(request: CreateSessionRequest):
         "api_key": os.getenv("OPENAI_API_KEY", ""),
         "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
         "temperature": 0.7,
+        # 出站超时与重试默认值，防止上游挂死阻塞会话
+        "timeout": 300,
+        "max_retries": 2,
     }
     engine = create_engine(llm_config)
 

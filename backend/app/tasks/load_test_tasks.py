@@ -207,7 +207,8 @@ async def _execute_qps_limit_test(
         step_results.append({
             "concurrency": current_concurrency,
             "qps": result["qps"],
-            "success_rate": result["success_count"] / result["total_requests"],
+            # total_requests 为 0 时（无测试问题）除零保护
+            "success_rate": result["success_count"] / result["total_requests"] if result["total_requests"] else 0.0,
             "latency_stats": result["latency_stats"],
             "meets_threshold": result["success_count"] == result["total_requests"] and (
                 not result["latency_stats"] or result["latency_stats"].get("max", 0) <= latency_threshold
@@ -299,7 +300,7 @@ async def _execute_latency_dist_test(
         levels_results.append({
             "concurrency": concurrency,
             "qps": result["qps"],
-            "success_rate": result["success_count"] / result["total_requests"],
+            "success_rate": result["success_count"] / result["total_requests"] if result["total_requests"] else 0.0,
             "latency_stats": result["latency_stats"],
             "meets_threshold": meets_threshold,
             "failed_count": result["failed_count"],

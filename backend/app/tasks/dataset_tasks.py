@@ -163,10 +163,14 @@ async def _run_generate_task(task, dataset_id: UUID, config: Dict[str, Any]) -> 
 
         except Exception as e:
             logger.error(f"生成任务失败: {e}")
-            dataset.status = "failed"
-            dataset.generate_task_id = None  # 清除任务ID
-            dataset.generate_task_status = None
-            await db.commit()
+            # 回滚失败的事务（如中途 flush 异常），再标记状态，避免 commit 携带脏数据
+            await db.rollback()
+            dataset = await db.get(Dataset, dataset_id)
+            if dataset:
+                dataset.status = "failed"
+                dataset.generate_task_id = None  # 清除任务ID
+                dataset.generate_task_status = None
+                await db.commit()
 
             return {"error": str(e), "dataset_id": str(dataset_id)}
 
@@ -291,7 +295,10 @@ async def _run_import_task(
 
         except Exception as e:
             logger.error(f"导入任务失败: {e}")
-            dataset.status = "failed"
-            await db.commit()
+            await db.rollback()
+            dataset = await db.get(Dataset, dataset_id)
+            if dataset:
+                dataset.status = "failed"
+                await db.commit()
 
             return {"error": str(e), "dataset_id": str(dataset_id)}

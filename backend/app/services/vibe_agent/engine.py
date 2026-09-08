@@ -58,6 +58,8 @@ class VibeAgentEngine:
             "model": settings.VIBEAGENT_LLM_MODEL,
             "temperature": settings.VIBEAGENT_LLM_TEMPERATURE,
             "max_tokens": settings.VIBEAGENT_LLM_MAX_TOKENS,
+            "timeout": 300,
+            "max_retries": 2,
         }
 
     def _create_llm_client(self):
@@ -70,6 +72,9 @@ class VibeAgentEngine:
             api_key=self.llm_config.get("api_key", ""),
             base_url=self.llm_config.get("api_url", "https://api.openai.com/v1"),
             max_tokens=self.llm_config.get("max_tokens", 4000),
+            # 出站超时与重试，防止 LLM 挂死阻塞 WebSocket 会话
+            request_timeout=self.llm_config.get("timeout", 300),
+            max_retries=self.llm_config.get("max_retries", 2),
             model_kwargs=self.llm_config.get("extra_params") or {},
         )
 

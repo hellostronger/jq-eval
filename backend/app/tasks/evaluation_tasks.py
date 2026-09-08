@@ -236,6 +236,9 @@ async def _init_model(model_config: Model) -> Any:
             api_key=model_config.api_key_encrypted,
             base_url=model_config.endpoint,
             temperature=params.get("temperature", 0.7),
+            # 出站超时与重试（与 create_llm_from_config 保持一致），防止挂死拖垮 worker
+            request_timeout=params.get("timeout", 300),
+            max_retries=params.get("max_retries", 2),
             model_kwargs=params.get("extra_params") or {},
         )
         # 验证 LLM 是否正确初始化
@@ -247,6 +250,8 @@ async def _init_model(model_config: Model) -> Any:
             model=model_config.model_name,
             api_key=model_config.api_key_encrypted,
             base_url=model_config.endpoint,
+            request_timeout=params.get("timeout", 120),
+            max_retries=params.get("max_retries", 2),
         )
         logger.info(f"OpenAIEmbeddings 初始化完成: model={emb.model}, has_api_key={bool(emb.openai_api_key)}")
         return emb

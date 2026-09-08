@@ -150,6 +150,9 @@ async def _init_llm(model_config: Model) -> Any:
         api_key=model_config.api_key_encrypted,
         base_url=model_config.endpoint,
         temperature=params.get("temperature", 0.0),
+        # 出站超时与重试（与 create_llm_from_config 保持一致），防止挂死拖垮 worker
+        request_timeout=params.get("timeout", 300),
+        max_retries=params.get("max_retries", 2),
         model_kwargs=params.get("extra_params") or {},
     )
     return llm

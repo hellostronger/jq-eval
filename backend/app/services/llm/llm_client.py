@@ -36,6 +36,10 @@ async def create_llm_from_config(model: Model, param_overrides: Optional[dict] =
         base_url=model.endpoint,
         temperature=params.get("temperature", 0.7),
         max_tokens=params.get("max_tokens", 2048),
+        # 出站超时与重试：openai SDK 默认读超时 600s，挂死的上游会拖垮 Celery worker。
+        # read 超时按字节间隔计算，对流式输出同样安全；params.timeout/max_retries 可覆盖
+        request_timeout=params.get("timeout", 300),
+        max_retries=params.get("max_retries", 2),
         model_kwargs=extra_params,
     )
 
@@ -55,6 +59,9 @@ async def create_embeddings_from_config(model: Model) -> OpenAIEmbeddings:
         model=params.get("model_name") or model.model_name or model.name,
         api_key=model.api_key_encrypted,
         base_url=model.endpoint,
+        # 同 LLM：补齐读超时与重试，避免 embeddings 调用无界等待
+        request_timeout=params.get("timeout", 120),
+        max_retries=params.get("max_retries", 2),
     )
 
 

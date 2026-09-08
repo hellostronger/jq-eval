@@ -46,7 +46,15 @@ async def _run_crawl(task, source_id: str) -> Dict[str, Any]:
 
         # 执行爬取
         task.update_state(state="RUNNING", meta={"source": source.name})
-        crawl_result = await crawler.crawl(since=source.last_crawl_at)
+        try:
+            crawl_result = await crawler.crawl(since=source.last_crawl_at)
+        except Exception as e:
+            # 爬虫内部已兜底，这里防御未预期异常：标记源失败后向上抛，由 get_db_context 回滚
+            logger.error(f"爬取新闻源 {source.name} 异常: {type(e).__name__}: {e}")
+            source.last_crawl_status = "failed"
+            source.last_crawl_error = str(e)
+            await db.commit()
+            return {"error": str(e), "source_id": source_id}
 
         # 存储文章：先批量算出所有 hash，一次查询过滤已存在的
         article_hashes = [

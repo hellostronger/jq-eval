@@ -227,6 +227,9 @@ async def _run_data_import(task, dataset_id: int, file_path: str, import_type: s
         if not dataset:
             return {"error": f"数据集 {dataset_id} 不存在"}
 
+        dataset.status = "importing"
+        await db.commit()
+
         try:
             # 创建新快照
             latest_snapshot = await db.execute(
@@ -300,6 +303,11 @@ async def _run_data_import(task, dataset_id: int, file_path: str, import_type: s
 
         except Exception as e:
             logger.error(f"数据导入失败: {e}")
+            await db.rollback()
+            dataset = await db.get(Dataset, dataset_id)
+            if dataset:
+                dataset.status = "failed"
+                await db.commit()
             return {"error": str(e)}
 
 
