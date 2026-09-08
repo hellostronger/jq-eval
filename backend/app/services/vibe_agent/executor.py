@@ -170,9 +170,10 @@ class WorkflowExecutor:
             error_output = stderr.decode('utf-8') if stderr else ''
 
             if proc.returncode != 0:
+                # 截断错误输出，防止异常堆栈/大报文刷爆响应
                 return {
                     "status": "error",
-                    "error": error_output or f"Process exited with code {proc.returncode}",
+                    "error": (error_output or f"Process exited with code {proc.returncode}")[:4000],
                 }
 
             try:
@@ -195,11 +196,20 @@ class WorkflowExecutor:
         """构建沙箱执行代码"""
         env_setup = ""
         if llm_config:
+            # 用 repr 注入，避免 api_key/URL 中的引号、反斜杠等字符破坏代码
             env_setup = f'''
 import os
-os.environ["OPENAI_API_KEY"] = "{llm_config.get('api_key', '')}"
-os.environ["OPENAI_API_URL"] = "{llm_config.get('api_url', 'https://api.openai.com/v1')}"
-os.environ["OPENAI_MODEL"] = "{llm_config.get('model', 'gpt-4o-mini')}"
+os.environ["OPENAI_API_KEY"] = {llm_config.get('api_key', '')!r}
+os.environ["OPENAI_API_URL"] = {llm_config.get('api_url', 'https://api.openai.com/v1')!r}
+os.environ["OPENAI_MODEL"] = {llm_config.get('model', 'gpt-4o-mini')!r}
+'''
+
+        # POSIX 平台用 resource.setrlimit 限制子进程内存（max_memory_mb）
+        memory_prelude = ""
+        if sys.platform != "win32":
+            memory_prelude = f'''
+import resource
+resource.setrlimit(resource.RLIMIT_AS, ({self.max_memory_mb} * 1024 * 1024, {self.max_memory_mb} * 1024 * 1024))
 '''
 
         execution_wrapper = f'''
@@ -225,7 +235,7 @@ except Exception as e:
     print(json.dumps({{'status': "error", 'error': str(e)}}, ensure_ascii=False))
 '''
 
-        return env_setup + "\n" + python_code + "\n" + execution_wrapper
+        return memory_prelude + env_setup + "\n" + python_code + "\n" + execution_wrapper
 
     def _build_execution_script(
         self,
@@ -234,13 +244,7 @@ except Exception as e:
         llm_config: Dict[str, Any],
     ) -> str:
         """构建完整执行脚本"""
-        return self._build_sandbox_code(python_code, input_data, llm_config) + '''
-import sys
-try:
-    pass
-except Exception as e:
-    sys.exit(1)
-'''
+        return self._build_sandbox_code(python_code, input_data, llm_config)
 
     async def test_code(
         self,
