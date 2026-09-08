@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
   Card, Table, Button, Tag, Modal, Form, Input, Select, message, Space, Popconfirm,
-  Upload, Tabs, Segmented, InputNumber, Empty, Progress,
+  Upload, Tabs, Segmented, Empty, Progress,
 } from 'antd'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, UploadOutlined, EyeOutlined,
@@ -17,6 +17,7 @@ import {
 } from '@/api'
 import type { DocExplanation, DocumentInfo } from '@/types'
 import type { DocParseSourceFile, DocParseBatchInfo, DocParseResultInfo } from '@/api'
+import { usePollingWhenRunning } from '@/hooks/usePollingWhenRunning'
 
 const SOURCE_LABELS: Record<string, string> = {
   manual: '手动输入',
@@ -45,12 +46,10 @@ const STATUS_OPTIONS = [
   { value: 'archived', label: '已归档' },
 ]
 
-const CHUNK_PRESET = { size: 500, overlap: 50 }
-
 const DocExplanations: React.FC = () => {
   const [activeTab, setActiveTab] = useState('explanations')
 
-  // 解释列表
+  // 解析列表
   const [explanations, setExplanations] = useState<DocExplanation[]>([])
   const [expLoading, setExpLoading] = useState(false)
   const [expSearch, setExpSearch] = useState('')
@@ -61,7 +60,7 @@ const DocExplanations: React.FC = () => {
   const [docLoading, setDocLoading] = useState(false)
   const [docSearch, setDocSearch] = useState('')
 
-  // 新建解释弹窗
+  // 新建解析弹窗
   const [createModalVisible, setCreateModalVisible] = useState(false)
   const [createMode, setCreateMode] = useState<'select' | 'upload'>('select')
   const [saving, setSaving] = useState(false)
@@ -79,8 +78,6 @@ const DocExplanations: React.FC = () => {
 
   // 上传文档弹窗（源文档页签）
   const [uploadModalVisible, setUploadModalVisible] = useState(false)
-  const [chunkSize, setChunkSize] = useState(CHUNK_PRESET.size)
-  const [chunkOverlap, setChunkOverlap] = useState(CHUNK_PRESET.overlap)
 
   // 粘贴文本弹窗
   const [textModalVisible, setTextModalVisible] = useState(false)
@@ -135,7 +132,7 @@ const DocExplanations: React.FC = () => {
     fetchDocuments()
   }, [])
 
-  // ---------- 新建解释 ----------
+  // ---------- 新建解析 ----------
   const showCreateModal = async (presetDocId?: string) => {
     form.resetFields()
     setCreateMode('select')
@@ -148,8 +145,8 @@ const DocExplanations: React.FC = () => {
   const handleCreateUpload = async (file: File) => {
     setUploading(true)
     try {
-      const doc = await uploadGlobalDocument(file, chunkSize, chunkOverlap)
-      message.success(`文档上传成功，已分片 ${doc.chunk_count ?? 0} 个`)
+      const doc = await uploadGlobalDocument(file)
+      message.success('文档上传成功（未分片）')
       setUploadedDoc(doc)
       form.setFieldsValue({ doc_id: doc.id })
       fetchDocuments()
@@ -213,8 +210,8 @@ const DocExplanations: React.FC = () => {
   const handleUploadDocument = async (file: File) => {
     setUploading(true)
     try {
-      const doc = await uploadGlobalDocument(file, chunkSize, chunkOverlap)
-      message.success(`文档上传成功，已分片 ${doc.chunk_count ?? 0} 个`)
+      await uploadGlobalDocument(file)
+      message.success('文档上传成功（未分片）')
       setUploadModalVisible(false)
       fetchDocuments()
     } catch (e) {
@@ -229,13 +226,11 @@ const DocExplanations: React.FC = () => {
     try {
       const values = await textForm.validateFields()
       setTextSaving(true)
-      const doc = await createGlobalDocumentFromText({
+      await createGlobalDocumentFromText({
         title: values.title || undefined,
         content: values.content,
-        chunk_size: chunkSize,
-        chunk_overlap: chunkOverlap,
       })
-      message.success(`文档创建成功，已分片 ${doc.chunk_count ?? 0} 个`)
+      message.success('文档创建成功（未分片）')
       setTextModalVisible(false)
       textForm.resetFields()
       fetchDocuments()
@@ -262,7 +257,7 @@ const DocExplanations: React.FC = () => {
   const handleDeleteDoc = async (id: string) => {
     try {
       await deleteDocument(id)
-      message.success('文档已删除（关联的解释与分片一并清除）')
+      message.success('文档已删除（关联的解析与分片一并清除）')
       fetchDocuments()
       fetchExplanations()
     } catch (e) {
@@ -296,27 +291,23 @@ const DocExplanations: React.FC = () => {
   }
 
   // 轮询运行中的批次
-  useEffect(() => {
-    const running = parseBatches.filter(b => b.status === 'running' || b.status === 'pending')
-    if (running.length === 0) return
-    const timer = window.setInterval(async () => {
-      try {
-        const data = await getDocParseBatches()
-        setParseBatches(data || [])
-        // 若正在查看该批次的结果且批次已完成，刷新结果
-        if (viewingBatchId) {
-          const batch = (data || []).find(b => b.id === viewingBatchId)
-          if (batch && batch.status !== 'running' && batch.status !== 'pending') {
-            const results = await getDocParseResults(viewingBatchId)
-            setViewingResults(results || [])
-          }
+  usePollingWhenRunning(
+    parseBatches.some(b => b.status === 'running' || b.status === 'pending'),
+    async () => {
+      const data = await getDocParseBatches()
+      setParseBatches(data || [])
+      // 若正在查看该批次的结果且批次已完成，刷新结果
+      if (viewingBatchId) {
+        const batch = (data || []).find(b => b.id === viewingBatchId)
+        if (batch && batch.status !== 'running' && batch.status !== 'pending') {
+          const results = await getDocParseResults(viewingBatchId)
+          setViewingResults(results || [])
         }
-      } catch (e) {
-        // 轮询失败忽略
       }
-    }, 5000)
-    return () => window.clearInterval(timer)
-  }, [parseBatches, viewingBatchId])
+    },
+    5000,
+    [viewingBatchId],
+  )
 
   const handleParseFileUpload = async (file: File) => {
     setParseUploading(true)
@@ -469,7 +460,7 @@ const DocExplanations: React.FC = () => {
       ellipsis: true,
     },
     {
-      title: '解释内容',
+      title: '解析内容',
       dataIndex: 'explanation',
       key: 'explanation',
       ellipsis: true,
@@ -508,7 +499,7 @@ const DocExplanations: React.FC = () => {
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => showEditModal(record)}>
             编辑
           </Button>
-          <Popconfirm title="确定删除该解释?" onConfirm={() => handleDeleteExp(record.id)}>
+          <Popconfirm title="确定删除该解析?" onConfirm={() => handleDeleteExp(record.id)}>
             <Button type="link" size="small" danger icon={<DeleteOutlined />}>
               删除
             </Button>
@@ -571,10 +562,10 @@ const DocExplanations: React.FC = () => {
               showCreateModal(record.id)
             }}
           >
-            新建解释
+            新建解析
           </Button>
           <Popconfirm
-            title="删除文档将同时删除其所有解释与分片，确定?"
+            title="删除文档将同时删除其所有解析与分片，确定?"
             okButtonProps={{ danger: true }}
             onConfirm={() => handleDeleteDoc(record.id)}
           >
@@ -762,19 +753,19 @@ const DocExplanations: React.FC = () => {
   ]
 
   return (
-    <Card title="文档解释" bodyStyle={{ paddingTop: 8 }}>
+    <Card title="文档解析" bodyStyle={{ paddingTop: 8 }}>
       <Tabs
         activeKey={activeTab}
         onChange={setActiveTab}
         items={[
           {
             key: 'explanations',
-            label: '文档解释',
+            label: '文档解析',
             children: (
               <>
                 <Space style={{ marginBottom: 16 }} wrap>
                   <Input
-                    placeholder="搜索文档标题或解释内容"
+                    placeholder="搜索文档标题或解析内容"
                     prefix={<SearchOutlined />}
                     allowClear
                     style={{ width: 260 }}
@@ -790,7 +781,7 @@ const DocExplanations: React.FC = () => {
                     options={STATUS_OPTIONS}
                   />
                   <Button type="primary" icon={<PlusOutlined />} onClick={() => showCreateModal()}>
-                    新建解释
+                    新建解析
                   </Button>
                 </Space>
                 <Table
@@ -798,7 +789,7 @@ const DocExplanations: React.FC = () => {
                   columns={explanationColumns}
                   rowKey="id"
                   loading={expLoading}
-                  locale={{ emptyText: <Empty description="暂无解释，点击右上角「新建解释」或先到「源文档」上传文档" /> }}
+                  locale={{ emptyText: <Empty description="暂无解析记录，点击右上角「新建解析」或先到「源文档」上传文档" /> }}
                 />
               </>
             ),
@@ -820,19 +811,13 @@ const DocExplanations: React.FC = () => {
                   <Button
                     type="primary"
                     icon={<UploadOutlined />}
-                    onClick={() => {
-                      setChunkSize(CHUNK_PRESET.size)
-                      setChunkOverlap(CHUNK_PRESET.overlap)
-                      setUploadModalVisible(true)
-                    }}
+                    onClick={() => setUploadModalVisible(true)}
                   >
                     上传文档
                   </Button>
                   <Button
                     icon={<FileTextOutlined />}
                     onClick={() => {
-                      setChunkSize(CHUNK_PRESET.size)
-                      setChunkOverlap(CHUNK_PRESET.overlap)
                       textForm.resetFields()
                       setTextModalVisible(true)
                     }}
@@ -906,9 +891,9 @@ const DocExplanations: React.FC = () => {
         ]}
       />
 
-      {/* 新建解释弹窗 */}
+      {/* 新建解析弹窗 */}
       <Modal
-        title="新建文档解释"
+        title="新建文档解析"
         open={createModalVisible}
         onCancel={() => setCreateModalVisible(false)}
         onOk={handleCreate}
@@ -951,12 +936,12 @@ const DocExplanations: React.FC = () => {
                 >
                   <p className="ant-upload-drag-icon"><InboxOutlined /></p>
                   <p className="ant-upload-text">{uploading ? '上传中...' : '点击或拖拽文件到此处上传'}</p>
-                  <p className="ant-upload-hint">支持 TXT、Markdown、PDF，上传后自动分片并选中</p>
+                  <p className="ant-upload-hint">支持 TXT、Markdown、PDF；仅保存原文，上传后自动选中</p>
                 </Upload.Dragger>
                 {uploadedDoc && (
                   <div style={{ marginTop: 8 }}>
                     <Tag color="success" style={{ fontSize: 13, padding: '2px 8px' }}>
-                      {uploadedDoc.title}（{uploadedDoc.chunk_count ?? 0} 分片）
+                      {uploadedDoc.title}
                     </Tag>
                   </div>
                 )}
@@ -967,8 +952,8 @@ const DocExplanations: React.FC = () => {
               </div>
             )}
           </Form.Item>
-          <Form.Item name="explanation" label="解释内容" rules={[{ required: true, message: '请输入解释内容' }]}>
-            <Input.TextArea rows={6} placeholder="输入文档解释内容" />
+          <Form.Item name="explanation" label="解析内容" rules={[{ required: true, message: '请输入解析内容' }]}>
+            <Input.TextArea rows={6} placeholder="输入文档解析内容" />
           </Form.Item>
           <Form.Item name="source" label="来源" initialValue="manual">
             <Select options={SOURCE_OPTIONS} />
@@ -978,7 +963,7 @@ const DocExplanations: React.FC = () => {
 
       {/* 编辑弹窗 */}
       <Modal
-        title="编辑文档解释"
+        title="编辑文档解析"
         open={editModalVisible}
         onCancel={() => setEditModalVisible(false)}
         onOk={handleEdit}
@@ -992,8 +977,8 @@ const DocExplanations: React.FC = () => {
           </div>
         )}
         <Form form={editForm} labelCol={{ span: 5 }}>
-          <Form.Item name="explanation" label="解释内容" rules={[{ required: true, message: '请输入解释内容' }]}>
-            <Input.TextArea rows={6} placeholder="输入文档解释内容" />
+          <Form.Item name="explanation" label="解析内容" rules={[{ required: true, message: '请输入解析内容' }]}>
+            <Input.TextArea rows={6} placeholder="输入文档解析内容" />
           </Form.Item>
           <Form.Item name="source" label="来源">
             <Select options={SOURCE_OPTIONS} />
@@ -1004,9 +989,9 @@ const DocExplanations: React.FC = () => {
         </Form>
       </Modal>
 
-      {/* 查看解释弹窗 */}
+      {/* 查看解析弹窗 */}
       <Modal
-        title={`解释详情${viewingExp?.document_title ? ` - ${viewingExp.document_title}` : ''}`}
+        title={`解析详情${viewingExp?.document_title ? ` - ${viewingExp.document_title}` : ''}`}
         open={!!viewingExp}
         onCancel={() => setViewingExp(null)}
         footer={[
@@ -1033,7 +1018,7 @@ const DocExplanations: React.FC = () => {
             >
               {viewingExp.document_content || '（无内容）'}
             </div>
-            <div style={{ fontWeight: 500, margin: '16px 0 8px' }}>解释内容</div>
+            <div style={{ fontWeight: 500, margin: '16px 0 8px' }}>解析内容</div>
             <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.6 }}>
               {viewingExp.explanation}
             </div>
@@ -1055,16 +1040,6 @@ const DocExplanations: React.FC = () => {
         footer={null}
         width={560}
       >
-        <div style={{ marginBottom: 16 }}>
-          <Space>
-            <span>分片大小：</span>
-            <InputNumber min={100} max={4000} value={chunkSize} onChange={(v: number | null) => setChunkSize(v || CHUNK_PRESET.size)} style={{ width: 100 }} />
-            <span>字符</span>
-            <span style={{ marginLeft: 8 }}>重叠：</span>
-            <InputNumber min={0} max={1000} value={chunkOverlap} onChange={(v: number | null) => setChunkOverlap(v || 0)} style={{ width: 100 }} />
-            <span>字符</span>
-          </Space>
-        </div>
         <Upload.Dragger
           beforeUpload={handleUploadDocument}
           accept=".txt,.md,.pdf"
@@ -1073,7 +1048,7 @@ const DocExplanations: React.FC = () => {
         >
           <p className="ant-upload-drag-icon"><InboxOutlined /></p>
           <p className="ant-upload-text">{uploading ? '上传中...' : '点击或拖拽文件到此处上传'}</p>
-          <p className="ant-upload-hint">支持 TXT、Markdown、PDF，上传后自动分片</p>
+          <p className="ant-upload-hint">支持 TXT、Markdown、PDF；仅保存原文，不自动分片</p>
         </Upload.Dragger>
       </Modal>
 
@@ -1094,15 +1069,6 @@ const DocExplanations: React.FC = () => {
           <Form.Item name="content" label="文本内容" rules={[{ required: true, message: '请输入文本内容' }]}>
             <Input.TextArea rows={10} placeholder="粘贴文档内容..." />
           </Form.Item>
-          <Form.Item label="分片设置">
-            <Space>
-              <span>大小</span>
-              <InputNumber min={100} max={4000} value={chunkSize} onChange={(v: number | null) => setChunkSize(v || CHUNK_PRESET.size)} style={{ width: 100 }} />
-              <span>字符 / 重叠</span>
-              <InputNumber min={0} max={1000} value={chunkOverlap} onChange={(v: number | null) => setChunkOverlap(v || 0)} style={{ width: 100 }} />
-              <span>字符</span>
-            </Space>
-          </Form.Item>
         </Form>
       </Modal>
 
@@ -1119,9 +1085,6 @@ const DocExplanations: React.FC = () => {
             <div style={{ marginBottom: 12 }}>
               <Tag color="blue">{(previewDoc.file_type || 'txt').toUpperCase()}</Tag>
               {renderSource(previewDoc.source_type || '')}
-              <span style={{ color: '#999', marginLeft: 8, fontSize: 12 }}>
-                {previewDoc.chunk_count ?? 0} 个分片
-              </span>
             </div>
             <div
               style={{

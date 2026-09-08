@@ -7,6 +7,7 @@ from .base import BaseMetric, MetricResult
 from .ragas_metrics import RAGAS_METRICS
 from .evalscope_metrics import EVALSCOPE_METRICS
 from .retrieval_metrics import RETRIEVAL_METRICS
+from .benchmark_metrics import BENCHMARK_METRICS
 
 
 # 指标注册表
@@ -14,6 +15,7 @@ METRIC_REGISTRY: Dict[str, Type[BaseMetric]] = {}
 METRIC_REGISTRY.update(RAGAS_METRICS)
 METRIC_REGISTRY.update(EVALSCOPE_METRICS)
 METRIC_REGISTRY.update(RETRIEVAL_METRICS)
+METRIC_REGISTRY.update(BENCHMARK_METRICS)
 
 
 class MetricEngine:

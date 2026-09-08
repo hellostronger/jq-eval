@@ -8,6 +8,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from ...core.database import get_db
+from ._common import get_or_404
 from ...core.utc_datetime import UTCDatetime
 from ...models import InvocationBatch, InvocationResult, Dataset, QARecord, RAGSystem
 
@@ -122,10 +123,7 @@ async def get_invocation_batch(
     db: AsyncSession = Depends(get_db)
 ):
     """获取调用批次详情"""
-    result = await db.execute(select(InvocationBatch).where(InvocationBatch.id == batch_id))
-    batch = result.scalar_one_or_none()
-    if not batch:
-        raise HTTPException(status_code=404, detail="调用批次不存在")
+    batch = await get_or_404(db, InvocationBatch, batch_id, "调用批次不存在")
     return batch
 
 
@@ -135,10 +133,7 @@ async def run_invocation_batch(
     db: AsyncSession = Depends(get_db)
 ):
     """执行调用批次"""
-    result = await db.execute(select(InvocationBatch).where(InvocationBatch.id == batch_id))
-    batch = result.scalar_one_or_none()
-    if not batch:
-        raise HTTPException(status_code=404, detail="调用批次不存在")
+    batch = await get_or_404(db, InvocationBatch, batch_id, "调用批次不存在")
 
     if batch.status == "running":
         raise HTTPException(status_code=400, detail="调用批次正在执行中")
@@ -165,10 +160,7 @@ async def retry_invocation_batch(
     db: AsyncSession = Depends(get_db)
 ):
     """重试调用批次（支持重试全部失败或指定条目）"""
-    result = await db.execute(select(InvocationBatch).where(InvocationBatch.id == batch_id))
-    batch = result.scalar_one_or_none()
-    if not batch:
-        raise HTTPException(status_code=404, detail="调用批次不存在")
+    batch = await get_or_404(db, InvocationBatch, batch_id, "调用批次不存在")
 
     if batch.status == "running":
         raise HTTPException(status_code=400, detail="调用批次正在执行中，无法重试")
@@ -213,10 +205,7 @@ async def retry_single_result(
     db: AsyncSession = Depends(get_db)
 ):
     """重试单条调用结果"""
-    result = await db.execute(select(InvocationBatch).where(InvocationBatch.id == batch_id))
-    batch = result.scalar_one_or_none()
-    if not batch:
-        raise HTTPException(status_code=404, detail="调用批次不存在")
+    batch = await get_or_404(db, InvocationBatch, batch_id, "调用批次不存在")
 
     if batch.status == "running":
         raise HTTPException(status_code=400, detail="调用批次正在执行中，无法重试")
@@ -247,10 +236,7 @@ async def get_invocation_results(
     db: AsyncSession = Depends(get_db)
 ):
     """获取调用批次的结果"""
-    result = await db.execute(select(InvocationBatch).where(InvocationBatch.id == batch_id))
-    batch = result.scalar_one_or_none()
-    if not batch:
-        raise HTTPException(status_code=404, detail="调用批次不存在")
+    batch = await get_or_404(db, InvocationBatch, batch_id, "调用批次不存在")
 
     # 关联QA记录获取ground_truth
     query = (
@@ -295,10 +281,7 @@ async def get_invocation_stats(
     db: AsyncSession = Depends(get_db)
 ):
     """获取调用批次的统计信息"""
-    result = await db.execute(select(InvocationBatch).where(InvocationBatch.id == batch_id))
-    batch = result.scalar_one_or_none()
-    if not batch:
-        raise HTTPException(status_code=404, detail="调用批次不存在")
+    batch = await get_or_404(db, InvocationBatch, batch_id, "调用批次不存在")
 
     # 统计各状态数量
     stats = await db.execute(
@@ -324,10 +307,7 @@ async def delete_invocation_batch(
     db: AsyncSession = Depends(get_db)
 ):
     """删除调用批次"""
-    result = await db.execute(select(InvocationBatch).where(InvocationBatch.id == batch_id))
-    batch = result.scalar_one_or_none()
-    if not batch:
-        raise HTTPException(status_code=404, detail="调用批次不存在")
+    batch = await get_or_404(db, InvocationBatch, batch_id, "调用批次不存在")
 
     if batch.status == "running":
         raise HTTPException(status_code=400, detail="调用批次正在执行中，无法删除")

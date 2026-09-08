@@ -1,8 +1,16 @@
 import React, { useState, useEffect } from 'react'
-import { Card, Form, Input, Button, Select, Upload, message, Progress, Space, InputNumber, Collapse, Table, Modal } from 'antd'
-import { UploadOutlined, PlusOutlined, DeleteOutlined, PlayCircleOutlined, FileAddOutlined } from '@ant-design/icons'
-import { generateDataset, getGenerateStatus, getCurrentGenerateTask, getModels, uploadFileToMinio, getDocuments } from '@/api'
+import { Card, Form, Input, Button, Select, message, Progress, Space, InputNumber, Collapse, Table, Modal, Tag } from 'antd'
+import { PlusOutlined, DeleteOutlined, PlayCircleOutlined, FileAddOutlined } from '@ant-design/icons'
+import { generateDataset, getGenerateStatus, getCurrentGenerateTask, getModels, getDocuments } from '@/api'
 import type { ModelConfig, GenerateRequest, DocumentInfo } from '@/types'
+
+// 文档来源标签（解析结果 = 文档解析页 minerU 解析产物）
+const SOURCE_TYPE_LABELS: Record<string, { label: string; color: string }> = {
+  mineru: { label: '解析结果', color: 'blue' },
+  upload: { label: '上传文档', color: 'default' },
+  text_input: { label: '输入文本', color: 'default' },
+  hot_news: { label: '热点新闻', color: 'default' },
+}
 
 interface GeneratePanelProps {
   datasetId: string
@@ -18,7 +26,6 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
   const [progress, setProgress] = useState<number>(0)
   const [status, setStatus] = useState<string>('idle')
   const [texts, setTexts] = useState<string[]>([])
-  const [uploadedFiles, setUploadedFiles] = useState<{ objectName: string; fileName: string }[]>([])
   const [docSelectVisible, setDocSelectVisible] = useState(false)
   const [allDocs, setAllDocs] = useState<DocumentInfo[]>([])
   const [docsLoading, setDocsLoading] = useState(false)
@@ -112,32 +119,12 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
     return () => clearInterval(timer)
   }, [taskId, status, datasetId, onGenerateSuccess])
 
-  // 上传文件处理（上传到 MinIO documents bucket，供生成任务读取）
-  const handleUpload = async (file: File) => {
-    try {
-      const result = await uploadFileToMinio('documents', file)
-      if (result.object_name) {
-        setUploadedFiles(prev => [...prev, { objectName: result.object_name, fileName: file.name }])
-        message.success('文件上传成功')
-      } else {
-        message.error('上传失败：未返回存储路径')
-      }
-    } catch (e) {
-      // 错误已在拦截器处理
-    }
-    return false
-  }
-
-  const removeUploadedFile = (objectName: string) => {
-    setUploadedFiles(prev => prev.filter(f => f.objectName !== objectName))
-  }
-
-  // 打开已有文档选择弹窗
+  // 打开已有文档选择弹窗（只列出归属本数据集的文档与全局文档）
   const openDocSelect = async () => {
     setDocSelectVisible(true)
     setDocsLoading(true)
     try {
-      const data = await getDocuments({ size: 200 })
+      const data = await getDocuments({ dataset_id: datasetId, size: 200 })
       setAllDocs(data.items)
     } catch (e) {
       // 错误已在拦截器处理
@@ -182,13 +169,6 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
       // 构建源配置
       const sources: GenerateRequest['sources'] = []
 
-      if (uploadedFiles.length > 0) {
-        sources.push({
-          source_type: 'file_upload',
-          file_paths: uploadedFiles.map(f => f.objectName),
-        })
-      }
-
       if (texts.filter(t => t.trim()).length > 0) {
         sources.push({
           source_type: 'text_input',
@@ -204,7 +184,7 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
       }
 
       if (sources.length === 0) {
-        message.error('请至少添加一个文档源（上传文件、输入文本或选择已有文档）')
+        message.error('请至少添加一个文档源（选择解析结果或输入文本）')
         return
       }
 
@@ -252,20 +232,33 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
       )}
 
       <Form form={form} layout="vertical" initialValues={{ test_size: 10, simple_ratio: 0.5, reasoning_ratio: 0.3, multi_context_ratio: 0.2 }}>
-        {/* 文档源配置 */}
-        <Collapse defaultActiveKey={['upload', 'text', 'existing']}>
-          <Collapse.Panel header="上传文件" key="upload">
-            <Upload beforeUpload={handleUpload} accept=".pdf,.txt,.md,.docx" showUploadList={false}>
-              <Button icon={<UploadOutlined />}>上传文档 (PDF/TXT/MD/DOCX)</Button>
-            </Upload>
-            {uploadedFiles.length > 0 && (
+        {/* 文档源配置（测试集生成基于解析结果等文档库内容，不涉及文件上传） */}
+        <Collapse defaultActiveKey={['existing', 'text']}>
+          <Collapse.Panel header="选择解析结果（文档库）" key="existing">
+            <div style={{ color: '#999', fontSize: 12, marginBottom: 8 }}>
+              来自「文档解析」页 minerU 解析产物或其他已入库文档
+            </div>
+            <Button icon={<FileAddOutlined />} onClick={openDocSelect}>
+              从文档库选择
+            </Button>
+            {existingDocs.length > 0 && (
               <div style={{ marginTop: 8 }}>
-                {uploadedFiles.map(f => (
-                  <div key={f.objectName} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {existingDocs.map(d => (
+                  <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {f.fileName}
+                      {d.title || d.id}
                     </span>
-                    <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => removeUploadedFile(f.objectName)}>
+                    {(() => {
+                      const src = SOURCE_TYPE_LABELS[d.source_type || '']
+                      return src ? <Tag color={src.color} style={{ marginRight: 0 }}>{src.label}</Tag> : null
+                    })()}
+                    <Button
+                      type="link"
+                      size="small"
+                      danger
+                      icon={<DeleteOutlined />}
+                      onClick={() => setExistingDocs(prev => prev.filter(x => x.id !== d.id))}
+                    >
                       移除
                     </Button>
                   </div>
@@ -291,32 +284,6 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
                 </Button>
               </div>
             ))}
-          </Collapse.Panel>
-
-          <Collapse.Panel header="选择已有文档" key="existing">
-            <Button icon={<FileAddOutlined />} onClick={openDocSelect}>
-              从文档库选择
-            </Button>
-            {existingDocs.length > 0 && (
-              <div style={{ marginTop: 8 }}>
-                {existingDocs.map(d => (
-                  <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {d.title || d.id}
-                    </span>
-                    <Button
-                      type="link"
-                      size="small"
-                      danger
-                      icon={<DeleteOutlined />}
-                      onClick={() => setExistingDocs(prev => prev.filter(x => x.id !== d.id))}
-                    >
-                      移除
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
           </Collapse.Panel>
         </Collapse>
 
@@ -367,20 +334,32 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
         </Form.Item>
       </Form>
 
-      {/* 已有文档选择弹窗 */}
+      {/* 文档库选择弹窗 */}
       <Modal
-        title="选择已有文档"
+        title="从文档库选择（解析结果等已入库文档）"
         open={docSelectVisible}
         onOk={confirmDocSelect}
         onCancel={() => { setDocSelectVisible(false); setSelectedDocIds([]) }}
         width={700}
       >
+        <div style={{ color: '#999', fontSize: 12, marginBottom: 8 }}>
+          生成测试集基于已入库的文档内容（推荐选择「文档解析」产生的解析结果）
+        </div>
         <Table
           dataSource={allDocs}
           columns={[
             { title: '标题', dataIndex: 'title', key: 'title', ellipsis: true },
+            {
+              title: '来源',
+              dataIndex: 'source_type',
+              key: 'source_type',
+              width: 90,
+              render: (v: string) => {
+                const src = SOURCE_TYPE_LABELS[v]
+                return src ? <Tag color={src.color}>{src.label}</Tag> : (v || '-')
+              },
+            },
             { title: '类型', dataIndex: 'file_type', key: 'file_type', width: 80 },
-            { title: '分片数', dataIndex: 'chunk_count', key: 'chunk_count', width: 80 },
           ]}
           rowKey="id"
           loading={docsLoading}

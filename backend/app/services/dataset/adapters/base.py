@@ -13,9 +13,8 @@ class DocumentAdapter(ABC):
     """文档适配器基类
 
     统一文档输入接口，支持多种输入源：
-    - MinIO 上传文件
     - 直接文本输入
-    - 已有文档选择
+    - 已有文档选择（解析结果等文档库文档）
     """
 
     @abstractmethod
@@ -49,9 +48,8 @@ class AdapterFactory:
 
         Args:
             source_type: 源类型，可选值：
-                - "file_upload": MinIO 上传文件
                 - "text_input": 直接文本输入
-                - "existing_doc": 已有文档选择
+                - "existing_doc": 已有文档选择（解析结果等文档库文档）
             config: 配置参数，不同类型需要不同配置
             db: 数据库会话（existing_doc 类型需要）
 
@@ -61,13 +59,7 @@ class AdapterFactory:
         Raises:
             ValueError: 不支持的源类型或配置缺失
         """
-        if source_type == "file_upload":
-            if "file_paths" not in config:
-                raise ValueError("file_upload 类型需要 file_paths 配置")
-            from .file_upload_adapter import FileUploadAdapter
-            return FileUploadAdapter(file_paths=config["file_paths"])
-
-        elif source_type == "text_input":
+        if source_type == "text_input":
             if "texts" not in config:
                 raise ValueError("text_input 类型需要 texts 配置")
             from .text_input_adapter import TextInputAdapter

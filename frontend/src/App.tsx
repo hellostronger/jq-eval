@@ -53,7 +53,7 @@ const menuItems = [
   { key: '/load-tests', icon: <ExperimentOutlined />, label: '性能压测' },
   { key: '/evaluations', icon: <LineChartOutlined />, label: '评估任务' },
   { key: '/training-data-evaluations', icon: <ExperimentOutlined />, label: '训练数据评估' },
-  { key: '/doc-explanations', icon: <FileTextOutlined />, label: '文档解释' },
+  { key: '/doc-explanations', icon: <FileTextOutlined />, label: '文档解析' },
   { key: '/doc-explanation-evaluations', icon: <BarChartOutlined />, label: '解释评估' },
   { key: '/metrics', icon: <BarChartOutlined />, label: '指标市场' },
   { key: '/data-sources', icon: <DatabaseOutlined />, label: '数据源' },

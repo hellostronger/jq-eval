@@ -112,12 +112,21 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
 
             logger.info(f"初始化后的模型: llm={llm}, embedding_model={embedding_model}")
 
-            # 检查是否有必要的模型配置
-            if not llm:
-                raise ValueError("评估任务需要配置 LLM 模型")
+            # 检查是否有必要的模型配置：仅当选中的指标依赖 LLM/Embedding 时才强制要求
+            # （检索阶段解耦评测只依赖 retrieval_ids + target_chunk_ids，无需 LLM）
+            selected_metrics = [(name, METRIC_REGISTRY[name]) for name in metric_names if name in METRIC_REGISTRY]
+            need_llm = any(cls.requires_llm for _, cls in selected_metrics)
+            need_embedding = any(cls.requires_embedding for _, cls in selected_metrics)
+
+            if not selected_metrics:
+                raise ValueError(f"没有可用的评估指标: {metric_names}，可用指标: {sorted(METRIC_REGISTRY.keys())}")
+
+            if need_llm and not llm:
+                raise ValueError("评估任务需要配置 LLM 模型（所选指标包含生成阶段指标）")
+            if need_embedding and not embedding_model:
+                raise ValueError("评估任务需要配置 Embedding 模型（所选指标依赖向量相似度）")
 
             # 直接使用 evaluation.metrics 数组中的指标名称
-            metric_names = evaluation.metrics or []
             logger.info(f"评估指标列表: metric_names={metric_names}")
 
             # 创建评估引擎

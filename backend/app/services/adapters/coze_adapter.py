@@ -98,15 +98,6 @@ class CozeAdapter(BaseRAGAdapter):
                 success=False
             )
 
-    except Exception as e:
-            response_time = time.time() - start_time
-            return RAGResponse(
-                answer="",
-                response_time=response_time,
-                error=str(e),
-                success=False
-            )
-
     async def query_stream(
         self,
         question: str,

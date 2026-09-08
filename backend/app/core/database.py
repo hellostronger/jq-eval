@@ -205,6 +205,36 @@ async def init_db():
                 ALTER COLUMN rag_system_id DROP NOT NULL
             """))
 
+        # documents.dataset_id（文档归属数据集，数据集内触发解析时填写）
+        result = await conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'documents' AND column_name = 'dataset_id'
+        """))
+        if result.fetchone() is None:
+            await conn.execute(text("""
+                ALTER TABLE documents
+                ADD COLUMN dataset_id UUID
+            """))
+            await conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_documents_dataset_id
+                ON documents (dataset_id)
+            """))
+
+        # doc_parse_batches.dataset_id（解析批次归属数据集）
+        result = await conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'doc_parse_batches' AND column_name = 'dataset_id'
+        """))
+        if result.fetchone() is None:
+            await conn.execute(text("""
+                ALTER TABLE doc_parse_batches
+                ADD COLUMN dataset_id UUID
+            """))
+            await conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_doc_parse_batches_dataset_id
+                ON doc_parse_batches (dataset_id)
+            """))
+
 
 async def close_db():
     """关闭数据库连接"""

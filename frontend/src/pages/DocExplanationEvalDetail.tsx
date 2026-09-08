@@ -59,7 +59,7 @@ const DocExplanationEvalDetail: React.FC = () => {
       ellipsis: true,
     },
     {
-      title: '解释内容',
+      title: '解析内容',
       dataIndex: 'explanation',
       key: 'explanation',
       ellipsis: true,
@@ -97,7 +97,7 @@ const DocExplanationEvalDetail: React.FC = () => {
       ),
     },
     {
-      title: '解释错误',
+      title: '解析错误',
       dataIndex: ['scores', 'explanation_error'],
       key: 'explanation_error',
       render: (score: string | number) => (
@@ -176,7 +176,7 @@ const DocExplanationEvalDetail: React.FC = () => {
         </Col>
         <Col span={4}>
           <Statistic
-            title="解释错误均值"
+            title="解析错误均值"
             value={formatScore(summary.explanation_error?.mean, 2)}
           />
         </Col>
@@ -221,7 +221,7 @@ const DocExplanationEvalDetail: React.FC = () => {
             )}
             {selectedResult.explanation && (
               <div style={{ marginBottom: 16 }}>
-                <strong>解释内容:</strong>
+                <strong>解析内容:</strong>
                 <div style={{ padding: 8, background: '#e6f7ff', borderRadius: 4, marginTop: 8 }}>
                   {selectedResult.explanation}
                 </div>
@@ -253,7 +253,7 @@ const DocExplanationEvalDetail: React.FC = () => {
                 </Col>
                 <Col span={6}>
                   <Statistic
-                    title="解释错误"
+                    title="解析错误"
                     value={formatScore(selectedResult.scores?.explanation_error)}
                     valueStyle={{ fontSize: 18 }}
                   />

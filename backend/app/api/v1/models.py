@@ -14,17 +14,7 @@ from ...models import Model
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-
-def mask_api_key(api_key: Optional[str]) -> Optional[str]:
-    """掩码 API key，显示前缀和后缀"""
-    if not api_key:
-        return None
-    if len(api_key) <= 8:
-        return "***"
-    return f"{api_key[:4]}***{api_key[-4:]}"
-
-
-# Pydantic Schemas
+from ._common import mask_api_key# Pydantic Schemas
 class ModelCreate(BaseModel):
     name: str
     model_type: str  # llm/embedding/reranker/doc_parser

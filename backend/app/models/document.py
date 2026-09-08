@@ -5,7 +5,6 @@ from sqlalchemy.orm import relationship
 
 from .base import BaseModel
 
-
 class Document(BaseModel):
     """文档表"""
     __tablename__ = "documents"
@@ -18,6 +17,8 @@ class Document(BaseModel):
     source_url = Column(String(1000), nullable=True)
     content_hash = Column(String(64), nullable=True)
     doc_metadata = Column(JSONB, default=dict)
+    # 归属数据集（数据集内触发解析/创建的文档）；全局文档为 NULL
+    dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id"), nullable=True, index=True)
 
     # 关系
     chunks = relationship("Chunk", back_populates="document", cascade="all, delete-orphan")

@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from celery.result import AsyncResult
 
 from ...core.database import get_db, get_db_context
+from ._common import get_or_404
 from ...core.utc_datetime import UTCDatetime
 from ...core.config import settings
 from ...core.celery_app import celery_app
@@ -220,7 +221,7 @@ async def get_daily_stats():
                 COUNT(*) FILTER (WHERE status = 'pending') as pending,
                 COUNT(*) FILTER (WHERE status = 'failed') as failed
             FROM evaluations
-        """))).fetchone()
+        """))).mappings().one()
         rag_count = (await db.execute(text("SELECT COUNT(*) as count FROM rag_systems"))).scalar()
         model_row = (await db.execute(text("""
             SELECT
@@ -228,7 +229,7 @@ async def get_daily_stats():
                 COUNT(*) FILTER (WHERE model_type = 'embedding') as embedding,
                 COUNT(*) FILTER (WHERE model_type = 'reranker') as reranker
             FROM models
-        """))).fetchone()
+        """))).mappings().one()
 
     return {
         "total_datasets": datasets_count,
@@ -255,10 +256,7 @@ async def get_evaluation(
     db: AsyncSession = Depends(get_db)
 ):
     """获取评估任务详情"""
-    result = await db.execute(select(Evaluation).where(Evaluation.id == eval_id))
-    evaluation = result.scalar_one_or_none()
-    if not evaluation:
-        raise HTTPException(status_code=404, detail="评估任务不存在")
+    evaluation = await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
     return evaluation
 
 
@@ -268,10 +266,7 @@ async def delete_evaluation(
     db: AsyncSession = Depends(get_db)
 ):
     """删除评估任务"""
-    result = await db.execute(select(Evaluation).where(Evaluation.id == eval_id))
-    evaluation = result.scalar_one_or_none()
-    if not evaluation:
-        raise HTTPException(status_code=404, detail="评估任务不存在")
+    evaluation = await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
 
     await db.delete(evaluation)
     await db.commit()
@@ -284,10 +279,7 @@ async def run_evaluation(
     db: AsyncSession = Depends(get_db)
 ):
     """执行评估任务"""
-    result = await db.execute(select(Evaluation).where(Evaluation.id == eval_id))
-    evaluation = result.scalar_one_or_none()
-    if not evaluation:
-        raise HTTPException(status_code=404, detail="评估任务不存在")
+    evaluation = await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
 
     if evaluation.status == "running":
         raise HTTPException(status_code=400, detail="评估任务正在执行中")
@@ -312,10 +304,7 @@ async def get_evaluation_status(
     db: AsyncSession = Depends(get_db)
 ):
     """获取评估任务状态"""
-    result = await db.execute(select(Evaluation).where(Evaluation.id == eval_id))
-    evaluation = result.scalar_one_or_none()
-    if not evaluation:
-        raise HTTPException(status_code=404, detail="评估任务不存在")
+    evaluation = await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
 
     return {
         "eval_id": str(eval_id),
@@ -333,10 +322,7 @@ async def get_evaluation_results(
     db: AsyncSession = Depends(get_db)
 ):
     """获取评估结果，包含每条 QA 记录的详细信息和得分"""
-    result = await db.execute(select(Evaluation).where(Evaluation.id == eval_id))
-    evaluation = result.scalar_one_or_none()
-    if not evaluation:
-        raise HTTPException(status_code=404, detail="评估任务不存在")
+    evaluation = await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
 
     # JOIN QARecord 表获取问题内容
     results = await db.execute(
@@ -372,10 +358,7 @@ async def get_analysis(
     db: AsyncSession = Depends(get_db)
 ):
     """获取根因分析"""
-    result = await db.execute(select(Evaluation).where(Evaluation.id == eval_id))
-    evaluation = result.scalar_one_or_none()
-    if not evaluation:
-        raise HTTPException(status_code=404, detail="评估任务不存在")
+    evaluation = await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
 
     if evaluation.status != "completed":
         raise HTTPException(status_code=400, detail="评估任务尚未完成")
@@ -398,10 +381,7 @@ async def export_report(
     db: AsyncSession = Depends(get_db)
 ):
     """导出评估报告"""
-    result = await db.execute(select(Evaluation).where(Evaluation.id == eval_id))
-    evaluation = result.scalar_one_or_none()
-    if not evaluation:
-        raise HTTPException(status_code=404, detail="评估任务不存在")
+    evaluation = await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
 
     # TODO: 实现报告导出逻辑
     return {
@@ -461,10 +441,7 @@ async def cancel_evaluation(
         eval_id: 评估任务ID
         task_id: Celery 任务ID（可选，如果不提供则尝试从数据库获取最近的任务）
     """
-    result = await db.execute(select(Evaluation).where(Evaluation.id == eval_id))
-    evaluation = result.scalar_one_or_none()
-    if not evaluation:
-        raise HTTPException(status_code=404, detail="评估任务不存在")
+    evaluation = await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
 
     if evaluation.status != "running":
         raise HTTPException(status_code=400, detail="评估任务未在运行中，无法取消")
@@ -499,10 +476,7 @@ async def retry_evaluation(
         eval_id: 评估任务ID
         reuse_invocation: 是否复用存量调用结果（默认True）
     """
-    result = await db.execute(select(Evaluation).where(Evaluation.id == eval_id))
-    evaluation = result.scalar_one_or_none()
-    if not evaluation:
-        raise HTTPException(status_code=404, detail="评估任务不存在")
+    evaluation = await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
 
     # 只允许重试失败的任务
     if evaluation.status not in ("failed", "cancelled"):

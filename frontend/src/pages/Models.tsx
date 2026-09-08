@@ -448,7 +448,7 @@ const Models: React.FC = () => {
           <Form.Item name="is_default" label="设为默认" valuePropName="checked">
             <Switch />
           </Form.Item>
-          <Form.Item name="save_logs" label="保存请求响应" valuePropName="checked">
+          <Form.Item name="save_logs" label="保存请求响应" valuePropName="checked" extra="开启后正常调用与回放测试均会记录请求响应日志">
             <Switch />
           </Form.Item>
         </Form>

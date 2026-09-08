@@ -132,7 +132,7 @@ const DocExplanationEvaluations: React.FC = () => {
 
   return (
     <Card
-      title="文档解释评估"
+      title="文档解析评估"
       extra={
         <Button type="primary" icon={<PlusOutlined />} onClick={showCreateModal}>
           新建评估
@@ -147,7 +147,7 @@ const DocExplanationEvaluations: React.FC = () => {
       />
 
       <Modal
-        title="新建文档解释评估"
+        title="新建文档解析评估"
         open={modalVisible}
         onCancel={() => setModalVisible(false)}
         onOk={handleCreate}
@@ -167,7 +167,7 @@ const DocExplanationEvaluations: React.FC = () => {
               options={models.map(m => ({ value: m.id, label: m.name }))}
             />
           </Form.Item>
-          <Form.Item name="doc_ids" label="文档范围" extra="不选择则评估所有有解释的文档">
+          <Form.Item name="doc_ids" label="文档范围" extra="不选择则评估所有有解析记录的文档">
             <Select
               mode="multiple"
               placeholder="选择文档（可选）"
@@ -183,7 +183,7 @@ const DocExplanationEvaluations: React.FC = () => {
                 { value: 'completeness', label: '完整性' },
                 { value: 'accuracy', label: '准确性' },
                 { value: 'info_missing', label: '信息遗漏' },
-                { value: 'explanation_error', label: '解释错误' },
+                { value: 'explanation_error', label: '解析错误' },
               ]}
             />
           </Form.Item>

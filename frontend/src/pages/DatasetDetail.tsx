@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Upload, Button, message, Tabs, Tag, Space, Divider, Popconfirm, Modal, Descriptions, Input, InputNumber, Select, Spin, Alert, Typography } from 'antd'
+import { Card, Table, Upload, Button, message, Tabs, Tag, Space, Divider, Popconfirm, Modal, Descriptions, Input, Select, Spin, Alert, Typography } from 'antd'
 import { UploadOutlined, DownloadOutlined, DeleteOutlined, EyeOutlined, PlusOutlined, FileTextOutlined, EnvironmentOutlined } from '@ant-design/icons'
 import { useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
-import { getDataset, getQARecords, uploadDatasetFile, downloadTemplate, deleteQARecord, batchDeleteQARecords, getDatasetDocuments, getDatasetChunks, uploadDocument, createDocumentFromText, createDocumentsFromNews, getDocumentChunks, getHotArticles } from '@/api'
+import { getDataset, getQARecords, uploadDatasetFile, downloadTemplate, deleteQARecord, batchDeleteQARecords, getDatasetDocuments, getDatasetChunks, uploadGlobalDocument, createDocumentFromText, createDocumentsFromNews, getDocumentChunks, getHotArticles } from '@/api'
 import GeneratePanel from '@/components/GeneratePanel'
+import DatasetDocParse from '@/components/DatasetDocParse'
 import type { Dataset, QARecord, DocumentInfo, ChunkInfo, HotArticle } from '@/types'
 
 const DatasetDetail: React.FC = () => {
@@ -42,8 +43,6 @@ const DatasetDetail: React.FC = () => {
   const [createDocType, setCreateDocType] = useState<'upload' | 'text' | 'news'>('upload')
   const [newDocTitle, setNewDocTitle] = useState('')
   const [newDocContent, setNewDocContent] = useState('')
-  const [chunkSize, setChunkSize] = useState(500)
-  const [chunkOverlap, setChunkOverlap] = useState(50)
   const [creatingDoc, setCreatingDoc] = useState(false)
 
   // 热点新闻选择
@@ -132,13 +131,14 @@ const DatasetDetail: React.FC = () => {
     }
   }
 
-  // 上传文档
+  // 上传文档（仅保存原文，不自动分片；归属当前数据集）
   const handleUploadDocument = async (file: File) => {
     if (!id) return
     setCreatingDoc(true)
     try {
-      const result = await uploadDocument(id, file, chunkSize, chunkOverlap)
-      message.success(`文档上传成功，已分片 ${result.chunk_count} 个`)
+      const result = await uploadGlobalDocument(file, id)
+      void result
+      message.success('文档上传成功（未分片；分片在数据集构建环节处理）')
       setCreateDocModalVisible(false)
       fetchDocuments()
     } catch (e) {
@@ -149,7 +149,7 @@ const DatasetDetail: React.FC = () => {
     return false
   }
 
-  // 从文本创建文档
+  // 从文本创建文档（归属当前数据集）
   const handleCreateFromText = async () => {
     if (!id || !newDocContent) {
       message.error('请输入文档内容')
@@ -162,8 +162,9 @@ const DatasetDetail: React.FC = () => {
         content: newDocContent,
         source_type: 'text_input',
         file_type: 'text'
-      }, { chunk_size: chunkSize, chunk_overlap: chunkOverlap })
-      message.success(`文档创建成功，已分片 ${result.chunk_count} 个`)
+      })
+      void result
+      message.success('文档创建成功（未分片；分片在数据集构建环节处理）')
       setCreateDocModalVisible(false)
       setNewDocTitle('')
       setNewDocContent('')
@@ -183,7 +184,7 @@ const DatasetDetail: React.FC = () => {
     }
     setCreatingDoc(true)
     try {
-      const result = await createDocumentsFromNews(id, selectedNewsIds, chunkSize, chunkOverlap)
+      const result = await createDocumentsFromNews(id, selectedNewsIds)
       message.success(`成功创建 ${result.created_count} 个文档`)
       setCreateDocModalVisible(false)
       setSelectedNewsIds([])
@@ -580,6 +581,16 @@ const DatasetDetail: React.FC = () => {
       ),
     },
     {
+      key: 'parse',
+      label: '文档解析',
+      children: (
+        <DatasetDocParse
+          datasetId={id || ''}
+          onDocsChanged={fetchDocuments}
+        />
+      ),
+    },
+    {
       key: 'documents',
       label: '文档查看',
       children: (
@@ -684,31 +695,13 @@ const DatasetDetail: React.FC = () => {
 
           <Divider />
 
-          {/* 分片参数 */}
-          <div>
-            <div style={{ marginBottom: 8, fontWeight: 500 }}>分片参数：</div>
-            <Space>
-              <span>分片大小：</span>
-              <InputNumber
-                value={chunkSize}
-                onChange={(v: number | null) => setChunkSize(v || 500)}
-                min={100}
-                max={2000}
-                style={{ width: 100 }}
-              />
-              <span>字符</span>
-              <Divider type="vertical" />
-              <span>重叠大小：</span>
-              <InputNumber
-                value={chunkOverlap}
-                onChange={(v: number | null) => setChunkOverlap(v || 50)}
-                min={0}
-                max={200}
-                style={{ width: 100 }}
-              />
-              <span>字符</span>
-            </Space>
-          </div>
+          <Alert
+            message="上传仅保存原文，不涉及分片与解析"
+            description="分片属于数据集构建环节（生成测试数据时按需处理）；PDF 等复杂文档请使用「文档解析」页的 minerU 解析流程，解析结果自动归属当前数据集。"
+            type="info"
+            showIcon
+            style={{ marginBottom: 8 }}
+          />
 
           <Divider />
 

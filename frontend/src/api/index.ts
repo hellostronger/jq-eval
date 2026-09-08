@@ -1,5 +1,5 @@
 import { request } from './request'
-import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, DataSource, SyncTask, ModelConfig, SystemStats, NewsSource, HotArticle, NewsStats, InvocationBatch, InvocationResult, LoadTest, DocExplanation, DocExplanationEvaluation, DocExplanationEvalResult, OpenSourceDataset, AnnotationCorrection } from '@/types'
+import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, DataSource, ModelConfig, SystemStats, NewsSource, HotArticle, NewsStats, InvocationBatch, InvocationResult, LoadTest, DocExplanation, DocExplanationEvaluation, DocExplanationEvalResult, OpenSourceDataset, AnnotationCorrection } from '@/types'
 
 // 文档和分片API
 export interface DocumentInfo {
@@ -69,10 +69,6 @@ export interface ModelLog {
 
 export const getModelLogs = (params?: { model_id?: string; request_type?: string; status?: string; is_replay?: boolean; source?: string; mapping_id?: string; skip?: number; limit?: number }) => {
   return request.get<{ items: ModelLog[]; total: number }>('/model-logs', { params })
-}
-
-export const getLogDetail = (logId: string) => {
-  return request.get<ModelLog>(`/model-logs/${logId}`)
 }
 
 export const replayLog = (logId: string, targetModelId: string) => {
@@ -180,10 +176,6 @@ export const queryRAGSystem = (id: string, question: string) => {
   return request.post<{ answer?: string; response?: string; content?: string }>(`/rag-systems/${id}/query`, { question })
 }
 
-export const getRAGSystemTypes = () => {
-  return request.get<{ type_code: string; display_name: string; description?: string }[]>('/rag-systems/types')
-}
-
 export const getLLMModels = () => {
   return request.get<{ id: string; name: string; provider?: string; model_name?: string; endpoint?: string; has_api_key: boolean }[]>('/rag-systems/llm-models')
 }
@@ -216,11 +208,6 @@ export const uploadDatasetFile = (datasetId: string, file: File) => {
 }
 
 // 上传文件到 MinIO 指定 bucket（如 documents，供数据集生成等场景使用）
-export const uploadFileToMinio = (bucket: string, file: File) => {
-  const formData = new FormData()
-  formData.append('file', file)
-  return request.post<{ success: boolean; bucket: string; object_name: string; original_name: string; size: number; url?: string; error?: string }>(`/files/upload/${bucket}`, formData)
-}
 
 // 删除QA记录
 export const deleteQARecord = (datasetId: string, recordId: string) => {
@@ -382,16 +369,6 @@ export const retrySingleResult = (batchId: string, resultId: string) => {
   )
 }
 
-export const getInvocationStats = (batchId: string) => {
-  return request.get<{
-    batch_id: string
-    total: number
-    completed: number
-    failed: number
-    status_counts: Record<string, number>
-  }>(`/invocations/${batchId}/stats`)
-}
-
 // 统计API
 export const getSystemStats = () => {
   return request.get<SystemStats>('/evaluations/daily-stats')
@@ -404,10 +381,6 @@ export const getHealth = () => {
 // 指标市场API
 export const getMetrics = () => {
   return request.get<MetricDefinition[]>('/metrics')
-}
-
-export const getMetric = (id: string) => {
-  return request.get<MetricDefinition>(`/metrics/${id}`)
 }
 
 export const getMetricCategories = () => {
@@ -435,20 +408,8 @@ export const testDataSourceConnection = (id: string) => {
   return request.post<{ success: boolean; message?: string }>(`/data-sources/${id}/test-connection`)
 }
 
-export const getDataSourceSchema = (id: string) => {
-  return request.get(`/data-sources/${id}/schema`)
-}
-
-export const createSyncTask = (dataSourceId: string, data: Partial<SyncTask>) => {
-  return request.post<SyncTask>(`/data-sources/${dataSourceId}/sync`, data)
-}
-
 export const executeSync = (dataSourceId: string, data: { dataset_id: string; tables: string[]; mappings: Record<string, any> }) => {
   return request.post(`/data-sources/${dataSourceId}/sync`, data)
-}
-
-export const getSyncTasks = (dataSourceId: string) => {
-  return request.get<SyncTask[]>(`/data-sources/${dataSourceId}/sync-tasks`)
 }
 
 // 热点新闻API
@@ -510,53 +471,27 @@ export const getDatasetDocuments = (datasetId: string, params?: { page?: number;
   return request.get<{ items: DocumentInfo[]; total: number }>(`/datasets/${datasetId}/documents`, { params })
 }
 
-export const getDatasetDocument = (datasetId: string, docId: string) => {
-  return request.get<DocumentInfo>(`/datasets/${datasetId}/documents/${docId}`)
-}
-
 export const getDatasetChunks = (datasetId: string, params?: { page?: number; size?: number; doc_id?: string }) => {
   return request.get<{ items: ChunkInfo[]; total: number }>(`/datasets/${datasetId}/chunks`, { params })
 }
 
-export const getDatasetChunk = (datasetId: string, chunkId: string) => {
-  return request.get<ChunkInfo>(`/datasets/${datasetId}/chunks/${chunkId}`)
-}
-
-// 上传文档并自动分片
-export const uploadDocument = (datasetId: string, file: File, chunkSize?: number, chunkOverlap?: number) => {
-  const formData = new FormData()
-  formData.append('file', file)
-  const params = new URLSearchParams()
-  if (chunkSize) params.append('chunk_size', chunkSize.toString())
-  if (chunkOverlap) params.append('chunk_overlap', chunkOverlap.toString())
-  return request.post<{
-    document_id: string
-    title: string
-    content_length: number
-    chunk_count: number
-  }>(`/datasets/${datasetId}/documents/upload?${params.toString()}`, formData)
-}
-
-// 从文本创建文档
+// 从文本创建文档（仅保存原文，不自动分片/解析；文档归属该数据集）
 export const createDocumentFromText = (datasetId: string, data: {
   title?: string
   content: string
   source_type?: string
   file_type?: string
-}, chunkData?: { chunk_size?: number; chunk_overlap?: number }) => {
+}) => {
   return request.post<{
     document_id: string
     title: string
     content_length: number
     chunk_count: number
-  }>(`/datasets/${datasetId}/documents/text`, data, { params: chunkData })
+  }>(`/datasets/${datasetId}/documents/text`, data)
 }
 
-// 从热点新闻创建文档
-export const createDocumentsFromNews = (datasetId: string, articleIds: string[], chunkSize?: number, chunkOverlap?: number) => {
-  const params = new URLSearchParams()
-  if (chunkSize) params.append('chunk_size', chunkSize.toString())
-  if (chunkOverlap) params.append('chunk_overlap', chunkOverlap.toString())
+// 从热点新闻创建文档（仅保存原文，不自动分片/解析）
+export const createDocumentsFromNews = (datasetId: string, articleIds: string[]) => {
   return request.post<{
     created_count: number
     documents: Array<{
@@ -566,7 +501,7 @@ export const createDocumentsFromNews = (datasetId: string, articleIds: string[],
       chunk_count: number
       article_id: string
     }>
-  }>(`/datasets/${datasetId}/documents/from-news?${params.toString()}`, { article_ids: articleIds })
+  }>(`/datasets/${datasetId}/documents/from-news`, { article_ids: articleIds })
 }
 
 // 获取文档的所有分片
@@ -595,16 +530,8 @@ export const getLoadTests = (params?: { rag_system_id?: string; status?: string 
   return request.get<LoadTest[]>('/load-tests', { params })
 }
 
-export const getLoadTest = (id: string) => {
-  return request.get<LoadTest>(`/load-tests/${id}`)
-}
-
 export const createLoadTest = (data: LoadTestCreateParams) => {
   return request.post<LoadTest>('/load-tests', data)
-}
-
-export const updateLoadTest = (id: string, data: Partial<LoadTestCreateParams>) => {
-  return request.put<LoadTest>(`/load-tests/${id}`, data)
 }
 
 export const deleteLoadTest = (id: string) => {
@@ -615,13 +542,9 @@ export const runLoadTest = (id: string) => {
   return request.post<{ message: string; load_test_id: string; task_id: string }>(`/load-tests/${id}/run`)
 }
 
-// 文档解释API
+// 文档解析API
 export const getDocExplanations = (params?: { doc_id?: string; status?: string }) => {
   return request.get<DocExplanation[]>('/doc-explanations', { params })
-}
-
-export const getDocExplanation = (id: string) => {
-  return request.get<DocExplanation>(`/doc-explanations/${id}`)
 }
 
 export const createDocExplanation = (data: { doc_id: string; explanation: string; source?: string }) => {
@@ -636,7 +559,7 @@ export const deleteDocExplanation = (id: string) => {
   return request.delete(`/doc-explanations/${id}`)
 }
 
-// 文档解释评估API
+// 文档解析评估API
 export const getDocExplanationEvaluations = (params?: { status?: string }) => {
   return request.get<DocExplanationEvaluation[]>('/doc-explanation-evaluations', { params })
 }
@@ -665,23 +588,18 @@ export const getDocExplanationEvalResults = (id: string) => {
   return request.get<DocExplanationEvalResult[]>(`/doc-explanation-evaluations/${id}/results`)
 }
 
-export const deleteDocExplanationEvaluation = (id: string) => {
-  return request.delete(`/doc-explanation-evaluations/${id}`)
-}
-
 // 获取所有文档（用于选择，不分数据集）
-export const getDocuments = (params?: { search?: string; page?: number; size?: number }) => {
+export const getDocuments = (params?: { search?: string; dataset_id?: string; page?: number; size?: number }) => {
   return request.get<{ items: DocumentInfo[]; total: number }>('/doc-explanations/documents', { params })
 }
 
-// 上传文档（不关联数据集，用于文档解释场景）
-export const uploadGlobalDocument = (file: File, chunkSize?: number, chunkOverlap?: number) => {
+// 上传文档（仅保存原文，不自动分片/解析；datasetId 填写时归属该数据集）
+export const uploadGlobalDocument = (file: File, datasetId?: string) => {
   const formData = new FormData()
   formData.append('file', file)
-  const params = new URLSearchParams()
-  if (chunkSize) params.append('chunk_size', chunkSize.toString())
-  if (chunkOverlap) params.append('chunk_overlap', chunkOverlap.toString())
-  return request.post<DocumentInfo>(`/doc-explanations/documents/upload?${params.toString()}`, formData)
+  return request.post<DocumentInfo>(datasetId
+    ? `/doc-explanations/documents/upload?dataset_id=${encodeURIComponent(datasetId)}`
+    : '/doc-explanations/documents/upload', formData)
 }
 
 // 获取文档详情（全文，用于预览）
@@ -689,13 +607,13 @@ export const getDocumentDetail = (id: string) => {
   return request.get<DocumentInfo>(`/doc-explanations/documents/${id}`)
 }
 
-// 删除文档（级联删除分片与文档解释）
+// 删除文档（级联删除分片与文档解析）
 export const deleteDocument = (id: string) => {
   return request.delete(`/doc-explanations/documents/${id}`)
 }
 
-// 从粘贴文本创建文档（不关联数据集，自动分片）
-export const createGlobalDocumentFromText = (data: { title?: string; content: string; chunk_size?: number; chunk_overlap?: number }) => {
+// 从粘贴文本创建文档（不关联数据集，仅保存原文，不自动分片/解析）
+export const createGlobalDocumentFromText = (data: { title?: string; content: string; dataset_id?: string }) => {
   return request.post<DocumentInfo>('/doc-explanations/documents/text', data)
 }
 
@@ -709,6 +627,7 @@ export interface DocParseSourceFile {
   last_modified?: string
   etag?: string
   content_type?: string
+  dataset_id?: string
 }
 
 export interface DocParseBatchInfo {
@@ -716,6 +635,7 @@ export interface DocParseBatchInfo {
   name: string
   parser_model_id: string
   parser_model_name?: string
+  dataset_id?: string
   status: 'pending' | 'running' | 'completed' | 'failed'
   progress: number
   error?: string
@@ -759,16 +679,21 @@ export interface DocParseResultInfo {
   created_at?: string
 }
 
-// 列出可解析的源文件（MinIO documents bucket）
-export const getParseSourceFiles = () => {
-  return request.get<{ items: DocParseSourceFile[]; total: number }>('/doc-parser/files')
+// 列出可解析的源文件（MinIO documents bucket；datasetId 填写时只返回该数据集前缀下的源文件）
+export const getParseSourceFiles = (datasetId?: string) => {
+  return request.get<{ items: DocParseSourceFile[]; total: number }>('/doc-parser/files', {
+    params: datasetId ? { dataset_id: datasetId } : undefined,
+  })
 }
 
-// 上传源文件（保存待解析，仅存储原文件，不做分片）
-export const uploadParseSourceFile = (file: File) => {
+// 上传源文件（保存待解析，仅存储原文件，不做分片；datasetId 填写时归属该数据集前缀）
+export const uploadParseSourceFile = (file: File, datasetId?: string) => {
   const formData = new FormData()
   formData.append('file', file)
-  return request.post<DocParseSourceFile & { success: boolean; object_name: string }>('/doc-parser/files/upload', formData)
+  return request.post<DocParseSourceFile & { success: boolean; object_name: string; dataset_id?: string }>(
+    datasetId ? `/doc-parser/files/upload?dataset_id=${encodeURIComponent(datasetId)}` : '/doc-parser/files/upload',
+    formData
+  )
 }
 
 // 删除源文件
@@ -776,20 +701,19 @@ export const deleteParseSourceFile = (objectName: string) => {
   return request.delete(`/doc-parser/files/${objectName.split('/').map(encodeURIComponent).join('/')}`)
 }
 
-// 创建解析批次（挑选源文件提交解析）
-export const createDocParseBatch = (data: { name?: string; parser_model_id: string; object_names: string[]; config?: Record<string, any> }) => {
+// 创建解析批次（挑选源文件提交解析；datasetId 表示数据集内触发，产物归属该数据集）
+export const createDocParseBatch = (data: { name?: string; parser_model_id: string; object_names: string[]; config?: Record<string, any>; dataset_id?: string }) => {
   return request.post<DocParseBatchInfo>('/doc-parser/batches', data)
 }
 
-// 解析批次列表
-export const getDocParseBatches = () => {
-  return request.get<DocParseBatchInfo[]>('/doc-parser/batches')
+// 解析批次列表（datasetId 过滤数据集内的解析任务）
+export const getDocParseBatches = (datasetId?: string) => {
+  return request.get<DocParseBatchInfo[]>('/doc-parser/batches', {
+    params: datasetId ? { dataset_id: datasetId } : undefined,
+  })
 }
 
 // 解析批次详情
-export const getDocParseBatch = (id: string) => {
-  return request.get<DocParseBatchInfo>(`/doc-parser/batches/${id}`)
-}
 
 // 批次解析结果列表（with_content=true 时返回完整 Markdown）
 export const getDocParseResults = (batchId: string, withContent?: boolean) => {
@@ -816,10 +740,6 @@ export const evaluateDocParseBatch = (batchId: string) => {
 // 开源数据集API
 export const getOpenSourceDatasets = (params?: { page?: number; size?: number; dataset_type?: string; language?: string; status?: string; is_public?: boolean; search?: string }) => {
   return request.get<{ items: OpenSourceDataset[]; total: number }>('/open-source-datasets', { params })
-}
-
-export const getOpenSourceDataset = (id: string) => {
-  return request.get<OpenSourceDataset>(`/open-source-datasets/${id}`)
 }
 
 export const createOpenSourceDataset = (data: Partial<OpenSourceDataset>) => {
@@ -864,37 +784,8 @@ export interface SingleCorrectionRequest {
   llm_model_id: string
 }
 
-export interface BatchCorrectionRequest {
-  llm_model_id: string
-}
-
 export const analyzeSingleCorrection = (data: SingleCorrectionRequest) => {
   return request.post<AnnotationCorrection>('/annotation-corrections/single', data)
-}
-
-export const analyzeBatchCorrection = (batchId: string, data: BatchCorrectionRequest) => {
-  return request.post<{ items: AnnotationCorrection[]; total: number; doubtful_count: number }>(
-    `/annotation-corrections/batch/${batchId}`,
-    data
-  )
-}
-
-export const getAnnotationCorrection = (correctionId: string) => {
-  return request.get<AnnotationCorrection>(`/annotation-corrections/${correctionId}`)
-}
-
-export const getBatchCorrections = (
-  batchId: string,
-  params?: { status?: string; is_doubtful?: boolean; page?: number; size?: number }
-) => {
-  return request.get<{ items: AnnotationCorrection[]; total: number; doubtful_count: number }>(
-    `/annotation-corrections/batch/${batchId}`,
-    { params }
-  )
-}
-
-export const getCorrectionByInvocation = (invocationResultId: string) => {
-  return request.get<AnnotationCorrection>(`/annotation-corrections/invocation/${invocationResultId}`)
 }
 
 export const confirmCorrection = (
@@ -931,10 +822,6 @@ export interface TrainingDataEvalCreateParams {
 
 export const getTrainingDataEvals = (params?: { status?: string; dataset_id?: string; data_type?: string }) => {
   return request.get<import('@/types').TrainingDataEval[]>('/training-data-evals', { params })
-}
-
-export const getTrainingDataEval = (id: string) => {
-  return request.get<import('@/types').TrainingDataEval>(`/training-data-evals/${id}`)
 }
 
 export const createTrainingDataEval = (data: TrainingDataEvalCreateParams) => {
@@ -974,18 +861,4 @@ export const getAvailableTrainingDataMetrics = (dataType?: string) => {
   return request.get<{ metrics: import('@/types').TrainingDataMetricDefinition[] }>('/training-data-evals/metrics/available', {
     params: dataType ? { data_type: dataType } : undefined
   })
-}
-
-export const getTrainingDataTemplates = (dataType?: string) => {
-  return request.get<{ templates: import('@/types').TrainingDataTemplate[] }>('/training-data-evals/templates', {
-    params: dataType ? { data_type: dataType } : undefined
-  })
-}
-
-export const getTrainingQualityRules = (params?: { data_type?: string; rule_type?: string }) => {
-  return request.get<{ rules: import('@/types').TrainingQualityRule[] }>('/training-data-evals/quality-rules', { params })
-}
-
-export const exportTrainingDataEvalReport = (id: string, format: 'json' | 'csv' = 'json') => {
-  return request.get(`/training-data-evals/${id}/export`, { params: { format } })
 }

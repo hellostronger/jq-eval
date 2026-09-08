@@ -53,12 +53,14 @@ async def _save_document(db, batch: DocParseBatch, file_name: str, md_content: s
     """把解析出的 Markdown 保存为 Document（source_type=mineru）
 
     注意：解析产物不自动分片——分片属于数据集构建环节（生成数据集时按需处理）。
+    批次归属数据集时，产物文档同归属该数据集。
     """
     document = Document(
         title=file_name.rsplit(".", 1)[0] if "." in file_name else file_name,
         content=md_content,
         file_type="md",
         source_type="mineru",
+        dataset_id=batch.dataset_id,
         doc_metadata={
             "original_filename": file_name,
             "parse_batch_id": str(batch.id),

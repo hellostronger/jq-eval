@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from ...core.database import get_db
+from ._common import get_or_404
 from ...core.utc_datetime import UTCDatetime
 from ...models import LoadTest, LoadTestStatus, RAGSystem, Dataset, Model
 
@@ -104,12 +105,24 @@ async def create_load_test(
         if model.model_type != "llm":
             raise HTTPException(status_code=400, detail="压测目标必须是 LLM 类型模型")
 
-    # 如果指定了数据集，检查数据集是否存在
+    # 测试数据校验：必须提供自定义问题或数据集，否则任务执行时会报"没有可用的测试问题"
+    if not data.questions and not data.dataset_id:
+        raise HTTPException(status_code=400, detail="必须提供测试问题或选择数据集")
+
+    # 如果指定了数据集，检查数据集是否存在且有测试问题
     if data.dataset_id:
         result = await db.execute(select(Dataset).where(Dataset.id == data.dataset_id))
         dataset = result.scalar_one_or_none()
         if not dataset:
             raise HTTPException(status_code=404, detail="数据集不存在")
+        from ...models.dataset import QARecord
+        from sqlalchemy import func
+        qa_count_result = await db.execute(
+            select(func.count()).select_from(QARecord).where(QARecord.dataset_id == data.dataset_id)
+        )
+        qa_count = qa_count_result.scalar() or 0
+        if qa_count == 0:
+            raise HTTPException(status_code=400, detail="数据集中没有测试问题，请先导入 QA 数据")
 
     load_test = LoadTest(
         name=data.name,
@@ -155,10 +168,7 @@ async def get_load_test(
     db: AsyncSession = Depends(get_db)
 ):
     """获取压测任务详情"""
-    result = await db.execute(select(LoadTest).where(LoadTest.id == load_test_id))
-    load_test = result.scalar_one_or_none()
-    if not load_test:
-        raise HTTPException(status_code=404, detail="压测任务不存在")
+    load_test = await get_or_404(db, LoadTest, load_test_id, "压测任务不存在")
     return load_test
 
 
@@ -169,10 +179,7 @@ async def update_load_test(
     db: AsyncSession = Depends(get_db)
 ):
     """更新压测任务"""
-    result = await db.execute(select(LoadTest).where(LoadTest.id == load_test_id))
-    load_test = result.scalar_one_or_none()
-    if not load_test:
-        raise HTTPException(status_code=404, detail="压测任务不存在")
+    load_test = await get_or_404(db, LoadTest, load_test_id, "压测任务不存在")
 
     if load_test.status == LoadTestStatus.RUNNING.value:
         raise HTTPException(status_code=400, detail="运行中的任务无法修改")
@@ -193,10 +200,7 @@ async def delete_load_test(
     db: AsyncSession = Depends(get_db)
 ):
     """删除压测任务"""
-    result = await db.execute(select(LoadTest).where(LoadTest.id == load_test_id))
-    load_test = result.scalar_one_or_none()
-    if not load_test:
-        raise HTTPException(status_code=404, detail="压测任务不存在")
+    load_test = await get_or_404(db, LoadTest, load_test_id, "压测任务不存在")
 
     if load_test.status == LoadTestStatus.RUNNING.value:
         raise HTTPException(status_code=400, detail="运行中的任务无法删除")
@@ -212,10 +216,7 @@ async def run_load_test(
     db: AsyncSession = Depends(get_db)
 ):
     """执行压测任务"""
-    result = await db.execute(select(LoadTest).where(LoadTest.id == load_test_id))
-    load_test = result.scalar_one_or_none()
-    if not load_test:
-        raise HTTPException(status_code=404, detail="压测任务不存在")
+    load_test = await get_or_404(db, LoadTest, load_test_id, "压测任务不存在")
 
     if load_test.status == LoadTestStatus.RUNNING.value:
         raise HTTPException(status_code=400, detail="任务正在执行中")

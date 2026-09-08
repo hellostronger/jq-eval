@@ -344,6 +344,9 @@ async def replay_log(
     )
     original_model_name = original_model_result.scalar_one_or_none()
 
+    # 是否保存回放日志：由目标模型的 save_logs 开关控制（与正常调用链路口径一致）
+    save_replay_log = bool(target_model.save_logs)
+
     # 创建LLM客户端
     llm = await create_llm_from_config(target_model)
 
@@ -389,25 +392,26 @@ async def replay_log(
         from ...services.llm import extract_usage_tokens
         usage_tokens = extract_usage_tokens(response)
 
-        # 保存回放日志
-        replay_log = ModelRequestLog(
-            model_id=target_model.id,
-            session_id=source_log.session_id,
-            request_type=source_log.request_type,
-            prompt=source_log.prompt,
-            system_prompt=source_log.system_prompt,
-            messages=source_log.messages,
-            params=source_log.params,
-            response=response_content,
-            response_metadata=({"usage_tokens": usage_tokens} if usage_tokens else None),
-            status=status,
-            latency_ms=latency_ms,
-            is_replay=True,
-            replay_from_log_id=log_id,
-            replay_model_id=target_model.id,
-        )
-        db.add(replay_log)
-        await db.commit()
+        # 保存回放日志（受目标模型 save_logs 开关控制）
+        if save_replay_log:
+            replay_log = ModelRequestLog(
+                model_id=target_model.id,
+                session_id=source_log.session_id,
+                request_type=source_log.request_type,
+                prompt=source_log.prompt,
+                system_prompt=source_log.system_prompt,
+                messages=source_log.messages,
+                params=source_log.params,
+                response=response_content,
+                response_metadata=({"usage_tokens": usage_tokens} if usage_tokens else None),
+                status=status,
+                latency_ms=latency_ms,
+                is_replay=True,
+                replay_from_log_id=log_id,
+                replay_model_id=target_model.id,
+            )
+            db.add(replay_log)
+            await db.commit()
 
     except Exception as e:
         latency_ms = int((time.time() - start_time) * 1000)

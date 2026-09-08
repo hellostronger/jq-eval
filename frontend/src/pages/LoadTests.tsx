@@ -95,6 +95,13 @@ const LoadTests: React.FC = () => {
         if (questions && questions.length === 0) questions = undefined
       }
 
+      // 测试数据二选一：自定义问题 或 数据集
+      if (!questions?.length && !rest.dataset_id) {
+        message.warning('请手动输入测试问题或选择测试数据集')
+        setSaving(false)
+        return
+      }
+
       // 处理concurrency_levels：将文本转换为数组
       let concurrency_levels: number[] | undefined
       if (rest.test_mode === 'latency_dist' && rest.concurrency_levels) {

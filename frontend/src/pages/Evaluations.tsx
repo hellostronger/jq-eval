@@ -60,7 +60,15 @@ const Evaluations: React.FC = () => {
     try {
       const values = await form.validateFields()
       setSaving(true)
-      await createEvaluation(values)
+      // 解耦评测：仅选检索阶段/确定性指标时，LLM/Embedding 模型可省略（提交前置空）
+      const LLM_FREE_METRICS = ['mrr_k', 'hit_rate_k', 'recall_k', 'exact_match', 'token_f1']
+      const hasGenerationMetric = (values.metrics || []).some((m: string) => !LLM_FREE_METRICS.includes(m))
+      const payload = { ...values }
+      if (!hasGenerationMetric) {
+        payload.llm_model_id = undefined
+        payload.embedding_model_id = undefined
+      }
+      await createEvaluation(payload)
       message.success('创建成功')
       setModalVisible(false)
       fetchData()
@@ -219,7 +227,22 @@ const Evaluations: React.FC = () => {
             <Switch />
           </Form.Item>
           <Divider>评估配置</Divider>
-          <Form.Item name="llm_model_id" label="LLM模型" rules={[{ required: true }]}>
+          <Form.Item
+            name="llm_model_id"
+            label="LLM模型"
+            rules={[{
+              validator: (_, value) => {
+                const metrics: string[] = form.getFieldValue('metrics') || []
+                const LLM_FREE_METRICS = ['mrr_k', 'hit_rate_k', 'recall_k', 'exact_match', 'token_f1']
+                const hasGenerationMetric = metrics.some((m: string) => !LLM_FREE_METRICS.includes(m))
+                if (hasGenerationMetric && !value) {
+                  return Promise.reject('选择了生成阶段指标时必须选择LLM模型')
+                }
+                return Promise.resolve()
+              }
+            }]}
+            extra="仅选择检索阶段指标（MRR/HitRate/Recall@K）时可省略"
+          >
             <Select
               placeholder="选择LLM模型"
               options={llmModels.map(m => ({ value: m.id, label: m.name }))}
@@ -232,16 +255,44 @@ const Evaluations: React.FC = () => {
               options={embeddingModels.map(m => ({ value: m.id, label: m.name }))}
             />
           </Form.Item>
-          <Form.Item name="metrics" label="评估指标" rules={[{ required: true }]}>
+          <Form.Item
+            name="metrics"
+            label="评估指标"
+            rules={[{ required: true }]}
+            extra="生成阶段指标需要 LLM/Embedding 模型；检索阶段指标仅需调用结果中的 retrieval_ids 与数据集标注的 target_chunk_ids（候选池基准如 StratRAG）"
+          >
             <Select
               mode="multiple"
               placeholder="选择评估指标"
               options={[
-                { value: 'faithfulness', label: 'Faithfulness' },
-                { value: 'answer_relevancy', label: 'Answer Relevance' },
-                { value: 'context_precision', label: 'Context Precision' },
-                { value: 'context_recall', label: 'Context Recall' },
-                { value: 'answer_correctness', label: 'Answer Correctness' },
+                {
+                  label: '生成阶段指标（RAGAS）',
+                  title: '生成阶段指标（RAGAS）',
+                  options: [
+                    { value: 'faithfulness', label: 'Faithfulness 忠实度' },
+                    { value: 'answer_relevancy', label: 'Answer Relevancy 答案相关性' },
+                    { value: 'context_precision', label: 'Context Precision 上下文精确率' },
+                    { value: 'context_recall', label: 'Context Recall 上下文召回率' },
+                    { value: 'answer_correctness', label: 'Answer Correctness 答案正确性' },
+                  ],
+                },
+                {
+                  label: '生成阶段指标（确定性，无需 LLM）',
+                  title: '生成阶段指标（确定性，无需 LLM）',
+                  options: [
+                    { value: 'exact_match', label: 'Exact Match 精确匹配' },
+                    { value: 'token_f1', label: 'Token F1 词元级F1' },
+                  ],
+                },
+                {
+                  label: '检索阶段指标（解耦评测，无需 LLM）',
+                  title: '检索阶段指标（解耦评测，无需 LLM）',
+                  options: [
+                    { value: 'mrr_k', label: 'MRR@K 平均倒数排名' },
+                    { value: 'hit_rate_k', label: 'Hit Rate@K 命中率' },
+                    { value: 'recall_k', label: 'Recall@K 召回率' },
+                  ],
+                },
               ]}
             />
           </Form.Item>

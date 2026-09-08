@@ -1,4 +1,5 @@
 # 数据集管理路由
+import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.responses import StreamingResponse
@@ -15,8 +16,12 @@ from ...core.database import get_db
 from ...core.utc_datetime import UTCDatetime
 from ...models import Dataset, QARecord, Model
 from ...models.document import Document, Chunk
+from ...services.documents import extract_text_from_upload, create_document as create_doc_record
+from ._common import get_or_404
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 # Pydantic Schemas
@@ -50,6 +55,8 @@ class QARecordCreate(BaseModel):
     question_type: Optional[str] = None
     difficulty: Optional[str] = None
     metadata: dict = {}
+    # 检索指标 ground truth：目标 chunk ID 列表（基准数据集如 StratRAG 用 gold_chunk_ids 标注）
+    target_chunk_ids: Optional[List[UUID]] = None
     # 训练数据评估专属字段（reranker/dpo/vlm 等指标所需），随 qa_metadata 存储：
     # positive_doc/negative_doc/label/doc_content/is_hard_negative,
     # chosen/rejected/preference_score/confidence,
@@ -65,6 +72,7 @@ class QARecordResponse(BaseModel):
     contexts: Optional[List[str]] = None
     question_type: Optional[str]
     difficulty: Optional[str]
+    target_chunk_ids: Optional[List[UUID]] = None  # 检索指标 ground truth（基准数据集导入）
 
     class Config:
         from_attributes = True
@@ -79,6 +87,7 @@ class QARecordResponse(BaseModel):
             "ground_truth": qa_record.ground_truth,
             "question_type": qa_record.question_type,
             "difficulty": qa_record.difficulty,
+            "target_chunk_ids": qa_record.target_chunk_ids or [],
         }
         # 从 snapshot 中提取 contexts
         if qa_record.snapshot and "contexts" in qa_record.snapshot:
@@ -145,10 +154,7 @@ async def get_dataset(
     db: AsyncSession = Depends(get_db)
 ):
     """获取数据集详情"""
-    result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-    dataset = result.scalar_one_or_none()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="数据集不存在")
+    dataset = await get_or_404(db, Dataset, dataset_id, "数据集不存在")
     return dataset
 
 
@@ -158,10 +164,7 @@ async def delete_dataset(
     db: AsyncSession = Depends(get_db)
 ):
     """删除数据集"""
-    result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-    dataset = result.scalar_one_or_none()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="数据集不存在")
+    dataset = await get_or_404(db, Dataset, dataset_id, "数据集不存在")
 
     await db.delete(dataset)
     await db.commit()
@@ -264,10 +267,7 @@ async def create_qa_record(
 ):
     """添加QA记录"""
     # 检查数据集是否存在
-    result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-    dataset = result.scalar_one_or_none()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="数据集不存在")
+    dataset = await get_or_404(db, Dataset, dataset_id, "数据集不存在")
 
     qa_record = QARecord(
         dataset_id=dataset_id,
@@ -276,6 +276,7 @@ async def create_qa_record(
         ground_truth=data.ground_truth,
         question_type=data.question_type,
         difficulty=data.difficulty,
+        target_chunk_ids=data.target_chunk_ids or [],
         qa_metadata={**data.metadata, **(data.metric_fields or {})}
     )
 
@@ -287,7 +288,7 @@ async def create_qa_record(
     dataset.record_count += 1
     if data.ground_truth:
         dataset.has_ground_truth = True
-    if data.contexts:
+    if data.contexts or data.target_chunk_ids:
         dataset.has_contexts = True
 
     db.add(qa_record)
@@ -406,10 +407,7 @@ async def import_data(
     默认同步处理，直接返回导入结果。
     """
     # 检查数据集是否存在
-    result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-    dataset = result.scalar_one_or_none()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="数据集不存在")
+    dataset = await get_or_404(db, Dataset, dataset_id, "数据集不存在")
 
     # 读取文件内容
     file_content = await file.read()
@@ -472,38 +470,96 @@ async def import_data(
     import json
     saved_count = 0
 
+    # 兼容开源基准数据集（StratRAG / CRAG 等）：字段别名 + 未知字段保留
+    # - question: question|query
+    # - answer: answer|answers|gold_answer
+    # - ground_truth: ground_truth（CRAG 无 ground_truth 时回退 answer）
+    # - contexts: contexts|gold_contexts
+    # - target_chunk_ids: target_chunk_ids|gold_chunk_ids|positive_chunk_ids（检索解耦评测）
+    # - question_type: question_type|composition_type|question_category
+    # - difficulty: difficulty|level
+    KNOWN_KEYS = {
+        "question", "query", "answer", "answers", "gold_answer",
+        "ground_truth", "contexts", "gold_contexts",
+        "question_type", "composition_type", "question_category",
+        "difficulty", "level",
+        "target_chunk_ids", "gold_chunk_ids", "positive_chunk_ids",
+        "metadata", "qa_metadata",
+    }
+
+    def _first(record: dict, *keys):
+        """按优先级取第一个非空字段值"""
+        for k in keys:
+            v = record.get(k)
+            if v not in (None, "", []):
+                return v
+        return None
+
     for record in records:
         # 打印即将保存的每条记录
-        question_value = record.get("question", "")
+        question_value = _first(record, "question", "query") or ""
         logger.info(f"准备保存记录 - question值: '{question_value}'")
 
-        # 处理 contexts（CSV 中可能是 JSON 字符串）
-        contexts = record.get("contexts")
+        # 处理 contexts（CSV 中可能是 JSON 字符串；支持 gold_contexts 别名）
+        contexts = _first(record, "contexts", "gold_contexts")
         if contexts:
             if isinstance(contexts, str):
                 try:
                     contexts = json.loads(contexts)
-                except:
+                except Exception:
                     contexts = [contexts]
             elif not isinstance(contexts, list):
                 contexts = [contexts]
 
         # 处理 metadata（CSV 中可能是 JSON 字符串）
-        metadata = record.get("metadata", {})
+        metadata = record.get("metadata") or record.get("qa_metadata") or {}
         if isinstance(metadata, str):
             try:
                 metadata = json.loads(metadata)
-            except:
+            except Exception:
                 metadata = {}
+
+        # 目标chunk ID（检索指标 ground truth，如 StratRAG 的 gold_chunk_ids）
+        raw_targets = _first(record, "target_chunk_ids", "gold_chunk_ids", "positive_chunk_ids")
+        if isinstance(raw_targets, str):
+            try:
+                raw_targets = json.loads(raw_targets)
+            except Exception:
+                raw_targets = [raw_targets]
+        target_chunk_ids = []
+        invalid_targets = []
+        for t in (raw_targets or []):
+            try:
+                target_chunk_ids.append(UUID(str(t)))
+            except (ValueError, AttributeError, TypeError):
+                invalid_targets.append(t)
+
+        # 答案别名（answers 为列表时拼接）
+        answer_value = _first(record, "answer", "gold_answer")
+        if isinstance(answer_value, list):
+            answer_value = "\n".join(str(a) for a in answer_value)
+
+        # ground_truth 回退：CRAG 等基准只有 answer/gold_answer 字段
+        ground_truth_value = record.get("ground_truth") or answer_value
+
+        # 未识别的字段全部保留到 qa_metadata.extra，保证任意基准数据集格式可回读
+        extras = {k: v for k, v in record.items() if k not in KNOWN_KEYS}
+        if invalid_targets:
+            extras["invalid_target_chunk_ids"] = invalid_targets
+
+        qa_metadata = dict(metadata or {})
+        if extras:
+            qa_metadata["extra"] = extras
 
         qa_record = QARecord(
             dataset_id=dataset_id,
-            question=question_value,  # 明确使用提取的值
-            answer=record.get("answer"),
-            ground_truth=record.get("ground_truth"),
-            question_type=record.get("question_type", "simple"),
-            difficulty=record.get("difficulty"),
-            qa_metadata=metadata,
+            question=question_value,
+            answer=answer_value,
+            ground_truth=ground_truth_value,
+            question_type=_first(record, "question_type", "composition_type", "question_category") or "simple",
+            difficulty=_first(record, "difficulty", "level"),
+            target_chunk_ids=target_chunk_ids,
+            qa_metadata=qa_metadata,
         )
 
         # 存储 contexts 到 snapshot
@@ -517,8 +573,14 @@ async def import_data(
 
     # 更新统计
     dataset.record_count += len(records)
-    dataset.has_ground_truth = any(r.get("ground_truth") for r in records)
-    dataset.has_contexts = any(r.get("contexts") for r in records)
+    dataset.has_ground_truth = any(
+        r.get("ground_truth") or r.get("gold_answer") or r.get("answers") for r in records
+    )
+    dataset.has_contexts = any(
+        r.get("contexts") or r.get("gold_contexts")
+        or r.get("target_chunk_ids") or r.get("gold_chunk_ids")
+        for r in records
+    )
     dataset.status = "ready"
 
     await db.commit()
@@ -541,15 +603,12 @@ async def generate_dataset(
     """生成测试数据集
 
     使用 Ragas 从源文档自动生成测试数据：
-    - 支持上传文件、直接文本、已有文档作为源
+    - 基于解析结果（文档库文档）或直接文本生成，不涉及文件上传
     - 自动生成 question、ground_truth、contexts
     - 异步处理，返回任务 ID
     """
     # 检查数据集是否存在
-    result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-    dataset = result.scalar_one_or_none()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="数据集不存在")
+    dataset = await get_or_404(db, Dataset, dataset_id, "数据集不存在")
 
     # 检查模型是否存在
     llm_result = await db.execute(select(Model).where(Model.id == data.llm_model_id))
@@ -566,23 +625,33 @@ async def generate_dataset(
     if not data.sources:
         raise HTTPException(status_code=400, detail="至少需要一个文档源")
 
-    # 验证源配置
+    # 验证源配置（测试集生成基于解析结果/文档库内容与文本，不再支持文件上传）
     for source in data.sources:
         source_type = source.get("source_type")
-        if source_type not in ["file_upload", "text_input", "existing_doc"]:
+        if source_type not in ["text_input", "existing_doc"]:
             raise HTTPException(
                 status_code=400,
-                detail=f"不支持的源类型: {source_type}"
+                detail=f"不支持的源类型: {source_type}（生成基于解析结果或文本，请使用 existing_doc/text_input）"
             )
-
-        if source_type == "file_upload" and not source.get("file_paths"):
-            raise HTTPException(status_code=400, detail="file_upload 类型需要 file_paths")
 
         if source_type == "text_input" and not source.get("texts"):
             raise HTTPException(status_code=400, detail="text_input 类型需要 texts")
 
         if source_type == "existing_doc" and not source.get("document_ids"):
             raise HTTPException(status_code=400, detail="existing_doc 类型需要 document_ids")
+
+        # existing_doc：校验文档存在且归属当前数据集（或为全局文档）
+        if source_type == "existing_doc":
+            for doc_id in source.get("document_ids", []):
+                try:
+                    doc_uuid = UUID(str(doc_id))
+                except (ValueError, TypeError):
+                    raise HTTPException(status_code=400, detail=f"无效的文档 ID: {doc_id}")
+                doc = await db.get(Document, doc_uuid)
+                if not doc:
+                    raise HTTPException(status_code=404, detail=f"文档不存在: {doc_id}")
+                if doc.dataset_id and doc.dataset_id != dataset_id:
+                    raise HTTPException(status_code=400, detail=f"文档 {doc.title or doc_id} 不属于当前数据集")
 
     # 启动异步生成任务
     from ...tasks.dataset_tasks import generate_dataset_task
@@ -682,10 +751,7 @@ async def validate_dataset(
     db: AsyncSession = Depends(get_db)
 ):
     """验证数据集完整性"""
-    result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-    dataset = result.scalar_one_or_none()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="数据集不存在")
+    dataset = await get_or_404(db, Dataset, dataset_id, "数据集不存在")
 
     # 统计数据
     total_count = await db.execute(
@@ -719,7 +785,7 @@ async def download_template(format: str):
     Returns:
         StreamingResponse: 模板文件流
     """
-    # 示例数据
+    # 示例数据（兼容 StratRAG / CRAG 等基准格式：query/gold_answer/gold_chunk_ids 等别名均可导入）
     example_data = [
         {
             "question": "什么是机器学习？",
@@ -860,13 +926,6 @@ class DocumentCreate(BaseModel):
     file_type: Optional[str] = None
 
 
-class ChunkDocumentRequest(BaseModel):
-    """分片文档请求"""
-    chunk_size: int = 500
-    chunk_overlap: int = 50
-    chunk_strategy: str = "recursive"  # recursive/fixed/sentence
-
-
 class CreateFromNewsRequest(BaseModel):
     """从热点新闻创建文档请求"""
     article_ids: List[UUID]
@@ -879,57 +938,51 @@ async def list_dataset_documents(
     size: int = 10,
     db: AsyncSession = Depends(get_db)
 ):
-    """获取数据集关联的文档列表"""
-    # 获取数据集的所有 QARecord 的 doc_ids
-    qa_records_result = await db.execute(
-        select(QARecord.doc_ids).where(QARecord.dataset_id == dataset_id)
-    )
-    doc_ids_lists = qa_records_result.scalars().all()
+    """获取数据集关联的文档列表（按文档归属 dataset_id 查询）"""
+    # 检查数据集是否存在
+    dataset_result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
+    dataset = dataset_result.scalar_one_or_none()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="数据集不存在")
 
-    # 收集所有唯一的 doc_ids
-    all_doc_ids = set()
-    for doc_ids in doc_ids_lists:
-        if doc_ids:
-            for doc_id in doc_ids:
-                all_doc_ids.add(doc_id)
-
-    if not all_doc_ids:
-        return DocumentListResponse(items=[], total=0)
-
-    # 查询总数
-    total = len(all_doc_ids)
+    # 查询归属该数据集的文档总数
+    total = (await db.execute(
+        select(func.count(Document.id)).where(Document.dataset_id == dataset_id)
+    )).scalar() or 0
 
     # 分页查询文档
     skip = (page - 1) * size
-    paginated_ids = list(all_doc_ids)[skip:skip + size]
-
-    if not paginated_ids:
-        return DocumentListResponse(items=[], total=total)
-
-    # 查询文档
     docs_result = await db.execute(
-        select(Document).where(Document.id.in_(paginated_ids))
+        select(Document)
+        .where(Document.dataset_id == dataset_id)
+        .order_by(Document.created_at.desc())
+        .offset(skip)
+        .limit(size)
     )
     documents = docs_result.scalars().all()
 
-    # 查询每个文档的 chunk 数量
-    doc_chunk_counts = {}
-    for doc in documents:
-        count_result = await db.execute(
-            select(func.count(Chunk.id)).where(Chunk.doc_id == doc.id)
+    # 批量查询每个文档的 chunk 数量
+    doc_chunk_counts: dict = {}
+    if documents:
+        doc_ids = [d.id for d in documents]
+        rows = await db.execute(
+            select(Chunk.doc_id, func.count(Chunk.id))
+            .where(Chunk.doc_id.in_(doc_ids))
+            .group_by(Chunk.doc_id)
         )
-        doc_chunk_counts[str(doc.id)] = count_result.scalar() or 0
+        doc_chunk_counts = {row[0]: row[1] for row in rows.all()}
 
-    items = []
-    for doc in documents:
-        items.append(DocumentResponse(
+    items = [
+        DocumentResponse(
             id=doc.id,
             title=doc.title,
             content=doc.content[:500] if doc.content and len(doc.content) > 500 else doc.content,
             file_type=doc.file_type,
             source_type=doc.source_type,
-            chunk_count=doc_chunk_counts.get(str(doc.id), 0)
-        ))
+            chunk_count=doc_chunk_counts.get(doc.id, 0)
+        )
+        for doc in documents
+    ]
 
     return DocumentListResponse(items=items, total=total)
 
@@ -1101,108 +1154,38 @@ async def get_chunk_detail(
 async def upload_document(
     dataset_id: UUID,
     file: UploadFile = File(...),
-    chunk_size: int = 500,
-    chunk_overlap: int = 50,
     db: AsyncSession = Depends(get_db)
 ):
-    """上传文档并自动分片
-
-    支持上传 txt、md、pdf 等文档，自动进行分片处理
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-
+    """上传文档（仅保存原文，不做分片/解析——分片属于数据集构建环节）"""
     # 检查数据集是否存在
     dataset_result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-    dataset = dataset_result.scalar_one_or_none()
-    if not dataset:
+    if not dataset_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="数据集不存在")
 
-    # 读取文件内容
     file_content = await file.read()
+    content = extract_text_from_upload(file_content, file.filename)
 
-    # 根据文件类型处理
-    file_ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename else "txt"
-
-    content = ""
-    if file_ext == "txt" or file_ext == "md":
-        content = file_content.decode("utf-8", errors="ignore")
-    elif file_ext == "pdf":
-        # PDF处理
-        try:
-            import fitz  # PyMuPDF
-            pdf_doc = fitz.open(stream=file_content, filetype="pdf")
-            content = ""
-            for page in pdf_doc:
-                content += page.get_text()
-            pdf_doc.close()
-        except ImportError:
-            raise HTTPException(status_code=400, detail="PDF处理库未安装，请安装 PyMuPDF")
-    else:
-        # 尝试作为文本处理
-        content = file_content.decode("utf-8", errors="ignore")
-
-    if not content:
+    if not content.strip():
         raise HTTPException(status_code=400, detail="文档内容为空")
 
-    # 创建文档
-    document = Document(
+    document = await create_doc_record(
+        db,
         title=file.filename or f"文档_{len(content)}字符",
         content=content,
-        file_type=file_ext,
+        file_type=file.filename.rsplit(".", 1)[-1].lower() if file.filename else "txt",
         source_type="upload",
-        doc_metadata={"original_filename": file.filename, "size": len(file_content)}
+        dataset_id=dataset_id,
+        doc_metadata={"original_filename": file.filename, "size": len(file_content)},
     )
-    db.add(document)
-    await db.flush()  # 获取文档ID
-
-    # 将文档关联到数据集（通过最新 QARecord 的 doc_ids 引用），
-    # 保证"上传文档 -> 文档查看/生成数据(existing_doc 源)"链路闭环
-    latest_record_result = await db.execute(
-        select(QARecord).where(QARecord.dataset_id == dataset_id).order_by(QARecord.created_at.desc()).limit(1)
-    )
-    latest_record = latest_record_result.scalar_one_or_none()
-    if latest_record:
-        doc_ids = list(latest_record.doc_ids or [])
-        doc_ids.append(document.id)
-        latest_record.doc_ids = doc_ids
-    else:
-        placeholder = QARecord(
-            dataset_id=dataset_id,
-            question=f"[文档源] {file.filename or document.title}",
-            answer=None,
-            qa_metadata={"placeholder_for_docs": True}
-        )
-        placeholder.doc_ids = [document.id]
-        db.add(placeholder)
-
-    # 分片处理
-    chunks = _split_text(content, chunk_size, chunk_overlap)
-
-    # 创建分片记录
-    chunk_records = []
-    for i, chunk_text in enumerate(chunks):
-        chunk_record = Chunk(
-            doc_id=document.id,
-            content=chunk_text["content"],
-            chunk_index=i,
-            start_char=chunk_text["start"],
-            end_char=chunk_text["end"]
-        )
-        db.add(chunk_record)
-        chunk_records.append(chunk_record)
-
     await db.commit()
 
-    logger.info(f"上传文档成功: doc_id={document.id}, chunks={len(chunk_records)}")
+    logger.info(f"上传文档成功(不分片): doc_id={document.id}, dataset_id={dataset_id}")
 
     return {
         "document_id": str(document.id),
         "title": document.title,
         "content_length": len(content),
-        "chunk_count": len(chunk_records),
-        "chunk_size": chunk_size,
-        "chunk_overlap": chunk_overlap
+        "chunk_count": 0
     }
 
 
@@ -1210,23 +1193,14 @@ async def upload_document(
 async def create_documents_from_news(
     dataset_id: UUID,
     data: CreateFromNewsRequest,
-    chunk_size: int = 500,
-    chunk_overlap: int = 50,
     db: AsyncSession = Depends(get_db)
 ):
-    """从热点新闻创建文档
-
-    选择热点新闻文章，创建为文档并自动分片
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-
+    """从热点新闻创建文档（仅保存原文，不做分片/解析）"""
     from ...models.hot_news import HotArticle
 
     # 检查数据集是否存在
     dataset_result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-    dataset = dataset_result.scalar_one_or_none()
-    if not dataset:
+    if not dataset_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="数据集不存在")
 
     if not data.article_ids:
@@ -1256,6 +1230,7 @@ async def create_documents_from_news(
             content=content,
             file_type="news",
             source_type="hot_news",
+            dataset_id=dataset_id,
             doc_metadata={
                 "article_id": str(article.id),
                 "source_url": article.source_url,
@@ -1267,49 +1242,13 @@ async def create_documents_from_news(
         db.add(document)
         await db.flush()
 
-        # 分片处理
-        chunks = _split_text(content, chunk_size, chunk_overlap)
-
-        chunk_records = []
-        for i, chunk_text in enumerate(chunks):
-            chunk_record = Chunk(
-                doc_id=document.id,
-                content=chunk_text["content"],
-                chunk_index=i,
-                start_char=chunk_text["start"],
-                end_char=chunk_text["end"]
-            )
-            db.add(chunk_record)
-            chunk_records.append(chunk_record)
-
         created_docs.append({
             "document_id": str(document.id),
             "title": document.title,
             "content_length": len(content),
-            "chunk_count": len(chunk_records),
+            "chunk_count": 0,
             "article_id": str(article.id)
         })
-
-    # 将创建的文档关联到数据集（与 documents/upload 相同的占位逻辑）
-    if created_docs:
-        latest_record_result = await db.execute(
-            select(QARecord).where(QARecord.dataset_id == dataset_id).order_by(QARecord.created_at.desc()).limit(1)
-        )
-        latest_record = latest_record_result.scalar_one_or_none()
-        new_doc_ids = [UUID(d["document_id"]) for d in created_docs]
-        if latest_record:
-            doc_ids = list(latest_record.doc_ids or [])
-            doc_ids.extend(new_doc_ids)
-            latest_record.doc_ids = doc_ids
-        else:
-            placeholder = QARecord(
-                dataset_id=dataset_id,
-                question=f"[文档源] 新闻文档x{len(created_docs)}",
-                answer=None,
-                qa_metadata={"placeholder_for_docs": True}
-            )
-            placeholder.doc_ids = new_doc_ids
-            db.add(placeholder)
 
     await db.commit()
 
@@ -1325,144 +1264,36 @@ async def create_documents_from_news(
 async def create_document_from_text(
     dataset_id: UUID,
     data: DocumentCreate,
-    chunk_data: ChunkDocumentRequest = None,
     db: AsyncSession = Depends(get_db)
 ):
-    """从文本内容创建文档并自动分片"""
-    import logging
-    logger = logging.getLogger(__name__)
-
+    """从粘贴文本创建文档（仅保存原文，不做分片/解析）"""
     # 检查数据集是否存在
     dataset_result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-    dataset = dataset_result.scalar_one_or_none()
-    if not dataset:
+    if not dataset_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="数据集不存在")
 
     if not data.content:
         raise HTTPException(status_code=400, detail="文档内容不能为空")
 
-    # 创建文档
-    document = Document(
+    document = await create_doc_record(
+        db,
         title=data.title or f"文档_{len(data.content)}字符",
         content=data.content,
         file_type=data.file_type or "text",
-        source_type=data.source_type or "text_input"
+        source_type=data.source_type or "text_input",
+        dataset_id=dataset_id,
     )
-    db.add(document)
-    await db.flush()
-
-    # 分片参数
-    chunk_size = chunk_data.chunk_size if chunk_data else 500
-    chunk_overlap = chunk_data.chunk_overlap if chunk_data else 50
-
-    # 分片处理
-    chunks = _split_text(data.content, chunk_size, chunk_overlap)
-
-    chunk_records = []
-    for i, chunk_text in enumerate(chunks):
-        chunk_record = Chunk(
-            doc_id=document.id,
-            content=chunk_text["content"],
-            chunk_index=i,
-            start_char=chunk_text["start"],
-            end_char=chunk_text["end"]
-        )
-        db.add(chunk_record)
-        chunk_records.append(chunk_record)
-
-    # 将文档关联到数据集（与 documents/upload 相同的占位逻辑）
-    latest_record_result = await db.execute(
-        select(QARecord).where(QARecord.dataset_id == dataset_id).order_by(QARecord.created_at.desc()).limit(1)
-    )
-    latest_record = latest_record_result.scalar_one_or_none()
-    if latest_record:
-        doc_ids = list(latest_record.doc_ids or [])
-        doc_ids.append(document.id)
-        latest_record.doc_ids = doc_ids
-    else:
-        placeholder = QARecord(
-            dataset_id=dataset_id,
-            question=f"[文档源] {document.title}",
-            answer=None,
-            qa_metadata={"placeholder_for_docs": True}
-        )
-        placeholder.doc_ids = [document.id]
-        db.add(placeholder)
-
     await db.commit()
 
     return {
         "document_id": str(document.id),
         "title": document.title,
         "content_length": len(data.content),
-        "chunk_count": len(chunk_records),
-        "chunk_size": chunk_size,
-        "chunk_overlap": chunk_overlap
+        "chunk_count": 0
     }
 
 
-def _split_text(text: str, chunk_size: int = 500, chunk_overlap: int = 50) -> List[Dict[str, Any]]:
-    """文本分片函数
-
-    Args:
-        text: 要分片的文本
-        chunk_size: 每个分片的最大字符数
-        chunk_overlap: 分片之间的重叠字符数
-
-    Returns:
-        分片列表，每个分片包含 content、start、end
-    """
-    if not text:
-        return []
-
-    chunks = []
-    start = 0
-    text_len = len(text)
-
-    while start < text_len:
-        end = start + chunk_size
-
-        if end >= text_len:
-            # 最后一个分片
-            chunks.append({
-                "content": text[start:].strip(),
-                "start": start,
-                "end": text_len
-            })
-            break
-
-        # 寻找合适的分割点（优先在句子结尾）
-        # 向前查找最近的句子结束符
-        split_pos = end
-        for i in range(end, max(start, end - 100), -1):
-            if text[i] in ['。', '！', '？', '.', '!', '?', '\n', '；', ';']:
-                split_pos = i + 1
-                break
-
-        # 如果没找到合适的分割点，尝试在空格处分割
-        if split_pos == end and end < text_len:
-            for i in range(end, max(start, end - 50), -1):
-                if text[i] in [' ', '　', '\t']:
-                    split_pos = i + 1
-                    break
-
-        chunk_content = text[start:split_pos].strip()
-        if chunk_content:
-            chunks.append({
-                "content": chunk_content,
-                "start": start,
-                "end": split_pos
-            })
-
-        # 下一个分片的起始位置（考虑重叠）
-        start = split_pos - chunk_overlap
-        if start < 0:
-            start = 0
-
-    return chunks
-
-
-@router.get("/{dataset_id}/documents/{doc_id}/chunks", response_model=ChunkListResponse)
+@router.get("/{dataset_id}/documents/{doc_id}", response_model=DocumentResponse)
 async def list_document_chunks(
     dataset_id: UUID,
     doc_id: UUID,

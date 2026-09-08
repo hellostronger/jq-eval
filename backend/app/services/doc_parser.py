@@ -2,6 +2,7 @@
 import io
 import asyncio
 import logging
+import ssl
 from typing import Optional, List, Dict, Any, Callable, Awaitable
 
 import httpx
@@ -10,6 +11,11 @@ logger = logging.getLogger(__name__)
 
 # MinerU 自部署 FastAPI 的 file_parse 接口默认单文件上限（字节）
 MAX_FILE_SIZE = 200 * 1024 * 1024
+
+# 结果 zip 下载域名。本机代理（TUN fake-ip 模式）会劫持该域名的 DNS 导致
+# TLS 握手失败，因此下载时通过国内 DoH 解析真实 IP 并固定连接（SNI 不变）。
+RESULT_CDN_HOST = "cdn-mineru.openxlab.org.cn"
+DOH_URL = "https://223.5.5.5/resolve"
 
 
 class DocParseError(Exception):
@@ -65,13 +71,10 @@ class MineruBatchClient:
         batch_id = data["data"]["batch_id"]
         upload_urls = data["data"]["file_urls"]
 
-        # 逐个上传（PUT 不带 Authorization，否则签名校验失败）
+        # 逐个上传（PUT 不带 Authorization；预签名链接对 Content-Type 签名，
+        # 附加任何 Content-Type 头都会导致 SignatureDoesNotMatch 403，必须裸 PUT）
         for f, url in zip(files, upload_urls):
-            put = await client.put(
-                url,
-                content=f["content"],
-                headers={"Content-Type": "application/octet-stream"},
-            )
+            put = await client.put(url, content=f["content"])
             if put.status_code not in (200, 201):
                 raise DocParseError(f"文件 {f['name']} 上传失败 {put.status_code}")
         return batch_id
@@ -117,12 +120,19 @@ class MineruBatchClient:
     async def fetch_result_zip(self, client: httpx.AsyncClient, zip_url: str) -> Dict[str, Any]:
         """下载结果 zip，解出 md 内容与 content_list
 
+        TUN 代理（fake-ip）会污染 CDN 域名解析导致握手失败，
+        这里先试直连，失败后用 DoH 解析真实 IP 固定连接重试。
+
         Returns:
             {"md_content": str, "content_list": list|None}
         """
         import zipfile
 
-        resp = await client.get(zip_url)
+        try:
+            resp = await client.get(zip_url)
+        except httpx.HTTPError as e:
+            logger.warning(f"直接下载解析结果失败({type(e).__name__})，尝试 DoH 固定 IP 重试: {e}")
+            resp = await self._get_via_doh(client, zip_url)
         if resp.status_code != 200:
             raise DocParseError(f"下载解析结果失败 {resp.status_code}")
 
@@ -140,6 +150,33 @@ class MineruBatchClient:
         if not md_content:
             raise DocParseError("解析结果中未找到 Markdown 文件")
         return {"md_content": md_content, "content_list": content_list}
+
+    @staticmethod
+    async def _get_via_doh(client: httpx.AsyncClient, url: str) -> httpx.Response:
+        """用阿里 DoH 解析真实 IP 后固定连接请求（SNI/Host 保持原域名，证书校验不变）"""
+        import json
+
+        u = httpx.URL(url)
+        async with httpx.AsyncClient(timeout=30) as doh_client:
+            doh_resp = await doh_client.get(
+                DOH_URL, params={"name": u.host, "type": "A"},
+                headers={"accept": "application/dns-json"},
+            )
+        answers = doh_resp.json().get("Answer", [])
+        ips = [a["data"] for a in answers if a.get("type") == 1]
+        if not ips:
+            raise DocParseError(f"DoH 未能解析 {u.host}")
+        last_exc: Optional[Exception] = None
+        for ip in ips[:3]:
+            try:
+                return await client.get(
+                    f"https://{ip}{u.path}" + (f"?{u.query}" if u.query else ""),
+                    extensions={"sni_hostname": u.host},
+                    headers={"Host": u.host},
+                )
+            except httpx.HTTPError as e:
+                last_exc = e
+        raise last_exc or DocParseError("DoH 固定 IP 下载失败")
 
 
 async def parse_document_with_model(

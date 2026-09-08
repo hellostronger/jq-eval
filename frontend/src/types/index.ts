@@ -152,20 +152,6 @@ export interface DataSource {
   created_at: string
 }
 
-export interface SyncTask {
-  id: string
-  data_source_id: string
-  target_types: string[]
-  incremental: boolean
-  batch_size: number
-  status: 'pending' | 'running' | 'completed' | 'failed'
-  records_synced?: number
-  dataset_id?: string
-  started_at?: string
-  completed_at?: string
-  created_at: string
-}
-
 export interface MetricCategory {
   name: string
   count: number
@@ -174,8 +160,7 @@ export interface MetricCategory {
 // 生成测试数据集请求
 export interface GenerateRequest {
   sources: Array<{
-    source_type: 'file_upload' | 'text_input' | 'existing_doc'
-    file_paths?: string[]
+    source_type: 'text_input' | 'existing_doc'
     texts?: string[]
     document_ids?: string[]
   }>
@@ -252,6 +237,7 @@ export interface DocumentInfo {
   content?: string
   file_type?: string
   source_type?: string
+  dataset_id?: string
   chunk_count?: number
 }
 
@@ -356,7 +342,7 @@ export interface LatencyStats {
   p99: number
 }
 
-// 文档解释类型
+// 文档解析类型
 export interface DocExplanation {
   id: string
   doc_id: string
@@ -368,7 +354,7 @@ export interface DocExplanation {
   created_at?: string
 }
 
-// 文档解释评估任务类型
+// 文档解析评估任务类型
 export interface DocExplanationEvaluation {
   id: string
   name: string
@@ -387,7 +373,7 @@ export interface DocExplanationEvaluation {
   created_at?: string
 }
 
-// 文档解释评估结果类型
+// 文档解析评估结果类型
 export interface DocExplanationEvalResult {
   id: string
   eval_id: string

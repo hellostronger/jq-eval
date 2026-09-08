@@ -16,14 +16,7 @@ from ...models import Model, ModelMapping
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-
-def mask_api_key(api_key: Optional[str]) -> Optional[str]:
-    """掩码 API key，显示前缀和后缀"""
-    if not api_key:
-        return None
-    if len(api_key) <= 8:
-        return "***"
-    return f"{api_key[:4]}***{api_key[-4:]}"
+from ._common import mask_api_key
 
 
 def generate_mapping_api_key() -> str:

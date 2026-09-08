@@ -17,6 +17,10 @@ from .retrieval_metrics import (
     HitRateAtK,
     RecallAtK,
 )
+from .benchmark_metrics import (
+    ExactMatch,
+    TokenF1,
+)
 
 __all__ = [
     "BaseMetric",
@@ -34,4 +38,6 @@ __all__ = [
     "MRRAtK",
     "HitRateAtK",
     "RecallAtK",
+    "ExactMatch",
+    "TokenF1",
 ]

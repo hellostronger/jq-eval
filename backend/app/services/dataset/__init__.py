@@ -3,7 +3,6 @@ from .generator import DatasetGenerator, generate_test_data
 from .adapters import (
     DocumentAdapter,
     AdapterFactory,
-    FileUploadAdapter,
     TextInputAdapter,
     ExistingDocAdapter,
 )
@@ -13,7 +12,6 @@ __all__ = [
     "generate_test_data",
     "DocumentAdapter",
     "AdapterFactory",
-    "FileUploadAdapter",
     "TextInputAdapter",
     "ExistingDocAdapter",
 ]

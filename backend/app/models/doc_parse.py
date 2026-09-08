@@ -15,6 +15,8 @@ class DocParseBatch(BaseModel):
     # 解析服务（models 表中 model_type=doc_parser 的记录）
     parser_model_id = Column(UUID(as_uuid=True), ForeignKey("models.id"), nullable=False, index=True)
     parser_model_name = Column(String(200), nullable=True)
+    # 归属数据集（数据集内触发解析时填写；全局解析为 NULL）
+    dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id"), nullable=True, index=True)
 
     # 状态: pending/running/completed/failed
     status = Column(String(50), default="pending")

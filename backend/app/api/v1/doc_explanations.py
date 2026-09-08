@@ -5,11 +5,16 @@ from sqlalchemy import select, func
 from typing import List, Optional
 from uuid import UUID
 from pydantic import BaseModel
-from datetime import datetime
 
 from ...core.database import get_db
 from ...core.utc_datetime import UTCDatetime
-from ...models import DocExplanation, Document, Chunk
+from ...models import DocExplanation, Document
+from ...services.documents import (
+    extract_text_from_upload,
+    create_document,
+    count_chunks,
+    chunk_counts_for,
+)
 
 router = APIRouter()
 
@@ -23,6 +28,7 @@ class GlobalDocumentResponse(BaseModel):
     content: Optional[str] = None
     file_type: Optional[str] = None
     source_type: Optional[str] = None
+    dataset_id: Optional[UUID] = None
     chunk_count: int = 0
 
     class Config:
@@ -35,14 +41,28 @@ class GlobalDocumentListResponse(BaseModel):
     total: int
 
 
+def _doc_response(d: Document, chunk_count: int = 0, content_limit: Optional[int] = 500) -> GlobalDocumentResponse:
+    return GlobalDocumentResponse(
+        id=d.id,
+        title=d.title,
+        content=d.content[:content_limit] if content_limit and d.content and len(d.content) > content_limit else d.content,
+        file_type=d.file_type,
+        source_type=d.source_type,
+        dataset_id=d.dataset_id,
+        chunk_count=chunk_count,
+    )
+
+
 @router.get("/documents", response_model=GlobalDocumentListResponse)
 async def list_all_documents(
     search: Optional[str] = None,
+    dataset_id: Optional[UUID] = None,
+    include_global: bool = Query(True, description="dataset_id 过滤时是否同时返回全局文档"),
     page: int = Query(1, ge=1),
     size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db)
 ):
-    """获取所有文档列表（不分数据集）"""
+    """获取所有文档列表（不分数据集）；dataset_id 过滤归属数据集的文档（默认同时返回全局文档）"""
     query = select(Document)
     count_query = select(func.count(Document.id))
 
@@ -50,32 +70,23 @@ async def list_all_documents(
         like = f"%{search}%"
         query = query.where(Document.title.ilike(like))
         count_query = count_query.where(Document.title.ilike(like))
+    if dataset_id:
+        if include_global:
+            cond = (Document.dataset_id == dataset_id) | (Document.dataset_id.is_(None))
+        else:
+            cond = Document.dataset_id == dataset_id
+        query = query.where(cond)
+        count_query = count_query.where(cond)
 
     total = (await db.execute(count_query)).scalar() or 0
 
     query = query.order_by(Document.created_at.desc()).offset((page - 1) * size).limit(size)
     documents = (await db.execute(query)).scalars().all()
 
-    # 批量查询chunk数量
-    chunk_counts: dict = {}
-    if documents:
-        doc_ids = [d.id for d in documents]
-        rows = await db.execute(
-            select(Chunk.doc_id, func.count(Chunk.id))
-            .where(Chunk.doc_id.in_(doc_ids))
-            .group_by(Chunk.doc_id)
-        )
-        chunk_counts = {row[0]: row[1] for row in rows.all()}
+    chunk_counts = await chunk_counts_for(db, [d.id for d in documents])
 
     return GlobalDocumentListResponse(
-        items=[GlobalDocumentResponse(
-            id=d.id,
-            title=d.title,
-            content=d.content[:500] if d.content and len(d.content) > 500 else d.content,
-            file_type=d.file_type,
-            source_type=d.source_type,
-            chunk_count=chunk_counts.get(d.id, 0),
-        ) for d in documents],
+        items=[_doc_response(d, chunk_counts.get(d.id, 0)) for d in documents],
         total=total,
     )
 
@@ -83,90 +94,35 @@ async def list_all_documents(
 @router.post("/documents/upload", response_model=GlobalDocumentResponse)
 async def upload_document(
     file: UploadFile = File(...),
-    chunk_size: int = Query(500, ge=100, le=4000),
-    chunk_overlap: int = Query(50, ge=0, le=1000),
+    dataset_id: Optional[UUID] = None,
     db: AsyncSession = Depends(get_db)
 ):
-    """上传文档（不关联数据集），自动分片"""
+    """上传文档（仅保存原文，不做分片/解析；dataset_id 填写时归属该数据集）"""
     file_content = await file.read()
-    file_ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename else "txt"
-
-    content = ""
-    if file_ext in ("txt", "md"):
-        content = file_content.decode("utf-8", errors="ignore")
-    elif file_ext == "pdf":
-        try:
-            import fitz  # PyMuPDF
-            pdf_doc = fitz.open(stream=file_content, filetype="pdf")
-            content = "".join(page.get_text() for page in pdf_doc)
-            pdf_doc.close()
-        except ImportError:
-            raise HTTPException(status_code=400, detail="PDF处理库未安装，请安装 PyMuPDF")
-    else:
-        content = file_content.decode("utf-8", errors="ignore")
+    content = extract_text_from_upload(file_content, file.filename)
 
     if not content.strip():
         raise HTTPException(status_code=400, detail="文档内容为空")
 
-    document = await _create_document_with_chunks(
+    document = await create_document(
         db,
         title=file.filename or f"文档_{len(content)}字符",
         content=content,
-        file_type=file_ext,
+        file_type=file.filename.rsplit(".", 1)[-1].lower() if file.filename else "txt",
         source_type="upload",
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
+        dataset_id=dataset_id,
         doc_metadata={"original_filename": file.filename, "size": len(file_content)},
     )
+    await db.commit()
 
-    return GlobalDocumentResponse(
-        id=document.id,
-        title=document.title,
-        content=document.content[:500] if document.content and len(document.content) > 500 else document.content,
-        file_type=document.file_type,
-        source_type=document.source_type,
-        chunk_count=await _count_chunks(db, document.id),
-    )
+    return _doc_response(document, chunk_count=0, content_limit=None)
 
 
 class DocumentTextCreate(BaseModel):
     """从粘贴文本创建文档"""
     title: Optional[str] = None
     content: str
-    chunk_size: int = 500
-    chunk_overlap: int = 50
-
-
-async def _create_document_with_chunks(db: AsyncSession, title: str, content: str,
-                                 file_type: str, source_type: str,
-                                 chunk_size: int, chunk_overlap: int,
-                                 doc_metadata: Optional[dict] = None) -> Document:
-    """创建文档并写入分片（upload 与 text 端点共用）"""
-    from .datasets import _split_text
-
-    document = Document(
-        title=title,
-        content=content,
-        file_type=file_type,
-        source_type=source_type,
-        doc_metadata=doc_metadata or {}
-    )
-    db.add(document)
-    await db.flush()
-
-    chunks = _split_text(content, chunk_size, chunk_overlap)
-    for i, chunk_text in enumerate(chunks):
-        db.add(Chunk(
-            doc_id=document.id,
-            content=chunk_text["content"],
-            chunk_index=i,
-            start_char=chunk_text["start"],
-            end_char=chunk_text["end"]
-        ))
-
-    await db.commit()
-    await db.refresh(document)
-    return document
+    dataset_id: Optional[UUID] = None
 
 
 @router.post("/documents/text", response_model=GlobalDocumentResponse)
@@ -174,33 +130,21 @@ async def create_document_from_text(
     data: DocumentTextCreate,
     db: AsyncSession = Depends(get_db)
 ):
-    """从粘贴文本创建文档（自动分片）"""
+    """从粘贴文本创建文档（仅保存原文，不做分片/解析；dataset_id 归属数据集时填写）"""
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="文本内容为空")
 
-    document = await _create_document_with_chunks(
+    document = await create_document(
         db,
         title=data.title or f"文本_{len(data.content)}字符",
         content=data.content,
         file_type="txt",
         source_type="text_input",
-        chunk_size=data.chunk_size,
-        chunk_overlap=data.chunk_overlap,
+        dataset_id=data.dataset_id,
     )
+    await db.commit()
 
-    return GlobalDocumentResponse(
-        id=document.id,
-        title=document.title,
-        content=document.content[:500] if document.content and len(document.content) > 500 else document.content,
-        file_type=document.file_type,
-        source_type=document.source_type,
-        chunk_count=await _count_chunks(db, document.id),
-    )
-
-
-async def _count_chunks(db: AsyncSession, doc_id) -> int:
-    result = await db.execute(select(func.count(Chunk.id)).where(Chunk.doc_id == doc_id))
-    return result.scalar() or 0
+    return _doc_response(document, chunk_count=0, content_limit=None)
 
 
 @router.get("/documents/{doc_id}", response_model=GlobalDocumentResponse)
@@ -213,14 +157,7 @@ async def get_document_detail(
     if not document:
         raise HTTPException(status_code=404, detail="文档不存在")
 
-    return GlobalDocumentResponse(
-        id=document.id,
-        title=document.title,
-        content=document.content,
-        file_type=document.file_type,
-        source_type=document.source_type,
-        chunk_count=await _count_chunks(db, document.id),
-    )
+    return _doc_response(document, chunk_count=await count_chunks(db, document.id), content_limit=None)
 
 
 @router.delete("/documents/{doc_id}")
