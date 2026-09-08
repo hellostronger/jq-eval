@@ -19,6 +19,14 @@ import type { DocExplanation, DocumentInfo } from '@/types'
 import type { DocParseSourceFile, DocParseBatchInfo, DocParseResultInfo } from '@/api'
 import { usePollingWhenRunning } from '@/hooks/usePollingWhenRunning'
 
+const PARSE_STATUS_MAP: Record<string, { color: string; text: string }> = {
+  pending: { color: 'default', text: '待解析' },
+  running: { color: 'processing', text: '解析中' },
+  success: { color: 'success', text: '成功' },
+  completed: { color: 'success', text: '已完成' },
+  failed: { color: 'error', text: '失败' },
+}
+
 const SOURCE_LABELS: Record<string, string> = {
   manual: '手动输入',
   upload: '文件上传',
@@ -580,14 +588,7 @@ const DocExplanations: React.FC = () => {
 
   // ---------- 文档解析表格 ----------
   const parseStatusRender = (status: string) => {
-    const map: Record<string, { color: string; text: string }> = {
-      pending: { color: 'default', text: '待解析' },
-      running: { color: 'processing', text: '解析中' },
-      success: { color: 'success', text: '成功' },
-      completed: { color: 'success', text: '已完成' },
-      failed: { color: 'error', text: '失败' },
-    }
-    const s = map[status] || { color: 'default', text: status }
+    const s = PARSE_STATUS_MAP[status] || { color: 'default', text: status }
     return <Tag color={s.color}>{s.text}</Tag>
   }
 

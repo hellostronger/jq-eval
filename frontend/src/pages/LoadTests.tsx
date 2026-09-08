@@ -290,7 +290,7 @@ const LoadTests: React.FC = () => {
             }}
             columns={[
               { title: '并发', dataIndex: 'concurrency', key: 'concurrency', width: 70 },
-              { title: 'QPS', dataIndex: 'qps', key: 'qps', render: (v: number) => v.toFixed(2), width: 80 },
+              { title: 'QPS', dataIndex: 'qps', key: 'qps', render: (v: number) => (v ?? 0).toFixed(2), width: 80 },
               {
                 title: '成功率',
                 key: 'success_rate',

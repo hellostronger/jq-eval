@@ -598,7 +598,7 @@ const TrainingDataEvals: React.FC = () => {
                       dataIndex: 'overall_score',
                       key: 'overall_score',
                       width: 100,
-                      render: (score: number) => (score * 100).toFixed(1),
+                      render: (score: number) => `${((score ?? 0) * 100).toFixed(1)}%`,
                     },
                     {
                       title: '问题数',

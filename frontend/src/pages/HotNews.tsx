@@ -38,7 +38,20 @@ const ArticleContent: React.FC<{ content?: string | null }> = ({ content }) => {
   )
 }
 
-const HotNews: React.FC = () => {  const [sources, setSources] = useState<NewsSource[]>([])
+// 语言代码 -> 中文名映射
+const LANGUAGE_MAP: Record<string, string> = {
+  zh: '中文',
+  en: '英文',
+  ja: '日语',
+  ko: '韩语',
+  fr: '法语',
+  de: '德语',
+  es: '西班牙语',
+  ru: '俄语',
+}
+
+const HotNews: React.FC = () => {
+  const [sources, setSources] = useState<NewsSource[]>([])
   const [articles, setArticles] = useState<HotArticle[]>([])
   const [stats, setStats] = useState<NewsStats | null>(null)
   const [domains, setDomains] = useState<{ code: string; name: string }[]>([])
@@ -310,18 +323,6 @@ const HotNews: React.FC = () => {  const [sources, setSources] = useState<NewsSo
   const domainOptions = domains.map(d => ({ value: d.code, label: d.name }))
   const sourceOptions = sources.map(s => ({ value: s.id, label: s.name }))
 
-  // 语言映射
-  const languageMap: Record<string, string> = {
-    zh: '中文',
-    en: '英文',
-    ja: '日语',
-    ko: '韩语',
-    fr: '法语',
-    de: '德语',
-    es: '西班牙语',
-    ru: '俄语',
-  }
-
   const articleColumns = [
     { title: '标题', dataIndex: 'title', key: 'title', ellipsis: true },
     { title: '作者', dataIndex: 'author', key: 'author', width: 100 },
@@ -336,7 +337,7 @@ const HotNews: React.FC = () => {  const [sources, setSources] = useState<NewsSo
       dataIndex: 'language',
       key: 'language',
       width: 80,
-      render: (lang?: string) => lang ? <Tag color="purple">{languageMap[lang] || lang}</Tag> : '-',
+      render: (lang?: string) => lang ? <Tag color="purple">{LANGUAGE_MAP[lang] || lang}</Tag> : '-',
     },
     {
       title: '长度',
@@ -547,7 +548,7 @@ const HotNews: React.FC = () => {  const [sources, setSources] = useState<NewsSo
               <Space split={<span>|</span>}>
                 {selectedArticle.author && <span>作者: {selectedArticle.author}</span>}
                 {selectedArticle.category && <span>分类: {selectedArticle.category}</span>}
-                {selectedArticle.language && <span>语言: {languageMap[selectedArticle.language] || selectedArticle.language}</span>}
+                {selectedArticle.language && <span>语言: {LANGUAGE_MAP[selectedArticle.language] || selectedArticle.language}</span>}
                 {selectedArticle.content_length && <span>长度: {selectedArticle.content_length}字</span>}
                 {selectedArticle.published_at && <span>发布: {formatDate(selectedArticle.published_at)}</span>}
               </Space>

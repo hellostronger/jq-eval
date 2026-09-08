@@ -329,7 +329,7 @@ export const retryEvaluationWithOption = (id: string, reuseInvocation: boolean =
 }
 
 // 调用批次API
-export const getInvocationBatches = (params?: { dataset_id?: string; rag_system_id?: string; status?: string }) => {
+export const getInvocationBatches = (params?: { dataset_id?: string; rag_system_id?: string; status?: string; skip?: number; limit?: number }) => {
   return request.get<InvocationBatch[]>('/invocations', { params })
 }
 
