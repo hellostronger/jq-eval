@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     APP_DEBUG: bool = True
     SECRET_KEY: str = "your-secret-key-change-in-production"
+    # CORS 允许来源（逗号分隔），"*" 仅用于开发
+    ALLOWED_ORIGINS: str = "*"
 
     # 数据库配置
     POSTGRES_HOST: str = "101.43.25.101"

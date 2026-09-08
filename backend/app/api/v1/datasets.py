@@ -21,7 +21,7 @@ from ...services.documents import (
     create_document as create_doc_record,
     refresh_dataset_stats,
 )
-from ._common import get_or_404
+from ._common import get_or_404, validate_upload_size
 
 router = APIRouter()
 
@@ -383,6 +383,7 @@ async def import_data(
     """
     # 检查数据集是否存在
     dataset = await get_or_404(db, Dataset, dataset_id, "数据集不存在")
+    validate_upload_size(file)
 
     # 读取文件内容
     file_content = await file.read()
@@ -1118,6 +1119,7 @@ async def upload_document(
 ):
     """上传文档（仅保存原文，不做分片/解析——分片属于数据集构建环节）"""
     await get_or_404(db, Dataset, dataset_id, "数据集不存在")
+    validate_upload_size(file)
 
     file_content = await file.read()
     content = extract_text_from_upload(file_content, file.filename)

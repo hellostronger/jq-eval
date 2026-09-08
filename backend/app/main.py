@@ -81,11 +81,14 @@ def create_app() -> FastAPI:
         lifespan=lifespan
     )
 
-    # CORS中间件
+    # CORS中间件：来源由 ALLOWED_ORIGINS 控制（逗号分隔；"*" 仅建议开发环境使用）
+    origins = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()]
+    wildcard = "*" in origins
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # 生产环境应限制
-        allow_credentials=True,
+        allow_origins=origins,
+        # 浏览器禁止 wildcard origin 与 credentials 同时开启，此时退化为不携带凭据
+        allow_credentials=not wildcard,
         allow_methods=["*"],
         allow_headers=["*"],
     )

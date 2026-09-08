@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.services.storage import get_minio_service, MinIOService
 from app.core.database import get_db
+from ._common import validate_upload_size
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
@@ -47,6 +48,7 @@ async def upload_file(
     """上传文件到指定bucket"""
     if not file.filename:
         raise HTTPException(status_code=400, detail="文件名不能为空")
+    validate_upload_size(file)
 
     # 检查bucket是否存在
     buckets = await minio.list_buckets()
@@ -80,6 +82,7 @@ async def upload_dataset_file(
             status_code=400,
             detail=f"不支持的文件格式，仅支持: {allowed_extensions}"
         )
+    validate_upload_size(file)
 
     result = await minio.upload_file(
         bucket="datasets",

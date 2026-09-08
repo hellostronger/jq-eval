@@ -1,6 +1,7 @@
 # 数据同步适配器实现
 import asyncpg
 import json
+import re
 from typing import Dict, List, Any, Optional, AsyncIterator
 from datetime import datetime
 
@@ -10,6 +11,15 @@ from .base import (
     SchemaInfo,
     FieldMapping,
 )
+
+# 表/集合名只能包含字母数字下划点（表名无法参数化，只允许安全字符白名单）
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
+
+
+def _validate_identifier(table: str) -> str:
+    if not _IDENTIFIER_RE.match(table or ""):
+        raise ValueError(f"非法表名: {table!r}")
+    return table
 
 
 class DifySyncAdapter(BaseSyncAdapter):
@@ -91,7 +101,7 @@ class DifySyncAdapter(BaseSyncAdapter):
         return [{"name": r["column_name"], "type": r["data_type"]} for r in rows]
 
     async def _count_table(self, table_name: str) -> int:
-        return await self._connection.fetchval(f"SELECT COUNT(*) FROM {table_name}")
+        return await self._connection.fetchval(f"SELECT COUNT(*) FROM {_validate_identifier(table_name)}")
 
     async def get_tables(self) -> List[str]:
         query = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
@@ -103,6 +113,7 @@ class DifySyncAdapter(BaseSyncAdapter):
         table: str,
         config: SyncConfig
     ) -> AsyncIterator[Dict[str, Any]]:
+        _validate_identifier(table)
         base_query = f"SELECT * FROM {table}"
         conditions = []
         params = []
@@ -253,7 +264,7 @@ class N8nSyncAdapter(BaseSyncAdapter):
         return [{"name": r["column_name"], "type": r["data_type"]} for r in rows]
 
     async def _count_table(self, table: str) -> int:
-        return await self._connection.fetchval(f"SELECT COUNT(*) FROM {table}")
+        return await self._connection.fetchval(f"SELECT COUNT(*) FROM {_validate_identifier(table)}")
 
     async def get_tables(self) -> List[str]:
         query = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
@@ -324,7 +335,7 @@ class CustomDBSyncAdapter(BaseSyncAdapter):
         return [{"name": r["column_name"], "type": r["data_type"]} for r in rows]
 
     async def _count_table(self, table: str) -> int:
-        return await self._connection.fetchval(f"SELECT COUNT(*) FROM {table}")
+        return await self._connection.fetchval(f"SELECT COUNT(*) FROM {_validate_identifier(table)}")
 
     async def get_tables(self) -> List[str]:
         query = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
@@ -332,7 +343,7 @@ class CustomDBSyncAdapter(BaseSyncAdapter):
         return [r["table_name"] for r in rows]
 
     async def fetch_data(self, table: str, config: SyncConfig) -> AsyncIterator[Dict[str, Any]]:
-        query = f"SELECT * FROM {table} LIMIT {config.batch_size}"
+        query = f"SELECT * FROM {_validate_identifier(table)} LIMIT {int(config.batch_size)}"
         offset = 0
         while True:
             rows = await self._connection.fetch(f"{query} OFFSET {offset}")

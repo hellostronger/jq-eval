@@ -15,6 +15,7 @@ from ...services.documents import (
     count_chunks,
     chunk_counts_for,
 )
+from ._common import validate_upload_size
 
 router = APIRouter()
 
@@ -98,6 +99,7 @@ async def upload_document(
     db: AsyncSession = Depends(get_db)
 ):
     """上传文档（仅保存原文，不做分片/解析；dataset_id 填写时归属该数据集）"""
+    validate_upload_size(file)
     file_content = await file.read()
     content = extract_text_from_upload(file_content, file.filename)
 

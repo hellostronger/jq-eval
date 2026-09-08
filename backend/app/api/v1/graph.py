@@ -20,6 +20,7 @@ from ...services.graph import (
 from ...core.config import settings
 from ...models.model import Model
 from ...core.database import AsyncSessionLocal
+from ._common import validate_upload_size
 
 router = APIRouter(prefix="/graph", tags=["Graph Building"])
 
@@ -187,18 +188,8 @@ async def build_from_file(
     """Build knowledge graph from uploaded file
 
     Supports: .txt, .md, .pdf (if text extractable)
-
-    Args:
-        file: Uploaded file
-        builder_type: Type of graph builder
-        entity_types: Custom entity types
-        language: Output language
-        chunk_size: Chunk size
-        chunk_overlap: Chunk overlap
-
-    Returns:
-        GraphBuildResult with extracted entities and relations
     """
+    validate_upload_size(file)
     # Read file content
     content = await file.read()
     filename = file.filename or "unknown"
