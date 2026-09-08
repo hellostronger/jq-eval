@@ -271,7 +271,8 @@ class N8nSyncAdapter(BaseSyncAdapter):
         return [r["table_name"] for r in rows]
 
     async def fetch_data(self, table: str, config: SyncConfig) -> AsyncIterator[Dict[str, Any]]:
-        query = f"SELECT * FROM {table} ORDER BY createdAt ASC"
+        # 表名无法参数化，走白名单校验
+        query = f"SELECT * FROM {_validate_identifier(table)} ORDER BY createdAt ASC"
         rows = await self._connection.fetch(query)
         for row in rows:
             yield dict(row)

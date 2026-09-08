@@ -1,5 +1,7 @@
 # MinIO文件服务
 import uuid
+import os
+import re
 from typing import Dict, List, Any, BinaryIO
 from datetime import datetime, timedelta
 import logging
@@ -52,8 +54,11 @@ class MinIOService:
     ) -> Dict[str, Any]:
         """上传文件"""
         try:
+            # 文件名只保留基础名并过滤路径分隔符/危险字符，防止对象名注入
+            safe_name = os.path.basename(file_name or "file")
+            safe_name = re.sub(r"[^A-Za-z0-9._\-一-鿿]", "_", safe_name).strip("._") or "file"
             # 生成唯一对象名
-            object_name = f"{datetime.utcnow().strftime('%Y/%m/%d')}/{uuid.uuid4()}_{file_name}"
+            object_name = f"{datetime.utcnow().strftime('%Y/%m/%d')}/{uuid.uuid4()}_{safe_name}"
 
             # 获取文件大小
             file_data.seek(0, 2)
