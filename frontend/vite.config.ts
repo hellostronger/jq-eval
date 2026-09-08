@@ -31,7 +31,8 @@ export default defineConfig({
           if (id.includes('echarts') || id.includes('zrender')) return 'echarts'
           if (id.includes('antd') || id.includes('@ant-design') || id.includes('rc-')) return 'antd'
           if (id.includes('mermaid') || id.includes('dagre') || id.includes('cytoscape')) return 'mermaid'
-          if (id.includes('react') || id.includes('scheduler')) return 'react'
+          // @remix-run/react-router 依赖链并入 react chunk，避免 vendor<->react 循环引用告警
+          if (id.includes('react') || id.includes('scheduler') || id.includes('@remix-run')) return 'react'
           return 'vendor'
         },
       },

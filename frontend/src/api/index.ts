@@ -271,8 +271,8 @@ export const getCurrentGenerateTask = (datasetId: string) => {
 }
 
 // 评估任务API
-export const getEvaluations = () => {
-  return request.get<Evaluation[]>('/evaluations')
+export const getEvaluations = (params?: { status?: string; dataset_id?: string; limit?: number }) => {
+  return request.get<Evaluation[]>('/evaluations', { params })
 }
 
 export const getEvaluation = (id: string) => {

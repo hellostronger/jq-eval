@@ -24,26 +24,15 @@ const Dashboard: React.FC = () => {
 
   useEffect(() => {
     const fetchData = async () => {
-      try {
-        const statsData = await getSystemStats()
-        setStats(statsData)
-      } catch (e) {
-        // 使用默认值
-      }
-
-      try {
-        const healthData = await getHealth()
-        setHealth(healthData.components || {})
-      } catch (e) {
-        // 使用默认值
-      }
-
-      try {
-        const evals = await getEvaluations()
-        setRecentEvals(evals.slice(0, 5))
-      } catch (e) {
-        // 使用默认值
-      }
+      // 并行请求，仪表盘只需最近 5 条评估
+      const [statsData, healthData, evals] = await Promise.allSettled([
+        getSystemStats(),
+        getHealth(),
+        getEvaluations({ limit: 5 }),
+      ])
+      if (statsData.status === 'fulfilled') setStats(statsData.value)
+      if (healthData.status === 'fulfilled') setHealth(healthData.value.components || {})
+      if (evals.status === 'fulfilled') setRecentEvals(evals.value.slice(0, 5))
     }
     fetchData()
   }, [])

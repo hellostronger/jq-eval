@@ -193,15 +193,19 @@ async def create_evaluation(
 async def list_evaluations(
     status: Optional[str] = None,
     dataset_id: Optional[UUID] = None,
+    limit: Optional[int] = None,
     db: AsyncSession = Depends(get_db)
 ):
-    """获取评估任务列表"""
+    """获取评估任务列表（limit 用于仪表盘等只需最近 N 条的场景）"""
     query = select(Evaluation)
     if status:
         query = query.where(Evaluation.status == status)
     if dataset_id:
         query = query.where(Evaluation.dataset_id == dataset_id)
-    result = await db.execute(query.order_by(Evaluation.created_at.desc()))
+    query = query.order_by(Evaluation.created_at.desc())
+    if limit:
+        query = query.limit(limit)
+    result = await db.execute(query)
     return result.scalars().all()
 
 

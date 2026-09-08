@@ -1,6 +1,6 @@
-import React from 'react'
+import React, { Suspense, lazy } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Layout, Menu } from 'antd'
+import { Layout, Menu, Spin } from 'antd'
 import {
   DashboardOutlined,
   SettingOutlined,
@@ -18,27 +18,29 @@ import {
   HistoryOutlined,
 } from '@ant-design/icons'
 import Dashboard from './pages/Dashboard'
-import Models from './pages/Models'
-import ModelLogs from './pages/ModelLogs'
-import RAGSystems from './pages/RAGSystems'
-import Datasets from './pages/Datasets'
-import DatasetDetail from './pages/DatasetDetail'
-import Evaluations from './pages/Evaluations'
-import EvaluationDetail from './pages/EvaluationDetail'
-import EvaluationCompare from './pages/EvaluationCompare'
-import Invocations from './pages/Invocations'
-import InvocationDetail from './pages/InvocationDetail'
-import Metrics from './pages/Metrics'
-import DataSources from './pages/DataSources'
-import HotNews from './pages/HotNews'
-import LoadTests from './pages/LoadTests'
-import DocExplanations from './pages/DocExplanations'
-import DocExplanationEvaluations from './pages/DocExplanationEvaluations'
-import DocExplanationEvalDetail from './pages/DocExplanationEvalDetail'
-import OpenSourceDatasets from './pages/OpenSourceDatasets'
-import TrainingDataEvals from './pages/TrainingDataEvals'
-import Prompts from './pages/Prompts'
-import VibeAgent from './pages/VibeAgent'
+
+// 路由级代码分割：各页面按需加载，首屏只带仪表盘
+const Models = lazy(() => import('./pages/Models'))
+const ModelLogs = lazy(() => import('./pages/ModelLogs'))
+const RAGSystems = lazy(() => import('./pages/RAGSystems'))
+const Datasets = lazy(() => import('./pages/Datasets'))
+const DatasetDetail = lazy(() => import('./pages/DatasetDetail'))
+const Evaluations = lazy(() => import('./pages/Evaluations'))
+const EvaluationDetail = lazy(() => import('./pages/EvaluationDetail'))
+const EvaluationCompare = lazy(() => import('./pages/EvaluationCompare'))
+const Invocations = lazy(() => import('./pages/Invocations'))
+const InvocationDetail = lazy(() => import('./pages/InvocationDetail'))
+const Metrics = lazy(() => import('./pages/Metrics'))
+const DataSources = lazy(() => import('./pages/DataSources'))
+const HotNews = lazy(() => import('./pages/HotNews'))
+const LoadTests = lazy(() => import('./pages/LoadTests'))
+const DocExplanations = lazy(() => import('./pages/DocExplanations'))
+const DocExplanationEvaluations = lazy(() => import('./pages/DocExplanationEvaluations'))
+const DocExplanationEvalDetail = lazy(() => import('./pages/DocExplanationEvalDetail'))
+const OpenSourceDatasets = lazy(() => import('./pages/OpenSourceDatasets'))
+const TrainingDataEvals = lazy(() => import('./pages/TrainingDataEvals'))
+const Prompts = lazy(() => import('./pages/Prompts'))
+const VibeAgent = lazy(() => import('./pages/VibeAgent'))
 
 const { Sider, Content } = Layout
 
@@ -83,31 +85,39 @@ const App: React.FC = () => {
         />
       </Sider>
       <Content style={{ background: '#f0f2f5', padding: 16, overflow: 'auto' }}>
-        <Routes>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/models" element={<Models />} />
-          <Route path="/model-logs" element={<ModelLogs />} />
-          <Route path="/rag-systems" element={<RAGSystems />} />
-          <Route path="/datasets" element={<Datasets />} />
-          <Route path="/datasets/:id" element={<DatasetDetail />} />
-          <Route path="/open-source-datasets" element={<OpenSourceDatasets />} />
-          <Route path="/invocations" element={<Invocations />} />
-          <Route path="/invocations/:id" element={<InvocationDetail />} />
-          <Route path="/load-tests" element={<LoadTests />} />
-          <Route path="/evaluations" element={<Evaluations />} />
-          <Route path="/evaluations/compare" element={<EvaluationCompare />} />
-          <Route path="/evaluations/:id" element={<EvaluationDetail />} />
-          <Route path="/training-data-evaluations" element={<TrainingDataEvals />} />
-          <Route path="/doc-explanations" element={<DocExplanations />} />
-          <Route path="/doc-explanation-evaluations" element={<DocExplanationEvaluations />} />
-          <Route path="/doc-explanation-evaluations/:id" element={<DocExplanationEvalDetail />} />
-          <Route path="/metrics" element={<Metrics />} />
-          <Route path="/data-sources" element={<DataSources />} />
-          <Route path="/hot-news" element={<HotNews />} />
-          <Route path="/prompts" element={<Prompts />} />
-          <Route path="/vibe-agent" element={<VibeAgent />} />
-        </Routes>
+        <Suspense
+          fallback={
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+              <Spin size="large" />
+            </div>
+          }
+        >
+          <Routes>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/models" element={<Models />} />
+            <Route path="/model-logs" element={<ModelLogs />} />
+            <Route path="/rag-systems" element={<RAGSystems />} />
+            <Route path="/datasets" element={<Datasets />} />
+            <Route path="/datasets/:id" element={<DatasetDetail />} />
+            <Route path="/open-source-datasets" element={<OpenSourceDatasets />} />
+            <Route path="/invocations" element={<Invocations />} />
+            <Route path="/invocations/:id" element={<InvocationDetail />} />
+            <Route path="/load-tests" element={<LoadTests />} />
+            <Route path="/evaluations" element={<Evaluations />} />
+            <Route path="/evaluations/compare" element={<EvaluationCompare />} />
+            <Route path="/evaluations/:id" element={<EvaluationDetail />} />
+            <Route path="/training-data-evaluations" element={<TrainingDataEvals />} />
+            <Route path="/doc-explanations" element={<DocExplanations />} />
+            <Route path="/doc-explanation-evaluations" element={<DocExplanationEvaluations />} />
+            <Route path="/doc-explanation-evaluations/:id" element={<DocExplanationEvalDetail />} />
+            <Route path="/metrics" element={<Metrics />} />
+            <Route path="/data-sources" element={<DataSources />} />
+            <Route path="/hot-news" element={<HotNews />} />
+            <Route path="/prompts" element={<Prompts />} />
+            <Route path="/vibe-agent" element={<VibeAgent />} />
+          </Routes>
+        </Suspense>
       </Content>
     </Layout>
   )

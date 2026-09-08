@@ -30,7 +30,6 @@ const Evaluations: React.FC = () => {
         getModels('embedding').catch((e) => { console.error('getModels embedding failed:', e); return [] }),
         getInvocationBatches({ status: 'completed' }).catch((e) => { console.error('getInvocationBatches failed:', e); return [] }),
       ])
-      console.log('Loaded data:', { evalData, datasetData, llmData, embData, batchData })
       setEvaluations(evalData)
       setDatasets(datasetData)
       setLLMModels(llmData)
