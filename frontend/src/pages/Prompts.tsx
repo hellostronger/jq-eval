@@ -42,7 +42,7 @@ const Prompts: React.FC = () => {
     fetchFrameworks()
   }, [])
 
-  const handleCreate = async (values: any) => {
+  const handleCreate = async (values: { name: string; content: string; [key: string]: unknown }) => {
     try {
       await promptApi.createPrompt(values)
       message.success('创建成功')
@@ -54,7 +54,7 @@ const Prompts: React.FC = () => {
     }
   }
 
-  const handleUpdate = async (values: any) => {
+  const handleUpdate = async (values: { content: string; [key: string]: unknown }) => {
     if (!selectedPrompt) return
     try {
       await promptApi.updatePrompt(selectedPrompt.id, values)

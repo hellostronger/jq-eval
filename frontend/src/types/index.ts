@@ -289,6 +289,17 @@ export interface LoadTestErrorSummary {
 }
 
 // QPS上限测试结果
+export interface LoadTestStepResult {
+  concurrency: number
+  qps: number
+  success_rate: number
+  latency_stats: LatencyStats
+  meets_threshold?: boolean
+  failed_count?: number
+  error_summary?: LoadTestErrorSummary
+}
+
+// QPS上限测试结果
 export interface LoadTestQpsLimitResult {
   test_mode: 'qps_limit'
   max_qps: number
@@ -297,15 +308,7 @@ export interface LoadTestQpsLimitResult {
   test_type: string
   stopped_at_concurrency?: number | null
   stop_reason?: 'request_failed' | 'latency_exceeded' | 'max_concurrency_reached' | string
-  step_results: Array<{
-    concurrency: number
-    qps: number
-    success_rate: number
-    latency_stats: LatencyStats
-    meets_threshold: boolean
-    failed_count?: number
-    error_summary?: LoadTestErrorSummary
-  }>
+  step_results: LoadTestStepResult[]
 }
 
 // 响应时间分布测试结果
@@ -313,15 +316,7 @@ export interface LoadTestLatencyDistResult {
   test_mode: 'latency_dist'
   test_type: string
   latency_threshold?: number
-  levels: Array<{
-    concurrency: number
-    qps: number
-    success_rate: number
-    latency_stats: LatencyStats
-    meets_threshold?: boolean
-    failed_count?: number
-    error_summary?: LoadTestErrorSummary
-  }>
+  levels: LoadTestStepResult[]
 }
 
 // 延迟统计

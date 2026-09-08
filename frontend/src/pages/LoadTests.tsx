@@ -3,7 +3,7 @@ import { Card, Table, Button, Tag, Modal, Form, Input, InputNumber, Select, mess
 import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, ReloadOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { formatTime } from '@/utils/format'
 import { getLoadTests, createLoadTest, runLoadTest, deleteLoadTest, getRAGSystems, getDatasets, getModels } from '@/api'
-import type { LoadTest, RAGSystem, Dataset, LoadTestQpsLimitResult, LoadTestLatencyDistResult, LoadTestErrorSummary } from '@/types'
+import type { LoadTest, RAGSystem, Dataset, LoadTestQpsLimitResult, LoadTestLatencyDistResult, LoadTestErrorSummary, LoadTestStepResult } from '@/types'
 
 const { TextArea } = Input
 const { Text } = Typography
@@ -249,7 +249,7 @@ const LoadTests: React.FC = () => {
     const test = detailTest
     if (!test) return null
     const result = test.result
-    const steps: Array<any> = result?.test_mode === 'qps_limit'
+    const steps: LoadTestStepResult[] = result?.test_mode === 'qps_limit'
       ? (result as LoadTestQpsLimitResult).step_results || []
       : result?.test_mode === 'latency_dist'
         ? (result as LoadTestLatencyDistResult).levels || []
@@ -281,12 +281,12 @@ const LoadTests: React.FC = () => {
         {steps.length > 0 && (
           <Table
             size="small"
-            rowKey={(r: any) => r.concurrency}
+            rowKey={(r: LoadTestStepResult) => r.concurrency}
             dataSource={steps}
             pagination={false}
             expandable={{
-              rowExpandable: (r: any) => !!r.error_summary && Object.keys(r.error_summary.error_categories || {}).length > 0,
-              expandedRowRender: (r: any) => renderErrorSummary(r.error_summary),
+              rowExpandable: (r: LoadTestStepResult) => !!r.error_summary && Object.keys(r.error_summary.error_categories || {}).length > 0,
+              expandedRowRender: (r: LoadTestStepResult) => (r.error_summary ? renderErrorSummary(r.error_summary) : null),
             }}
             columns={[
               { title: '并发', dataIndex: 'concurrency', key: 'concurrency', width: 70 },
@@ -295,7 +295,7 @@ const LoadTests: React.FC = () => {
                 title: '成功率',
                 key: 'success_rate',
                 width: 100,
-                render: (_: unknown, r: any) => {
+                render: (_: unknown, r: LoadTestStepResult) => {
                   const rate = r.success_rate ?? 1
                   return <span style={{ color: rate < 1 ? '#cf1322' : undefined }}>{(rate * 100).toFixed(0)}%</span>
                 },
@@ -304,7 +304,7 @@ const LoadTests: React.FC = () => {
                 title: '失败数',
                 key: 'failed',
                 width: 80,
-                render: (_: unknown, r: any) => (r.failed_count || 0) > 0
+                render: (_: unknown, r: LoadTestStepResult) => (r.failed_count || 0) > 0
                   ? <Tag color="error">{r.failed_count}</Tag>
                   : <span>0</span>,
               },
@@ -312,13 +312,13 @@ const LoadTests: React.FC = () => {
                 title: '最大延迟(s)',
                 key: 'max_latency',
                 width: 100,
-                render: (_: unknown, r: any) => r.latency_stats ? r.latency_stats.max?.toFixed(2) : '-',
+                render: (_: unknown, r: LoadTestStepResult) => r.latency_stats ? r.latency_stats.max?.toFixed(2) : '-',
               },
               {
                 title: 'P99(s)',
                 key: 'p99',
                 width: 80,
-                render: (_: unknown, r: any) => r.latency_stats ? r.latency_stats.p99?.toFixed(2) : '-',
+                render: (_: unknown, r: LoadTestStepResult) => r.latency_stats ? r.latency_stats.p99?.toFixed(2) : '-',
               },
               {
                 title: '达标',

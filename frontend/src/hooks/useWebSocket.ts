@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 
-interface WebSocketMessage {
+import type { Slot } from '../api/vibeAgent'
+
+export interface WebSocketMessage {
   type: string
   content?: string
-  slots?: any[]
-  workflow_definition?: any
+  slots?: Slot[]
+  workflow_type?: string
+  workflow_definition?: { name?: string; nodes?: unknown[]; edges?: unknown[] } | null
   python_code?: string
   mermaid_diagram?: string
   error_message?: string

@@ -750,7 +750,7 @@ curl -X POST "${baseUrl}/v1/messages" \\${authLineA}
     }
   }
 
-  const handleToggle = async (mapping: ModelMapping, field: 'auth_required' | 'log_enabled' | 'status', value: any) => {
+  const handleToggle = async (mapping: ModelMapping, field: 'auth_required' | 'log_enabled' | 'status', value: boolean | 'active' | 'disabled') => {
     try {
       await updateMapping(mapping.id, { [field]: value })
       message.success('已更新')

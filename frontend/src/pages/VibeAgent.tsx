@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { Card, Input, Button, Space, Typography, Row, Col, Layout, List, Tag, Spin, message, Modal, Form, Tabs, Divider } from 'antd'
 import { SendOutlined, SaveOutlined, PlayCircleOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { vibeAgentApi, Slot, Workflow } from '../api/vibeAgent'
-import { useWebSocket } from '../hooks/useWebSocket'
+import { useWebSocket, type WebSocketMessage } from '../hooks/useWebSocket'
 
 const { TextArea } = Input
 const { Title, Text } = Typography
@@ -45,14 +45,14 @@ const VibeAgent: React.FC = () => {
     }
   }, [mermaidDiagram])
 
-  const handleMessage = (msg: any) => {
+  const handleMessage = (msg: WebSocketMessage) => {
     switch (msg.type) {
       case 'connected':
         addMessage('system', 'WebSocket 连接成功', 'system')
         break
 
       case 'clarification':
-        addMessage('assistant', msg.content, 'question')
+        addMessage('assistant', msg.content || '', 'question')
         if (msg.slots) {
           setSlots(msg.slots)
         }
@@ -62,7 +62,7 @@ const VibeAgent: React.FC = () => {
         break
 
       case 'preview':
-        addMessage('assistant', msg.content, 'preview')
+        addMessage('assistant', msg.content || '', 'preview')
         if (msg.slots) {
           setSlots(msg.slots)
         }
@@ -96,7 +96,7 @@ const VibeAgent: React.FC = () => {
         break
 
       case 'progress':
-        addMessage('assistant', msg.content, 'progress')
+        addMessage('assistant', msg.content || '', 'progress')
         break
 
       case 'error':
@@ -214,7 +214,7 @@ const VibeAgent: React.FC = () => {
     }
   }
 
-  const handleSaveWorkflow = async (values: any) => {
+  const handleSaveWorkflow = async (values: { name: string; description?: string }) => {
     if (!sessionId) return
 
     try {
@@ -227,7 +227,7 @@ const VibeAgent: React.FC = () => {
     }
   }
 
-  const handleExecuteWorkflow = async (values: any) => {
+  const handleExecuteWorkflow = async (values: { input_data: unknown }) => {
     if (!workflow?.id) {
       message.warning('请先保存工作流')
       return

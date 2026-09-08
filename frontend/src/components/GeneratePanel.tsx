@@ -206,9 +206,9 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
       setProgress(0)
       message.info(result.message)
 
-    } catch (e: any) {
+    } catch (e) {
       // 表单验证错误由 antd 显示，API 错误由拦截器处理
-      if (e?.errorFields) {
+      if ((e as { errorFields?: unknown })?.errorFields) {
         return // 表单验证失败，antd 会自动显示错误
       }
       // 其他错误静默处理（已在拦截器中提示）
