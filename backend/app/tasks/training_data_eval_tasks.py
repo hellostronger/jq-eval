@@ -7,7 +7,7 @@ from sqlalchemy import select, text
 from uuid import UUID
 
 from app.core.celery_app import celery_app
-from app.tasks._common import run_async
+from app.tasks._common import run_async, make_progress_callback, mark_task_failed
 from app.core.database import get_db_context
 from app.models.training_data_eval import (
     TrainingDataEval,
@@ -189,11 +189,7 @@ async def _run_training_data_eval(task, eval_id: UUID) -> Dict[str, Any]:
                 eval_data.append(eval_item)
 
             # 执行评估
-            def progress_callback(progress, current, total):
-                task.update_state(
-                    state="PROGRESS",
-                    meta={"progress": progress, "current": current, "total": total}
-                )
+            progress_callback = make_progress_callback(task)
 
             results = await engine.evaluate_batch(
                 records=eval_data,
@@ -280,16 +276,7 @@ async def _run_training_data_eval(task, eval_id: UUID) -> Dict[str, Any]:
             }
 
         except Exception as e:
-            logger.error(f"训练数据评估任务 {eval_id} 失败: {e}")
-            await db.rollback()
-
-            evaluation = await db.get(TrainingDataEval, eval_id)
-            if evaluation:
-                evaluation.status = TrainingDataEvalStatus.FAILED
-                evaluation.error = str(e)
-                evaluation.completed_at = datetime.utcnow()
-                await db.commit()
-
+            await mark_task_failed(db, TrainingDataEval, eval_id, str(e), logger)
             return {"error": str(e)}
 
 

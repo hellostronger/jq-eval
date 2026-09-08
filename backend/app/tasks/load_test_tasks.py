@@ -9,7 +9,7 @@ from uuid import UUID
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from app.core.celery_app import celery_app
-from app.tasks._common import run_async
+from app.tasks._common import run_async, mark_task_failed
 from app.core.database import get_db_context
 from app.models import LoadTest, LoadTestStatus, LoadTestMode, RAGSystem
 from app.models.dataset import QARecord
@@ -163,14 +163,7 @@ async def _run_load_test(task, load_test_id: UUID) -> Dict[str, Any]:
             }
 
         except Exception as e:
-            logger.error(f"压测任务 {load_test_id} 失败: {e}")
-            await db.rollback()
-            load_test = await db.get(LoadTest, load_test_id)
-            if load_test:
-                load_test.status = LoadTestStatus.FAILED.value
-                load_test.error = str(e)
-                load_test.completed_at = datetime.utcnow()
-                await db.commit()
+            await mark_task_failed(db, LoadTest, load_test_id, str(e), logger)
             return {"error": str(e)}
 
 

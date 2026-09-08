@@ -6,7 +6,7 @@ import statistics
 from uuid import UUID
 
 from app.core.celery_app import celery_app
-from app.tasks._common import run_async
+from app.tasks._common import run_async, mark_task_failed
 from app.core.database import get_db_context
 from app.models import DocExplanationEvaluation, DocExplanationEvalResult, DocExplanationEvalStatus, DocExplanation, Document, Model
 from sqlalchemy import select
@@ -127,14 +127,7 @@ async def _run_doc_explanation_eval(task, eval_id: UUID) -> Dict[str, Any]:
             }
 
         except Exception as e:
-            logger.error(f"文档解释评估任务 {eval_id} 失败: {e}")
-            await db.rollback()
-            evaluation = await db.get(DocExplanationEvaluation, eval_id)
-            if evaluation:
-                evaluation.status = DocExplanationEvalStatus.FAILED.value
-                evaluation.error = str(e)
-                evaluation.completed_at = datetime.utcnow()
-                await db.commit()
+            await mark_task_failed(db, DocExplanationEvaluation, eval_id, str(e), logger)
             return {"error": str(e)}
 
 

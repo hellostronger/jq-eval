@@ -7,7 +7,7 @@ from sqlalchemy import text, select
 from uuid import UUID
 
 from app.core.celery_app import celery_app
-from app.tasks._common import run_async
+from app.tasks._common import run_async, make_progress_callback, mark_task_failed
 from app.core.database import get_db_context
 from app.models.evaluation import Evaluation, EvaluationStatus, EvalResult
 from app.models.dataset import Dataset, QARecord
@@ -161,11 +161,7 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
                 eval_data.append(eval_item)
 
             # 执行评估
-            def progress_callback(progress, current, total):
-                task.update_state(
-                    state="PROGRESS",
-                    meta={"progress": progress, "current": current, "total": total}
-                )
+            progress_callback = make_progress_callback(task)
 
             results = await engine.evaluate_batch(
                 qa_records=eval_data,
@@ -207,16 +203,7 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
             }
 
         except Exception as e:
-            logger.error(f"评估任务 {evaluation_id} 失败: {e}")
-            # 回滚失败的事务
-            await db.rollback()
-            # 重新获取 evaluation 对象并更新状态
-            evaluation = await db.get(Evaluation, evaluation_id)
-            if evaluation:
-                evaluation.status = EvaluationStatus.FAILED
-                evaluation.error = str(e)
-                evaluation.completed_at = datetime.utcnow()
-                await db.commit()
+            await mark_task_failed(db, Evaluation, evaluation_id, str(e), logger)
             return {"error": str(e)}
 
 
