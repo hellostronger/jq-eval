@@ -212,14 +212,10 @@ class CustomAdapter(BaseRAGAdapter):
             )
 
     async def health_check(self) -> bool:
-        """健康检查"""
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(
-                    self.api_url,
-                    headers=self._get_headers(),
-                    json={"health_check": True}
-                )
-                return response.status_code < 500
-        except:
-            return False
+        """健康检查（自定义系统宽松判定：5xx 以下都算可用）"""
+        return await self._http_health_check(
+            "POST", self.api_url,
+            headers=self._get_headers(),
+            json_body={"health_check": True},
+            ok_below=500,
+        )

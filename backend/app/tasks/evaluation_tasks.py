@@ -1,5 +1,4 @@
 # 评估相关异步任务
-import asyncio
 import os
 from typing import Dict, List, Any, Optional
 from datetime import datetime
@@ -8,6 +7,7 @@ from sqlalchemy import text, select
 from uuid import UUID
 
 from app.core.celery_app import celery_app
+from app.tasks._common import run_async
 from app.core.database import get_db_context
 from app.models.evaluation import Evaluation, EvaluationStatus, EvalResult
 from app.models.dataset import Dataset, QARecord
@@ -18,16 +18,6 @@ from app.services.metrics import MetricEngine, get_metric_engine, METRIC_REGISTR
 from app.services.adapters import AdapterFactory
 
 logger = logging.getLogger(__name__)
-
-
-def run_async(coro):
-    """在同步环境中运行异步函数"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
 
 
 @celery_app.task(bind=True, name="evaluation_task")

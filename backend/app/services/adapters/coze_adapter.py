@@ -181,15 +181,10 @@ class CozeAdapter(BaseRAGAdapter):
 
     async def health_check(self) -> bool:
         """健康检查"""
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(
-                    f"{self.api_url}/bots/{self.bot_id}",
-                    headers={"Authorization": f"Bearer {self.access_token}"}
-                )
-                return response.status_code == 200
-        except:
-            return False
+        return await self._http_health_check(
+            "GET", f"{self.api_url}/bots/{self.bot_id}",
+            headers={"Authorization": f"Bearer {self.access_token}"},
+        )
 
     async def get_conversations(
         self,

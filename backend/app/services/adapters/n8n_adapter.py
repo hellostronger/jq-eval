@@ -154,15 +154,9 @@ class N8nAdapter(BaseRAGAdapter):
             )
 
     async def health_check(self) -> bool:
-        """健康检查"""
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                # n8n webhook健康检查需要发送测试请求
-                response = await client.post(
-                    self.webhook_url,
-                    headers=self._get_auth_headers(),
-                    json={"test": True, "health_check": True}
-                )
-                return response.status_code == 200
-        except:
-            return False
+        """健康检查（n8n webhook需要发送测试请求）"""
+        return await self._http_health_check(
+            "POST", self.webhook_url,
+            headers=self._get_auth_headers(),
+            json_body={"test": True, "health_check": True},
+        )

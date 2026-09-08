@@ -5,6 +5,8 @@ from pydantic import BaseModel
 from datetime import datetime
 from asyncio import iscoroutinefunction
 
+import httpx
+
 
 class RAGResponse(BaseModel):
     """RAG系统统一响应"""
@@ -65,6 +67,22 @@ class BaseRAGAdapter(ABC):
     async def health_check(self) -> bool:
         """健康检查"""
         pass
+
+    @staticmethod
+    async def _http_health_check(method: str, url: str,
+                                 headers: Optional[Dict[str, str]] = None,
+                                 json_body: Optional[Dict[str, Any]] = None,
+                                 ok_below: int = 200) -> bool:
+        """health_check 通用实现：发起一次轻量请求，按状态码判定健康
+
+        ok_below=200 表示仅 200 健康；传更大的值（如 500）表示该值以下的状态码都算健康。
+        """
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.request(method, url, headers=headers, json=json_body)
+                return response.status_code < ok_below
+        except Exception:
+            return False
 
     def get_info(self) -> Dict[str, Any]:
         """获取系统信息"""

@@ -9,6 +9,7 @@ from uuid import UUID
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from app.core.celery_app import celery_app
+from app.tasks._common import run_async
 from app.core.database import get_db_context
 from app.models import LoadTest, LoadTestStatus, LoadTestMode, RAGSystem
 from app.models.dataset import QARecord
@@ -67,16 +68,6 @@ async def _prepare_direct_llm_config(connection_config: Dict[str, Any], db) -> D
     except Exception as e:
         logger.error(f"获取LLM模型配置失败: {e}")
         return connection_config
-
-
-def run_async(coro):
-    """在同步环境中运行异步函数"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
 
 
 @celery_app.task(bind=True, name="load_test_task")

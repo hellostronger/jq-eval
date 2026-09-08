@@ -7,6 +7,7 @@ from sqlalchemy import select, text
 from uuid import UUID
 
 from app.core.celery_app import celery_app
+from app.tasks._common import run_async
 from app.core.database import get_db_context
 from app.models.training_data_eval import (
     TrainingDataEval,
@@ -24,16 +25,6 @@ from app.services.training_data.engine import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def run_async(coro):
-    """在同步环境中运行异步函数"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
 
 
 class _LLMTextAdapter:

@@ -1,27 +1,17 @@
 # 健康检查和清理任务
-import asyncio
 from typing import Dict, Any
 from datetime import datetime, timedelta
 import logging
 from sqlalchemy import text
 
 from app.core.celery_app import celery_app
+from app.tasks._common import run_async
 from app.core.database import get_db_context
 from app.core.config import settings
 from app.models.evaluation import Evaluation, EvaluationStatus
 from app.models.sync import SyncTask, SyncTaskStatus
 
 logger = logging.getLogger(__name__)
-
-
-def run_async(coro):
-    """在同步环境中运行异步函数"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
 
 
 @celery_app.task(name="health_check_task")

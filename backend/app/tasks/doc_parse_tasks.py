@@ -1,5 +1,4 @@
 # 文档解析Celery任务：批量调用 minerU 等解析服务，产物保存为 Document（不自动分片）
-import asyncio
 import time
 from typing import Dict, List, Any
 from datetime import datetime
@@ -7,6 +6,7 @@ from uuid import UUID
 import logging
 
 from app.core.celery_app import celery_app
+from app.tasks._common import run_async
 from app.core.database import get_db_context
 from app.models import DocParseBatch, DocParseResult, Document, Model
 from app.services.doc_parser import (
@@ -18,16 +18,6 @@ from app.services.storage.minio_service import get_minio_service
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
-
-
-def run_async(coro):
-    """在同步环境中运行异步函数"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
 
 
 @celery_app.task(bind=True, name="doc_parse_task",
