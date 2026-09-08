@@ -287,10 +287,6 @@ export const startEvaluation = (id: string) => {
   return request.post(`/evaluations/${id}/run`)
 }
 
-export const retryEvaluation = (id: string) => {
-  return request.post(`/evaluations/${id}/retry`)
-}
-
 interface EvaluationResultsResponse {
   total?: number
   results: Array<{
