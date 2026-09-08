@@ -217,7 +217,7 @@ async def build_from_file(
     except UnicodeDecodeError:
         try:
             text = content.decode("gbk")
-        except:
+        except Exception:
             raise HTTPException(status_code=400, detail="Cannot decode file content")
 
     builder = await get_graph_builder(builder_type)

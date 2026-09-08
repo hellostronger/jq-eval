@@ -40,7 +40,7 @@ class CustomAdapter(BaseRAGAdapter):
 
         try:
             return json.loads(body_template)
-        except:
+        except Exception:
             return {"question": question}
 
     def _get_headers(self) -> Dict[str, str]:

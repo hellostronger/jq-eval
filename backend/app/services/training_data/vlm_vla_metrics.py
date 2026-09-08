@@ -54,7 +54,7 @@ class VLMImageTextAlignmentMetric(BaseTrainingDataMetric):
                 response = await llm.generate(prompt)
                 try:
                     score = float(response.strip().split("\n")[0]) / 10.0
-                except:
+                except Exception:
                     score = 0.7
             else:
                 # 如果没有图像描述，基于文本质量评分
@@ -131,7 +131,7 @@ class VLMQuestionRelevanceMetric(BaseTrainingDataMetric):
                 response = await llm.generate(prompt)
                 try:
                     relevance = float(response.strip()) / 10.0
-                except:
+                except Exception:
                     relevance = 0.6 if has_visual_kw else 0.4
             else:
                 relevance = 0.7 if has_visual_kw else 0.3
@@ -215,7 +215,7 @@ class VLMAnswerCompletenessMetric(BaseTrainingDataMetric):
                     response = await llm.generate(prompt)
                     try:
                         score = float(response.strip()) / 10.0
-                    except:
+                    except Exception:
                         score = 0.6
                 else:
                     score = 0.5
@@ -286,7 +286,7 @@ class VLMHallucinationMetric(BaseTrainingDataMetric):
                 response = await llm.generate(prompt)
                 try:
                     score = float(response.strip()) / 10.0
-                except:
+                except Exception:
                     score = 0.7
             else:
                 score = 0.6
@@ -355,7 +355,7 @@ class VLAActionReasoningMetric(BaseTrainingDataMetric):
                 response = await llm.generate(prompt)
                 try:
                     score = float(response.strip()) / 10.0
-                except:
+                except Exception:
                     score = 0.6
             else:
                 score = 0.5

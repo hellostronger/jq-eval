@@ -495,5 +495,5 @@ class LightRAGGraphBuilder(BaseGraphBuilder):
                     headers={"Authorization": f"Bearer {self.api_key}"},
                 )
                 return response.status_code == 200
-        except:
+        except Exception:
             return False

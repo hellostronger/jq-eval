@@ -61,7 +61,7 @@ class RewardModelPairQualityMetric(BaseTrainingDataMetric):
                 parts = response.strip().split("|")
                 try:
                     score = float(parts[0]) / 10.0
-                except:
+                except Exception:
                     score = 0.6
             else:
                 # 基本长度和重叠度检查
@@ -301,7 +301,7 @@ class RewardModelResponseRelevanceMetric(BaseTrainingDataMetric):
                     # 两个回答都相关才得高分
                     avg_relevance = (chosen_rel + rejected_rel) / 2
                     score = avg_relevance
-                except:
+                except Exception:
                     score = 0.6
             else:
                 # 基于关键词匹配

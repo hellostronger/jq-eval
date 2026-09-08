@@ -83,7 +83,7 @@ print(json.dumps(result, ensure_ascii=False))
             try:
                 output = result.data.outputs[0].get("text", "{}")
                 return json.loads(output)
-            except:
+            except Exception:
                 return {
                     "optimized_prompt": prompt,
                     "framework": framework or "basic",

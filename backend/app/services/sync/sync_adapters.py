@@ -141,7 +141,7 @@ class DifySyncAdapter(BaseSyncAdapter):
                 try:
                     data = json.loads(value)
                     return [doc.get("content", "") for doc in data.get("documents", [])]
-                except:
+                except Exception:
                     return []
             return []
         return super()._apply_transform(value, transform)
@@ -314,7 +314,7 @@ class CustomDBSyncAdapter(BaseSyncAdapter):
                 schema = await self._get_table_schema(table)
                 count = await self._count_table(table)
                 schemas.append(SchemaInfo(table_name=table, columns=schema, row_count=count))
-            except:
+            except Exception:
                 pass
         return schemas
 

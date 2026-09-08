@@ -54,7 +54,7 @@ class DPOPairQualityMetric(BaseTrainingDataMetric):
                 response = await llm.generate(prompt)
                 try:
                     score = float(response.strip().split("\n")[0]) / 10.0
-                except:
+                except Exception:
                     score = 0.6
             else:
                 # 基本长度检查
@@ -230,7 +230,7 @@ class DPOInstructionFollowingMetric(BaseTrainingDataMetric):
                 chosen_score = float(parts[0]) / 10.0
                 rejected_score = float(parts[1]) / 10.0
                 diff_score = float(parts[2]) / 10.0 if len(parts) > 2 else 0.5
-            except:
+            except Exception:
                 chosen_score = 0.7
                 rejected_score = 0.4
                 diff_score = 0.5
@@ -323,7 +323,7 @@ class DPOHelpfulnessMetric(BaseTrainingDataMetric):
                 chosen_score = float(parts[0]) / 10.0
                 rejected_score = float(parts[1]) / 10.0
                 diff_score = float(parts[2]) / 10.0 if len(parts) > 2 else 0.5
-            except:
+            except Exception:
                 chosen_score = 0.7
                 rejected_score = 0.3
                 diff_score = 0.6
@@ -414,7 +414,7 @@ class DPOSafetyMetric(BaseTrainingDataMetric):
             try:
                 chosen_safety = float(parts[0]) / 10.0
                 rejected_safety = float(parts[1]) / 10.0
-            except:
+            except Exception:
                 chosen_safety = 0.9
                 rejected_safety = 0.7
 

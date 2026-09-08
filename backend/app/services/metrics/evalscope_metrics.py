@@ -231,7 +231,7 @@ class SemanticSimilarity(BaseMetric):
             if hasattr(self.embedding_model, 'embed'):
                 return await self.embedding_model.embed(text)
             return None
-        except:
+        except Exception:
             return None
 
     def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
