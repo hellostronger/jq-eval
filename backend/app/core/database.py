@@ -1,8 +1,6 @@
 # 数据库连接
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from .config import settings
 
@@ -24,20 +22,6 @@ AsyncSessionLocal = async_sessionmaker(
     autoflush=False
 )
 
-# 同步引擎（用于迁移等）
-sync_engine = create_engine(
-    settings.DATABASE_URL_SYNC,
-    echo=settings.APP_DEBUG,
-    pool_pre_ping=True
-)
-
-# 同步会话工厂
-SyncSessionLocal = sessionmaker(
-    bind=sync_engine,
-    autocommit=False,
-    autoflush=False
-)
-
 # 模型基类
 Base = declarative_base()
 
@@ -54,20 +38,6 @@ async def get_db() -> AsyncSession:
             raise
         finally:
             await session.close()
-
-
-# 同步数据库依赖
-def get_db_sync():
-    """获取同步数据库会话"""
-    db = SyncSessionLocal()
-    try:
-        yield db
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 async def init_db():

@@ -3,10 +3,9 @@ fastapi==0.119.1
 uvicorn[standard]==0.27.0
 python-multipart==0.0.20
 
-# Database
+# Database（PostgreSQL 异步驱动 asyncpg；greenlet 为 SQLAlchemy async 硬依赖）
 sqlalchemy==2.0.40
 asyncpg==0.31.0
-psycopg2-binary==2.9.11
 greenlet==3.4.0
 
 # Redis
@@ -25,66 +24,42 @@ pymilvus==2.6.2
 # MinIO
 minio==7.2.20
 
-# Authentication
-python-jose[cryptography]==3.5.0
-passlib[bcrypt]==1.7.4
-
 # HTTP Client
 httpx==0.28.1
-aiohttp==3.13.1
 
-# MongoDB (for FastGPT sync)
+# MongoDB (FastGPT 同步，motor.motor_asyncio)
 motor==3.7.1
-pymongo==4.16.0
 
 # Evaluation Frameworks
+# ragas 0.4.3 传递依赖已覆盖 langchain-community/tiktoken/nest-asyncio/appdirs 等，无需单独声明
 ragas==0.4.3
 datasets==4.2.0
 openai==1.109.1
 langchain==0.2.17
 langchain-core==0.2.43
-langchain-community==0.2.19
 langchain-openai==0.1.25
-langchain-text-splitters==0.2.4
 
-# Document Processing
-pypdf==5.8.0
-python-docx==1.2.0
+# Document Processing（PyMuPDF 即 import fitz，PDF 文本提取；缺失时运行时 400 提示）
+PyMuPDF==1.26.5
 
 # Data Processing
 pandas==2.2.3
 numpy==1.26.4
 
-# Utilities
-python-dotenv==1.1.0
-orjson==3.10.6
-
-# RSS Parsing
+# RSS 爬虫（feedparser 解析订阅源；trafilatura 正文提取；bs4+lxml 兜底解析；markdownify 转 Markdown）
 feedparser==6.0.11
-
-# Language Detection
 langdetect==1.0.9
-
-# HTML Parsing (for fetching full article content)
-trafilatura==2.2.0
+trafilatura==1.8.1
 beautifulsoup4==4.12.3
 lxml==5.1.0
-lxml_html_clean==0.4.5
 markdownify==0.14.1
 
 # Development
 pytest==8.2.1
 pytest-asyncio==0.23.3
 
-# Additional dependencies (pinned for consistency)
-tiktoken==0.12.0
-pysbd==0.3.4
-nest-asyncio==1.6.0
-appdirs==1.4.4
-
-# Agent Sandbox
+# Agent Sandbox（可选：缺失时 VibeAgent 回退本地 subprocess 执行）
 agent-sandbox==0.0.30
 
-# LangGraph (for VibeAgent)
+# LangGraph 代码生成（VibeAgent 生成的工作流代码在沙箱中运行所需）
 langgraph>=0.2.0
-websockets>=12.0
