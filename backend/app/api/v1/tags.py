@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from ...core.database import get_db
+from ._common import get_or_404
 from ...models import Tag, EntityTag
 
 router = APIRouter()
@@ -94,12 +95,7 @@ async def get_tag(
     db: AsyncSession = Depends(get_db)
 ):
     """获取标签详情"""
-    result = await db.execute(
-        select(Tag).where(Tag.id == tag_id)
-    )
-    tag = result.scalar_one_or_none()
-    if not tag:
-        raise HTTPException(status_code=404, detail="标签不存在")
+    tag = await get_or_404(db, Tag, tag_id, "标签不存在")
     return TagResponse.model_validate(tag)
 
 
@@ -146,12 +142,7 @@ async def update_tag(
     db: AsyncSession = Depends(get_db)
 ):
     """更新标签"""
-    result = await db.execute(
-        select(Tag).where(Tag.id == tag_id)
-    )
-    tag = result.scalar_one_or_none()
-    if not tag:
-        raise HTTPException(status_code=404, detail="标签不存在")
+    tag = await get_or_404(db, Tag, tag_id, "标签不存在")
 
     if tag.is_builtin:
         raise HTTPException(status_code=400, detail="内置标签不可修改")
@@ -171,12 +162,7 @@ async def delete_tag(
     db: AsyncSession = Depends(get_db)
 ):
     """删除标签"""
-    result = await db.execute(
-        select(Tag).where(Tag.id == tag_id)
-    )
-    tag = result.scalar_one_or_none()
-    if not tag:
-        raise HTTPException(status_code=404, detail="标签不存在")
+    tag = await get_or_404(db, Tag, tag_id, "标签不存在")
 
     if tag.is_builtin:
         raise HTTPException(status_code=400, detail="内置标签不可删除")
@@ -195,12 +181,7 @@ async def bind_tag_to_entity(
 ):
     """给实体打标签"""
     # 验证使用场景匹配
-    tag_result = await db.execute(
-        select(Tag).where(Tag.id == data.tag_id)
-    )
-    tag = tag_result.scalar_one_or_none()
-    if not tag:
-        raise HTTPException(status_code=404, detail="标签不存在")
+    tag = await get_or_404(db, Tag, data.tag_id, "标签不存在")
 
     if tag.usage_scenario != data.entity_type:
         raise HTTPException(

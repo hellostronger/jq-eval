@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from datetime import datetime
 
 from ...core.database import get_db
+from ._common import get_or_404
 from ...core.utc_datetime import UTCDatetime
 from ...models import Model, ModelRequestLog, ModelMapping
 from ...services.llm.llm_client import create_llm_from_config
@@ -288,12 +289,7 @@ async def get_log(
     db: AsyncSession = Depends(get_db)
 ):
     """获取单条日志详情"""
-    result = await db.execute(
-        select(ModelRequestLog).where(ModelRequestLog.id == log_id)
-    )
-    log = result.scalar_one_or_none()
-    if not log:
-        raise HTTPException(status_code=404, detail="日志不存在")
+    log = await get_or_404(db, ModelRequestLog, log_id, "日志不存在")
 
     # 获取模型名称
     model_result = await db.execute(
@@ -320,12 +316,7 @@ async def replay_log(
 ):
     """单条回放测试"""
     # 获取源日志
-    result = await db.execute(
-        select(ModelRequestLog).where(ModelRequestLog.id == log_id)
-    )
-    source_log = result.scalar_one_or_none()
-    if not source_log:
-        raise HTTPException(status_code=404, detail="日志不存在")
+    source_log = await get_or_404(db, ModelRequestLog, log_id, "日志不存在")
 
     # 获取目标模型
     model_result = await db.execute(
@@ -534,12 +525,7 @@ async def delete_log(
     db: AsyncSession = Depends(get_db)
 ):
     """删除日志"""
-    result = await db.execute(
-        select(ModelRequestLog).where(ModelRequestLog.id == log_id)
-    )
-    log = result.scalar_one_or_none()
-    if not log:
-        raise HTTPException(status_code=404, detail="日志不存在")
+    log = await get_or_404(db, ModelRequestLog, log_id, "日志不存在")
 
     await db.delete(log)
     await db.commit()

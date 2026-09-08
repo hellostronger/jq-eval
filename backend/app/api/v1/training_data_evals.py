@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from celery.result import AsyncResult
 
 from ...core.database import get_db
+from ._common import get_or_404
 from ...core.utc_datetime import UTCDatetime
 from ...core.config import settings
 from ...core.celery_app import celery_app
@@ -96,10 +97,7 @@ async def create_training_data_eval(
 ):
     """创建训练数据评估任务"""
     # 检查数据集是否存在
-    result = await db.execute(select(Dataset).where(Dataset.id == data.dataset_id))
-    dataset = result.scalar_one_or_none()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="数据集不存在")
+    dataset = await get_or_404(db, Dataset, data.dataset_id, "数据集不存在")
 
     # 校验评估用模型
     if data.llm_model_id:
@@ -205,10 +203,7 @@ async def get_training_data_eval(
     db: AsyncSession = Depends(get_db)
 ):
     """获取训练数据评估任务详情"""
-    result = await db.execute(select(TrainingDataEval).where(TrainingDataEval.id == eval_id))
-    evaluation = result.scalar_one_or_none()
-    if not evaluation:
-        raise HTTPException(status_code=404, detail="评估任务不存在")
+    evaluation = await get_or_404(db, TrainingDataEval, eval_id, "评估任务不存在")
     return evaluation
 
 
@@ -218,10 +213,7 @@ async def delete_training_data_eval(
     db: AsyncSession = Depends(get_db)
 ):
     """删除训练数据评估任务"""
-    result = await db.execute(select(TrainingDataEval).where(TrainingDataEval.id == eval_id))
-    evaluation = result.scalar_one_or_none()
-    if not evaluation:
-        raise HTTPException(status_code=404, detail="评估任务不存在")
+    evaluation = await get_or_404(db, TrainingDataEval, eval_id, "评估任务不存在")
 
     await db.delete(evaluation)
     await db.commit()
@@ -234,10 +226,7 @@ async def run_training_data_eval(
     db: AsyncSession = Depends(get_db)
 ):
     """执行训练数据评估任务"""
-    result = await db.execute(select(TrainingDataEval).where(TrainingDataEval.id == eval_id))
-    evaluation = result.scalar_one_or_none()
-    if not evaluation:
-        raise HTTPException(status_code=404, detail="评估任务不存在")
+    evaluation = await get_or_404(db, TrainingDataEval, eval_id, "评估任务不存在")
 
     if evaluation.status == "running":
         raise HTTPException(status_code=400, detail="评估任务正在执行中")
@@ -264,10 +253,7 @@ async def get_training_data_eval_status(
     db: AsyncSession = Depends(get_db)
 ):
     """获取训练数据评估任务状态"""
-    result = await db.execute(select(TrainingDataEval).where(TrainingDataEval.id == eval_id))
-    evaluation = result.scalar_one_or_none()
-    if not evaluation:
-        raise HTTPException(status_code=404, detail="评估任务不存在")
+    evaluation = await get_or_404(db, TrainingDataEval, eval_id, "评估任务不存在")
 
     return {
         "eval_id": str(eval_id),
@@ -290,10 +276,7 @@ async def get_training_data_eval_results(
     db: AsyncSession = Depends(get_db)
 ):
     """获取训练数据评估结果"""
-    result = await db.execute(select(TrainingDataEval).where(TrainingDataEval.id == eval_id))
-    evaluation = result.scalar_one_or_none()
-    if not evaluation:
-        raise HTTPException(status_code=404, detail="评估任务不存在")
+    evaluation = await get_or_404(db, TrainingDataEval, eval_id, "评估任务不存在")
 
     # 构建查询
     query = select(TrainingDataEvalResult, QARecord).join(
@@ -411,10 +394,7 @@ async def export_training_data_eval_report(
     db: AsyncSession = Depends(get_db)
 ):
     """导出训练数据评估报告"""
-    result = await db.execute(select(TrainingDataEval).where(TrainingDataEval.id == eval_id))
-    evaluation = result.scalar_one_or_none()
-    if not evaluation:
-        raise HTTPException(status_code=404, detail="评估任务不存在")
+    evaluation = await get_or_404(db, TrainingDataEval, eval_id, "评估任务不存在")
 
     # 获取评估结果
     results = await db.execute(
