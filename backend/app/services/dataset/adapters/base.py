@@ -3,7 +3,6 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from langchain.schema import Document
 from sqlalchemy.ext.asyncio import AsyncSession
-from uuid import UUID
 import logging
 
 logger = logging.getLogger(__name__)

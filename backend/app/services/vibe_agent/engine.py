@@ -6,7 +6,7 @@ from .conversation import ConversationManager, ConversationState
 from .code_generator import LangGraphCodeGenerator
 from .mermaid_generator import MermaidGenerator
 from .websocket import ConnectionManager
-from .executor import WorkflowExecutor, get_executor, reset_executor
+from .executor import get_executor, reset_executor
 from ...core.config import settings
 
 

@@ -1,7 +1,7 @@
 # 基础模型
 from datetime import datetime
 from uuid import uuid4
-from sqlalchemy import Column, DateTime, String
+from sqlalchemy import Column, DateTime
 from sqlalchemy.dialects.postgresql import UUID
 
 from ..core.database import Base

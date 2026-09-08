@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.dataset import Dataset, QARecord
+from app.models.dataset import Dataset
 from app.models.document import Document, Chunk
 
 

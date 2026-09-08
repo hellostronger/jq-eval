@@ -2,8 +2,7 @@
 import asyncpg
 import json
 import re
-from typing import Dict, List, Any, Optional, AsyncIterator
-from datetime import datetime
+from typing import Dict, List, Any, AsyncIterator
 
 from .base import (
     BaseSyncAdapter,

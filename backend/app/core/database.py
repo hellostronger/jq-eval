@@ -43,8 +43,13 @@ async def get_db() -> AsyncSession:
 async def init_db():
     """初始化数据库（创建所有表）"""
     async with async_engine.begin() as conn:
-        # 导入所有模型
-        from ..models import document, dataset, evaluation, model, model_log, model_mapping, rag_system, metric, sync, hot_news, load_test, prompt, vibe_agent, doc_parse
+        # 导入所有模型（确保每个模型模块都注册到 Base.metadata）
+        from ..models import (
+            document, dataset, evaluation, invocation, annotation_correction,
+            model, model_log, model_mapping, rag_system, metric, sync,
+            hot_news, load_test, prompt, vibe_agent, doc_parse,
+            training_data_eval, doc_explanation, open_source_dataset,
+        )
 
         # 创建所有表
         await conn.run_sync(Base.metadata.create_all)

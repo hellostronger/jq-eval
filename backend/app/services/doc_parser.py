@@ -2,7 +2,6 @@
 import io
 import asyncio
 import logging
-import ssl
 from typing import Optional, List, Dict, Any, Callable, Awaitable
 
 import httpx

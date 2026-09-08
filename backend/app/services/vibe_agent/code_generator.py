@@ -1,5 +1,5 @@
 # LangGraph 代码生成器
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 import json
 
 from langchain_core.messages import HumanMessage, SystemMessage

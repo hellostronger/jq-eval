@@ -7,7 +7,6 @@ from sqlalchemy import select
 from typing import List, Optional
 from uuid import UUID
 from pydantic import BaseModel
-from datetime import datetime
 
 from ...core.database import get_db
 from ...core.utc_datetime import UTCDatetime

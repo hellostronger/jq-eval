@@ -1,6 +1,6 @@
 # 评估相关异步任务
 import os
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from datetime import datetime
 import logging
 from sqlalchemy import text, select
@@ -10,12 +10,10 @@ from app.core.celery_app import celery_app
 from app.tasks._common import run_async, make_progress_callback, mark_task_failed
 from app.core.database import get_db_context
 from app.models.evaluation import Evaluation, EvaluationStatus, EvalResult
-from app.models.dataset import Dataset, QARecord
+from app.models.dataset import Dataset
 from app.models.model import Model
-from app.models.invocation import InvocationBatch, InvocationResult
-from app.models.rag_system import RAGSystem
+from app.models.invocation import InvocationResult
 from app.services.metrics import MetricEngine, get_metric_engine, METRIC_REGISTRY
-from app.services.adapters import AdapterFactory
 
 logger = logging.getLogger(__name__)
 

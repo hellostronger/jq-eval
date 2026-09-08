@@ -2,18 +2,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, func
+from sqlalchemy import select, func
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime
 from pydantic import BaseModel
-from celery.result import AsyncResult
 
 from ...core.database import get_db
 from ._common import get_or_404
 from ...core.utc_datetime import UTCDatetime
-from ...core.config import settings
-from ...core.celery_app import celery_app
 from ...models import (
     TrainingDataEval,
     TrainingDataMetricConfig,
@@ -24,7 +21,7 @@ from ...models import (
     QARecord,
     Model
 )
-from ...services.training_data.engine import TrainingDataMetricEngine, TRAINING_DATA_METRIC_REGISTRY
+from ...services.training_data.engine import TRAINING_DATA_METRIC_REGISTRY
 
 router = APIRouter()
 

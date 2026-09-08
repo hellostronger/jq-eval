@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from ...core.database import get_db
 from ._common import get_or_404
-from ...models import DataSource, SyncTask, SchemaMapping, DataSourceType
+from ...models import DataSource, SyncTask
 
 router = APIRouter()
 

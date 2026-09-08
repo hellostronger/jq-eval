@@ -3,7 +3,7 @@
 # - token_f1: 生成阶段词元级 F1（StratRAG Generation F1 / SQuAD 风格）
 # 与检索阶段指标（mrr_k/hit_rate_k/recall_k）配合，实现检索与生成完全解耦评测
 import string
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 
 from .base import BaseMetric, MetricResult
 

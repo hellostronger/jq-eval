@@ -8,8 +8,8 @@ from app.core.celery_app import celery_app
 from app.tasks._common import run_async
 from app.core.database import get_db_context
 from app.core.config import settings
-from app.models.evaluation import Evaluation, EvaluationStatus
-from app.models.sync import SyncTask, SyncTaskStatus
+from app.models.evaluation import EvaluationStatus
+from app.models.sync import SyncTaskStatus
 
 logger = logging.getLogger(__name__)
 

@@ -1,18 +1,9 @@
 # Graph Builder Abstract Base Class
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any
 
 from .models import (
-    GraphEntity,
-    GraphRelation,
-    KnowledgeGraphResult,
-    GraphBuildRequest,
-    GraphChunkBuildRequest,
-    GraphBuildResult,
-    EntityExtractRequest,
-    EntityExtractResult,
-    RelationExtractRequest,
-    RelationExtractResult,
+    GraphBuildRequest, GraphChunkBuildRequest, GraphBuildResult, EntityExtractRequest, EntityExtractResult, RelationExtractRequest, RelationExtractResult,
 )
 
 

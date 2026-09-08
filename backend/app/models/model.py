@@ -1,6 +1,6 @@
 # 模型配置表
 from sqlalchemy import Column, String, Text, Integer, Boolean
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import JSONB
 
 from .base import BaseModel
 

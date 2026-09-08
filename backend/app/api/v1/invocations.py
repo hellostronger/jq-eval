@@ -4,7 +4,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional
 from uuid import UUID
-from datetime import datetime
 from pydantic import BaseModel
 
 from ...core.database import get_db

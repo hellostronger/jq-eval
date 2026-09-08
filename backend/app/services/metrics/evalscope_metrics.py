@@ -1,6 +1,5 @@
 # EvalScope评估指标实现
 from typing import Optional, List, Dict, Any
-import re
 from collections import Counter
 
 from .base import BaseMetric, MetricResult

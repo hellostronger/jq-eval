@@ -1,9 +1,8 @@
 # 压测任务模型
 import enum
-from sqlalchemy import Column, String, Text, Integer, Float, ForeignKey, ARRAY, DateTime
+from sqlalchemy import Column, String, Text, Integer, Float, ForeignKey, DateTime
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
-from datetime import datetime
 
 from .base import BaseModel
 

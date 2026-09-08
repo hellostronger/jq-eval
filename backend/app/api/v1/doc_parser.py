@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from ...core.database import get_db
 from ...core.utc_datetime import UTCDatetime
-from ...models import DocParseBatch, DocParseResult, Document, Model, Dataset
+from ...models import DocParseBatch, DocParseResult, Model, Dataset
 from ...services.storage import get_minio_service, MinIOService
 from ._common import validate_upload_size
 

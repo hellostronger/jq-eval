@@ -1,12 +1,10 @@
 # 文件存储API
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
-from typing import Dict, Any, List, Optional
+from typing import List, Optional
 from pydantic import BaseModel
 
 from app.services.storage import get_minio_service, MinIOService
-from app.core.database import get_db
 from ._common import validate_upload_size
-from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter()
 

@@ -1,8 +1,6 @@
 # Graph Building API Routes
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
-from fastapi.responses import JSONResponse
-from typing import List, Optional, Dict, Any
-import tempfile
+from fastapi import APIRouter, UploadFile, File, HTTPException
+from typing import List, Optional, Dict
 import os
 
 from ...services.graph import (
@@ -17,7 +15,6 @@ from ...services.graph import (
     RelationExtractResult,
     GraphBuilderInfo,
 )
-from ...core.config import settings
 from ...models.model import Model
 from ...core.database import AsyncSessionLocal
 from ._common import validate_upload_size

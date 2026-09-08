@@ -1,10 +1,8 @@
 # 训练数据评估模型
 import enum
-from sqlalchemy import Column, String, Text, Integer, Float, Boolean, ForeignKey, ARRAY, DateTime, Enum as SQLEnum
+from sqlalchemy import Column, String, Text, Integer, Float, Boolean, ForeignKey, ARRAY, DateTime
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
-from datetime import datetime
-from typing import Optional
 
 from .base import BaseModel
 

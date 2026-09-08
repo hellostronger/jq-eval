@@ -2,7 +2,6 @@
 import enum
 from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, DateTime
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from datetime import datetime
 
 from .base import BaseModel
 

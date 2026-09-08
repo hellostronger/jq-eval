@@ -1,6 +1,5 @@
 # 映射调用日志服务 - 将映射调用记录写入 model_request_logs
 import logging
-import time
 from typing import Any, Dict, Optional
 from uuid import UUID
 

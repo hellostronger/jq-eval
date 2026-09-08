@@ -1,9 +1,7 @@
 # WebSocket 连接管理
 from fastapi import WebSocket, WebSocketDisconnect
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from datetime import datetime
-import json
-import asyncio
 
 
 class ConnectionManager:

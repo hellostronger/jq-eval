@@ -2,7 +2,6 @@
 import httpx
 import time
 import json
-import re
 from typing import Optional, List, Dict, Any
 from .base import BaseRAGAdapter, RAGResponse
 

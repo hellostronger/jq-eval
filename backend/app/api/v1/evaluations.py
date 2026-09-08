@@ -4,14 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional, Dict, Any
 from uuid import UUID
-from datetime import datetime
 from pydantic import BaseModel
 from celery.result import AsyncResult
 
 from ...core.database import get_db, get_db_context
 from ._common import get_or_404
 from ...core.utc_datetime import UTCDatetime
-from ...core.config import settings
 from ...core.celery_app import celery_app
 from ...models import Evaluation, EvalResult, Dataset, QARecord
 from ...tasks.evaluation_tasks import evaluation_task

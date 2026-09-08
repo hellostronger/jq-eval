@@ -1,7 +1,6 @@
 # 评估引擎
 from typing import Dict, List, Any, Optional, Type
 import asyncio
-from datetime import datetime
 
 from .base import BaseMetric, MetricResult
 from .ragas_metrics import RAGAS_METRICS

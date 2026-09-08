@@ -1,19 +1,14 @@
 # VibeAgent API 路由
 import logging
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, WebSocket, HTTPException
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 from uuid import uuid4
 import os
 
 from ...services.vibe_agent import (
-    VibeAgentEngine,
-    get_engine,
-    ConnectionManager,
-    WebSocketHandler,
-    get_connection_manager,
+    get_engine, WebSocketHandler, get_connection_manager,
 )
 from ...models.vibe_agent import (
     VibeAgentSession,
@@ -22,9 +17,8 @@ from ...models.vibe_agent import (
     VibeAgentExecution,
     VibeAgentNodeConfig,
 )
-from ...core.database import AsyncSessionLocal, get_db
+from ...core.database import AsyncSessionLocal
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/vibe-agent", tags=["VibeAgent"])
 

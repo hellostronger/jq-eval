@@ -2,11 +2,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
-from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from uuid import UUID
 from pydantic import BaseModel
-from datetime import datetime
 
 from ...core.database import get_db
 from ...core.utc_datetime import UTCDatetime

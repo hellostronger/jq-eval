@@ -5,7 +5,6 @@ from sqlalchemy import select
 from typing import List, Optional
 from uuid import UUID
 from pydantic import BaseModel
-from datetime import datetime
 
 from ...core.database import get_db
 from ._common import get_or_404

@@ -1,6 +1,4 @@
 # FastAPI 主入口
-import signal
-import sys
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import is_dataclass, asdict

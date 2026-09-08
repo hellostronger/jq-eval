@@ -1,7 +1,5 @@
 # Prompt 模型
-from datetime import datetime
-from uuid import uuid4
-from sqlalchemy import Column, DateTime, String, Text, Integer, ForeignKey, Boolean
+from sqlalchemy import Column, String, Text, Integer, ForeignKey, Boolean
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 

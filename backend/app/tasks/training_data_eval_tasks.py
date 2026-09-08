@@ -1,6 +1,6 @@
 # 训练数据评估异步任务
 import asyncio
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from datetime import datetime
 import logging
 from sqlalchemy import select, text
@@ -15,13 +15,11 @@ from app.models.training_data_eval import (
     TrainingDataMetricConfig,
     TrainingDataEvalStatus
 )
-from app.models.dataset import Dataset, QARecord
+from app.models.dataset import Dataset
 from app.models.model import Model
 from app.services.llm import create_llm_from_config, create_embeddings_from_config
 from app.services.training_data.engine import (
-    TrainingDataMetricEngine,
-    get_training_data_engine,
-    TRAINING_DATA_METRIC_REGISTRY
+    get_training_data_engine, TRAINING_DATA_METRIC_REGISTRY,
 )
 
 logger = logging.getLogger(__name__)

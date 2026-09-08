@@ -1,9 +1,7 @@
 # 健康检查路由
 from fastapi import APIRouter
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from redis import asyncio as aioredis
-import httpx
 
 from ...core.database import async_engine
 from ...core.config import settings

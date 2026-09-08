@@ -1,5 +1,5 @@
 # RSS爬虫
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any, Optional
 from datetime import datetime
 import re
 import feedparser

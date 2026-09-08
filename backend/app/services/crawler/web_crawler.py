@@ -1,8 +1,7 @@
 # Playwright网页爬虫
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any, Optional
 from datetime import datetime
 import logging
-import asyncio
 
 from .base import BaseCrawler, CrawledArticle, CrawlResult
 

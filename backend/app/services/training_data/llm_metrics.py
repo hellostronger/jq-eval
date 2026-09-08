@@ -1,6 +1,5 @@
 # 大模型训练数据评估指标
-from typing import Optional, List, Dict, Any
-import numpy as np
+from typing import Optional, List
 from .base import BaseTrainingDataMetric, TrainingDataMetricResult
 
 

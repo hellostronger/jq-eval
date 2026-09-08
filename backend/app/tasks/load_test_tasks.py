@@ -6,13 +6,11 @@ import logging
 import time
 import statistics
 from uuid import UUID
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from app.core.celery_app import celery_app
 from app.tasks._common import run_async, mark_task_failed
 from app.core.database import get_db_context
 from app.models import LoadTest, LoadTestStatus, LoadTestMode, RAGSystem
-from app.models.dataset import QARecord
 from app.models.model import Model
 from app.services.adapters import AdapterFactory, RAGResponse
 from sqlalchemy import text, select

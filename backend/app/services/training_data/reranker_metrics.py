@@ -1,5 +1,5 @@
 # Reranker训练数据评估指标
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 import asyncio
 import numpy as np
 from .base import BaseTrainingDataMetric, TrainingDataMetricResult

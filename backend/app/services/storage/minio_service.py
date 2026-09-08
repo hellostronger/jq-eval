@@ -1,7 +1,6 @@
 # MinIO文件服务
-import io
 import uuid
-from typing import Dict, List, Any, Optional, BinaryIO
+from typing import Dict, List, Any, BinaryIO
 from datetime import datetime, timedelta
 import logging
 from minio import Minio

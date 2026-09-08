@@ -1,5 +1,5 @@
 # 数据同步相关异步任务
-from typing import Dict, List, Any
+from typing import Dict, Any
 from datetime import datetime
 import logging
 import json

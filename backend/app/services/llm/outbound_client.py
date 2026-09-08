@@ -1,7 +1,7 @@
 # 出站客户端 - 映射代理调用目标模型（openai 兼容 / anthropic 协议，httpx 直调）
 import json
 import logging
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, Optional
 
 import httpx
 

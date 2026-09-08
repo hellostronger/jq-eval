@@ -1,8 +1,7 @@
 # 评估指标基类
 from abc import ABC, abstractmethod
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
-import numpy as np
 
 
 class TrainingDataMetricResult(BaseModel):

@@ -1,7 +1,6 @@
 # 模型调用映射代理路由 - 对外暴露 OpenAI/Anthropic 协议端点，转发到目标模型
 import asyncio
 import hmac
-import json
 import logging
 import time
 from typing import AsyncIterator, Dict, Optional, Tuple
@@ -18,15 +17,7 @@ from ...services.llm import outbound_client
 from ...services.llm.mapping_logger import finish_log, start_log
 from ...services.llm.outbound_client import OutboundError
 from ...services.llm.protocol_converter import (
-    InternalRequest,
-    InternalStreamEvent,
-    anthropic_request_to_internal,
-    internal_to_anthropic_response,
-    internal_to_openai_response,
-    openai_request_to_internal,
-    merge_usage,
-    sse_format,
-    usage_to_openai,
+    InternalRequest, anthropic_request_to_internal, internal_to_anthropic_response, internal_to_openai_response, openai_request_to_internal, merge_usage, sse_format, usage_to_openai,
 )
 
 router = APIRouter()
