@@ -246,7 +246,10 @@ async def query_rag_system(
             "success": response.success,
             "error": response.error
         }
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"查询RAG系统 {system_id} 失败: {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -284,7 +287,10 @@ async def health_check(
             "health_status": rag_system.health_status,
             "checked_at": rag_system.health_check_at
         }
+    except HTTPException:
+        raise
     except Exception as e:
         rag_system.health_status = "unhealthy"
         await db.commit()
+        logger.error(f"RAG系统 {system_id} 健康检查异常: {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

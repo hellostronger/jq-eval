@@ -1,4 +1,6 @@
 # VibeAgent API 路由
+import logging
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from typing import List, Dict, Any, Optional
@@ -25,6 +27,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/vibe-agent", tags=["VibeAgent"])
+
+logger = logging.getLogger(__name__)
 
 
 # ========== Pydantic Schema ==========
@@ -378,6 +382,7 @@ async def execute_workflow(workflow_id: str, request: ExecuteWorkflowRequest):
         }
 
     except Exception as e:
+        logger.error(f"工作流执行失败 execution_id={execution_id}: {type(e).__name__}: {e}")
         async with AsyncSessionLocal() as db:
             await db.execute(
                 select(VibeAgentExecution).where(VibeAgentExecution.id == execution_id)

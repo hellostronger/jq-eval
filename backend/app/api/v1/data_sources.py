@@ -1,5 +1,7 @@
 # 数据源与同步路由
 import json
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -12,6 +14,8 @@ from ._common import get_or_404
 from ...models import DataSource, SyncTask, SchemaMapping, DataSourceType
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 # Pydantic Schemas
@@ -179,6 +183,7 @@ async def get_tables(
         await adapter.disconnect()
         return {"tables": tables, "source_id": str(source_id)}
     except Exception as e:
+        logger.error(f"获取数据源表列表失败 source_id={source_id}: {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=f"获取表列表失败: {e}")
 
 
@@ -201,6 +206,7 @@ async def get_schema(
             "source_id": str(source_id)
         }
     except Exception as e:
+        logger.error(f"获取数据源Schema失败 source_id={source_id}: {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=f"获取Schema失败: {e}")
 
 
@@ -228,6 +234,7 @@ async def preview_data(
         await adapter.disconnect()
         return {"data": rows, "table": table, "source_id": str(source_id)}
     except Exception as e:
+        logger.error(f"预览数据失败 source_id={source_id} table={table}: {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=f"预览数据失败: {e}")
 
 

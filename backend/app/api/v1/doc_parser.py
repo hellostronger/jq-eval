@@ -106,6 +106,7 @@ async def list_source_files(
             })
         return {"items": result, "total": len(result)}
     except Exception as e:
+        logger.error(f"列出源文件失败 dataset_id={dataset_id}: {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=f"列出源文件失败: {e}")
 
 
