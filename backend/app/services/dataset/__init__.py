@@ -1,5 +1,5 @@
 # 数据集服务模块
-from .generator import DatasetGenerator, generate_test_data
+from .generator import DatasetGenerator
 from .adapters import (
     DocumentAdapter,
     AdapterFactory,
@@ -9,7 +9,6 @@ from .adapters import (
 
 __all__ = [
     "DatasetGenerator",
-    "generate_test_data",
     "DocumentAdapter",
     "AdapterFactory",
     "TextInputAdapter",

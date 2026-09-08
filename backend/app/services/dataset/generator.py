@@ -1,5 +1,5 @@
 # Ragas 测试数据集生成器
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from langchain.schema import Document
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 import logging
@@ -161,30 +161,3 @@ class DatasetGenerator:
             qa_records.append(record)
 
         return qa_records
-
-
-async def generate_test_data(
-    llm: ChatOpenAI,
-    embeddings: OpenAIEmbeddings,
-    adapter: DocumentAdapter,
-    test_size: int = 10,
-    distributions: Dict[str, float] = None
-) -> List[Dict[str, Any]]:
-    """便捷函数：生成测试数据
-
-    Args:
-        llm: LLM 实例
-        embeddings: Embeddings 实例
-        adapter: 文档适配器
-        test_size: 生成数量
-        distributions: 问题类型分布
-
-    Returns:
-        QA 数据列表
-    """
-    generator = DatasetGenerator(llm, embeddings)
-    return await generator.generate(
-        adapter=adapter,
-        test_size=test_size,
-        distributions=distributions
-    )
