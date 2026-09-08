@@ -74,6 +74,8 @@ const DatasetDetail: React.FC = () => {
       const data = await getQARecords(id, { page, size: pageSize })
       setQARecords(data.items)
       setTotal(data.total)
+    } catch (e) {
+      // 错误已在拦截器处理
     } finally {
       setLoading(false)
     }
@@ -86,6 +88,8 @@ const DatasetDetail: React.FC = () => {
       const data = await getDatasetDocuments(id, { page: docPage, size: docPageSize })
       setDocuments(data.items)
       setDocTotal(data.total)
+    } catch (e) {
+      // 错误已在拦截器处理
     } finally {
       setDocLoading(false)
     }
@@ -102,6 +106,8 @@ const DatasetDetail: React.FC = () => {
       const data = await getDatasetChunks(id, params)
       setChunks(data.items)
       setChunkTotal(data.total)
+    } catch (e) {
+      // 错误已在拦截器处理
     } finally {
       setChunkLoading(false)
     }

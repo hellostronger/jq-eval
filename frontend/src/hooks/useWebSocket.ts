@@ -26,6 +26,8 @@ export const useWebSocket = (sessionId: string | null): UseWebSocketReturn => {
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null)
   const [error, setError] = useState<string | null>(null)
   const socketRef = useRef<WebSocket | null>(null)
+  // 组件卸载标记：卸载后到达的消息/状态回调不再 setState（避免内存泄漏警告）
+  const unmountedRef = useRef(false)
 
   const connect = useCallback(() => {
     if (!sessionId) return
@@ -36,12 +38,14 @@ export const useWebSocket = (sessionId: string | null): UseWebSocketReturn => {
     const ws = new WebSocket(wsUrl)
 
     ws.onopen = () => {
+      if (unmountedRef.current) return
       setIsConnected(true)
       setError(null)
       console.log('WebSocket connected')
     }
 
     ws.onmessage = (event) => {
+      if (unmountedRef.current) return
       try {
         const data = JSON.parse(event.data)
         setLastMessage(data)
@@ -51,11 +55,13 @@ export const useWebSocket = (sessionId: string | null): UseWebSocketReturn => {
     }
 
     ws.onerror = (event) => {
+      if (unmountedRef.current) return
       setError('WebSocket error')
       console.error('WebSocket error:', event)
     }
 
     ws.onclose = () => {
+      if (unmountedRef.current) return
       setIsConnected(false)
       console.log('WebSocket disconnected')
     }
@@ -65,6 +71,11 @@ export const useWebSocket = (sessionId: string | null): UseWebSocketReturn => {
 
   const disconnect = useCallback(() => {
     if (socketRef.current) {
+      // 先摘掉回调再关闭，避免 close 事件触发已卸载组件的 setState
+      socketRef.current.onopen = null
+      socketRef.current.onmessage = null
+      socketRef.current.onerror = null
+      socketRef.current.onclose = null
       socketRef.current.close()
       socketRef.current = null
     }
@@ -81,11 +92,13 @@ export const useWebSocket = (sessionId: string | null): UseWebSocketReturn => {
   }, [isConnected])
 
   useEffect(() => {
+    unmountedRef.current = false
     if (sessionId) {
       connect()
     }
 
     return () => {
+      unmountedRef.current = true
       disconnect()
     }
   }, [sessionId, connect, disconnect])

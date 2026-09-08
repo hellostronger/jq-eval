@@ -23,6 +23,7 @@ const Dashboard: React.FC = () => {
   const [recentEvals, setRecentEvals] = useState<Evaluation[]>([])
 
   useEffect(() => {
+    let cancelled = false
     const fetchData = async () => {
       // 并行请求，仪表盘只需最近 5 条评估
       const [statsData, healthData, evals] = await Promise.allSettled([
@@ -30,11 +31,14 @@ const Dashboard: React.FC = () => {
         getHealth(),
         getEvaluations({ limit: 5 }),
       ])
+      // 组件卸载后丢弃响应，避免过期 setState
+      if (cancelled) return
       if (statsData.status === 'fulfilled') setStats(statsData.value)
       if (healthData.status === 'fulfilled') setHealth(healthData.value.components || {})
       if (evals.status === 'fulfilled') setRecentEvals(evals.value.slice(0, 5))
     }
     fetchData()
+    return () => { cancelled = true }
   }, [])
 
   const getStatusType = (status: string) => {

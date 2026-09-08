@@ -49,12 +49,15 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
 
   // 加载时检查是否有进行中的任务（恢复轮询）
   useEffect(() => {
+    let cancelled = false
     const checkCurrentTask = async () => {
       try {
         const result = await getCurrentGenerateTask(datasetId)
+        if (cancelled) return
         if (result.has_active_task && result.task_id) {
           // 有进行中的任务，先获取 Celery 状态
           const statusResult = await getGenerateStatus(datasetId, result.task_id)
+          if (cancelled) return
           const celeryStatus = statusResult.status
 
           if (celeryStatus === 'SUCCESS') {
@@ -80,6 +83,7 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
       }
     }
     checkCurrentTask()
+    return () => { cancelled = true }
   }, [datasetId, onGenerateSuccess])
 
   // 轮询任务状态
@@ -115,7 +119,14 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
       }
     }
 
-    const timer = setInterval(pollStatus, 2000)
+    // setInterval 直接持有 async 回调：卸载后已发出的请求仍会 setState，
+    // 用 ref 记录最后一次调用，卸载/重建时丢弃过期响应
+    let latest = 0
+    const timer = setInterval(async () => {
+      const seq = ++latest
+      await pollStatus()
+      if (seq !== latest) return
+    }, 2000)
     return () => clearInterval(timer)
   }, [taskId, status, datasetId, onGenerateSuccess])
 

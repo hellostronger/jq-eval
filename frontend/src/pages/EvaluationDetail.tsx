@@ -53,6 +53,8 @@ const EvaluationDetail: React.FC = () => {
       setResults(data?.results || [])
       setTotal(data?.total || data?.results?.length || 0)
       setSummary(data?.summary || null)
+    } catch (e) {
+      // 错误已在拦截器处理
     } finally {
       setLoading(false)
     }

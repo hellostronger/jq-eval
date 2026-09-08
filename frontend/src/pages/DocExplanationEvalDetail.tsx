@@ -24,6 +24,8 @@ const DocExplanationEvalDetail: React.FC = () => {
       ])
       setEvaluation(evalData)
       setResults(resultsData)
+    } catch (e) {
+      // 错误已在拦截器处理
     } finally {
       setLoading(false)
     }

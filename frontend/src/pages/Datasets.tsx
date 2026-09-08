@@ -38,6 +38,8 @@ const Datasets: React.FC = () => {
     try {
       const data = await getDatasets()
       setDatasets(data)
+    } catch (e) {
+      // 错误已在拦截器处理
     } finally {
       setLoading(false)
     }
@@ -97,6 +99,9 @@ const Datasets: React.FC = () => {
       message.success('创建成功')
       setModalVisible(false)
       fetchDatasets()
+    } catch (e) {
+      if ((e as { errorFields?: unknown })?.errorFields) return
+      // 错误已在拦截器处理
     } finally {
       setSaving(false)
     }

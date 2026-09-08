@@ -17,6 +17,8 @@ const DataSources: React.FC = () => {
     try {
       const data = await getDataSources()
       setDataSources(data)
+    } catch (e) {
+      // 错误已在拦截器处理
     } finally {
       setLoading(false)
     }
@@ -42,6 +44,9 @@ const DataSources: React.FC = () => {
       message.success('创建成功')
       setModalVisible(false)
       fetchDataSources()
+    } catch (e) {
+      if ((e as { errorFields?: unknown })?.errorFields) return
+      // 错误已在拦截器处理
     } finally {
       setSaving(false)
     }

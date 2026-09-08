@@ -19,11 +19,17 @@ export function usePollingWhenRunning(
 
   useEffect(() => {
     if (!hasRunning) return
+    // 串行化轮询：上一轮未完成时跳过本轮，避免慢请求导致的堆积
+    let inFlight = false
     const timer = window.setInterval(async () => {
+      if (inFlight) return
+      inFlight = true
       try {
         await pollRef.current()
       } catch {
         // 轮询失败忽略
+      } finally {
+        inFlight = false
       }
     }, intervalMs)
     return () => window.clearInterval(timer)

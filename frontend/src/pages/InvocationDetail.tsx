@@ -55,6 +55,8 @@ const InvocationDetail: React.FC = () => {
       setRagSystems(ragData)
       setLlmModels(llmData)
       setTotal(batchData.total_count)
+    } catch (e) {
+      // 错误已在拦截器处理
     } finally {
       setLoading(false)
     }
