@@ -3,8 +3,6 @@
 export type ModelType = 'llm' | 'embedding' | 'reranker' | 'doc_parser'
 
 // 文档解析服务提供商
-export type DocParserProvider = 'mineru' | 'mineru_api' | 'custom'
-
 export interface ModelConfig {
   id: string
   name: string
@@ -150,11 +148,6 @@ export interface DataSource {
   connection_config: Record<string, any>
   rag_system_id?: string
   created_at: string
-}
-
-export interface MetricCategory {
-  name: string
-  count: number
 }
 
 // 生成测试数据集请求
@@ -441,8 +434,6 @@ export interface AnnotationCorrection {
 }
 
 // 训练数据评估相关类型
-export type TrainingDataType = 'llm' | 'embedding' | 'reranker' | 'reward_model' | 'dpo' | 'vlm' | 'vla'
-
 export interface TrainingDataEval {
   id: string
   name: string
@@ -464,16 +455,6 @@ export interface TrainingDataEval {
   created_at?: string
 }
 
-export interface TrainingDataMetricConfig {
-  metric_name: string
-  metric_type: string
-  params: Record<string, any>
-  weight: number
-  enabled: boolean
-  threshold?: number
-  threshold_type?: string
-}
-
 export interface TrainingDataEvalResult {
   id: string
   eval_id: string
@@ -490,6 +471,9 @@ export interface TrainingDataEvalResult {
   created_at?: string
 }
 
+// 训练数据类型
+export type TrainingDataType = 'llm' | 'embedding' | 'reranker' | 'reward_model' | 'dpo' | 'vlm' | 'vla'
+
 export interface TrainingDataMetricDefinition {
   name: string
   display_name: string
@@ -504,30 +488,4 @@ export interface TrainingDataMetricDefinition {
   higher_is_better: boolean
   default_threshold: number
   threshold_type: string
-}
-
-export interface TrainingDataTemplate {
-  id: string
-  name: string
-  display_name: string
-  data_type: TrainingDataType
-  description?: string
-  metric_configs: TrainingDataMetricConfig[]
-  default_thresholds: Record<string, number>
-  is_builtin: boolean
-}
-
-export interface TrainingQualityRule {
-  id: string
-  name: string
-  description?: string
-  data_types: string[]
-  rule_type: string
-  config: Record<string, any>
-  threshold_min?: number
-  threshold_max?: number
-  severity: 'error' | 'warning' | 'info'
-  auto_fixable: boolean
-  is_enabled: boolean
-  is_builtin: boolean
 }
