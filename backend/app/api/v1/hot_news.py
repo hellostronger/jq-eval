@@ -322,15 +322,20 @@ async def trigger_crawl(
     # 执行爬取：强制全量时不传since参数
     crawl_result = await crawler.crawl(since=None if force_full else source.last_crawl_at)
 
-    # 存储文章
-    new_count = 0
-    for article in crawl_result.articles:
-        # 检查是否已存在
-        content_hash = crawler.compute_hash(article.title, article.content)
-        existing = await db.execute(
-            select(HotArticle).where(HotArticle.content_hash == content_hash)
+    # 存储文章：先批量算出所有 hash，一次查询过滤已存在的
+    article_hashes = [
+        crawler.compute_hash(a.title, a.content) for a in crawl_result.articles
+    ]
+    existing_hashes = set()
+    if article_hashes:
+        existing_result = await db.execute(
+            select(HotArticle.content_hash).where(HotArticle.content_hash.in_(article_hashes))
         )
-        if existing.scalar_one_or_none():
+        existing_hashes = {row[0] for row in existing_result.fetchall()}
+
+    new_count = 0
+    for article, content_hash in zip(crawl_result.articles, article_hashes):
+        if content_hash in existing_hashes:
             continue
 
         # 创建新文章

@@ -46,16 +46,26 @@ async def _run_doc_explanation_eval(task, eval_id: UUID) -> Dict[str, Any]:
                 doc_ids = [exp.doc_id for exp in explanations.scalars().all()]
 
             # 获取文档和解释数据
+            doc_ids = [d for d in doc_ids if d is not None]
+            docs_result = await db.execute(
+                select(Document).where(Document.id.in_(doc_ids))
+            )
+            docs_map = {d.id: d for d in docs_result.scalars().all()}
+
+            exp_result = await db.execute(
+                select(DocExplanation).where(DocExplanation.doc_id.in_(doc_ids))
+            )
+            explanations_map = {}
+            for exp in exp_result.scalars().all():
+                explanations_map.setdefault(exp.doc_id, exp)
+
             eval_data = []
             for doc_id in doc_ids:
-                doc = await db.get(Document, doc_id)
+                doc = docs_map.get(doc_id)
                 if not doc:
                     continue
 
-                exp_result = await db.execute(
-                    select(DocExplanation).where(DocExplanation.doc_id == doc_id)
-                )
-                explanation = exp_result.scalar_one_or_none()
+                explanation = explanations_map.get(doc_id)
                 if not explanation:
                     continue
 
@@ -87,10 +97,9 @@ async def _run_doc_explanation_eval(task, eval_id: UUID) -> Dict[str, Any]:
 
             total = len(eval_data)
             for idx, item in enumerate(eval_data):
-                # 更新进度
+                # 更新进度（进度写入内存即可，循环结束统一提交）
                 progress = int((idx / total) * 100)
                 evaluation.progress = progress
-                await db.commit()
 
                 # 对每个解释进行评估
                 scores = await _evaluate_explanation(

@@ -48,16 +48,20 @@ async def _run_crawl(task, source_id: str) -> Dict[str, Any]:
         task.update_state(state="RUNNING", meta={"source": source.name})
         crawl_result = await crawler.crawl(since=source.last_crawl_at)
 
-        # 存储文章
-        new_count = 0
-        for article in crawl_result.articles:
-            content_hash = crawler.compute_hash(article.title, article.content)
-
-            # 检查是否已存在
-            existing = await db.execute(
-                select(HotArticle).where(HotArticle.content_hash == content_hash)
+        # 存储文章：先批量算出所有 hash，一次查询过滤已存在的
+        article_hashes = [
+            crawler.compute_hash(a.title, a.content) for a in crawl_result.articles
+        ]
+        existing_hashes = set()
+        if article_hashes:
+            existing_result = await db.execute(
+                select(HotArticle.content_hash).where(HotArticle.content_hash.in_(article_hashes))
             )
-            if existing.scalar_one_or_none():
+            existing_hashes = {row[0] for row in existing_result.fetchall()}
+
+        new_count = 0
+        for article, content_hash in zip(crawl_result.articles, article_hashes):
+            if content_hash in existing_hashes:
                 continue
 
             hot_article = HotArticle(

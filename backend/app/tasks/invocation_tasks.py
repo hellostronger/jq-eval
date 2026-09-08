@@ -105,6 +105,11 @@ async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, 
         batch.status = "running"
         await db.commit()
 
+        # 批量预取要重试的问题，避免循环内逐条 db.get
+        qa_ids = {r.qa_record_id for r in retry_results}
+        qa_result = await db.execute(select(QARecord).where(QARecord.id.in_(qa_ids)))
+        qa_map = {qa.id: qa for qa in qa_result.scalars().all()}
+
         success_count = 0
         fail_count = 0
 
@@ -115,7 +120,7 @@ async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, 
                 await db.flush()
 
                 # 获取原始问题
-                qa_record = await db.get(QARecord, inv_result.qa_record_id)
+                qa_record = qa_map.get(inv_result.qa_record_id)
                 if not qa_record:
                     fail_count += 1
                     continue
