@@ -49,7 +49,8 @@ class LLMResponseQualityMetric(BaseTrainingDataMetric):
             response = await llm.generate(prompt)
             # 解析响应
             parts = response.split("|")
-            score = float(parts[0].strip()) if parts else 0.5
+            score_text = parts[0].strip() if parts else ""
+            score = float(score_text) if score_text.replace(".", "").replace("-", "").isdigit() else 0.5
             score = max(0.0, min(1.0, score))
 
             return TrainingDataMetricResult(
@@ -170,7 +171,7 @@ class LLMHelpfulnessMetric(BaseTrainingDataMetric):
             response = await llm.generate(prompt)
             parts = response.split("|")
             score_text = parts[0].strip()
-            score = float(score_text) if score_text.replace(".", "").isdigit() else 0.5
+            score = float(score_text) if score_text.replace(".", "").replace("-", "").isdigit() else 0.5
             score = max(0.0, min(1.0, score))
 
             suggestions = []
@@ -213,11 +214,11 @@ class LLMResponseLengthMetric(BaseTrainingDataMetric):
     ) -> TrainingDataMetricResult:
         """评估回复长度"""
         params = self.params or {}
-        min_length = params.get('min_length', 10)
-        max_length = params.get('max_length', 2000)
-        optimal_mid = params.get('optimal_mid', 200)
+        min_length = params.get('min_length', 10) or 10
+        max_length = params.get('max_length', 2000) or 2000
+        optimal_mid = params.get('optimal_mid', 200) or 200
 
-        length = len(answer)
+        length = len(answer or "")
 
         if length < min_length:
             score = length / min_length * 0.5
@@ -306,7 +307,7 @@ class LLMHallucinationMetric(BaseTrainingDataMetric):
             response = await llm.generate(prompt)
             parts = response.split("|")
             score_text = parts[0].strip()
-            score = float(score_text) if score_text.replace(".", "").isdigit() else 0.7
+            score = float(score_text) if score_text.replace(".", "").replace("-", "").isdigit() else 0.7
             score = max(0.0, min(1.0, score))
 
             suggestions = []

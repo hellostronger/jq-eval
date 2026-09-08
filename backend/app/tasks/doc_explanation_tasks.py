@@ -199,9 +199,12 @@ async def _evaluate_explanation(
         else:
             scores = {"completeness": 5, "accuracy": 5, "info_missing": 5, "explanation_error": 5, "analysis": content}
 
-        # 确保所有指标都有值
+        # 确保所有指标都有值，且强制转换为数值（LLM 可能返回字符串分数，污染汇总统计）
         for metric in metrics:
-            if metric not in scores:
+            value = scores.get(metric)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                scores[metric] = float(value)
+            else:
                 scores[metric] = 5
 
         return scores

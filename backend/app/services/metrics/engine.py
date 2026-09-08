@@ -170,8 +170,8 @@ class MetricEngine:
                 if metric in r and r[metric].error is None
             ]
 
-            # 过滤掉 NaN 和 None 值
-            valid_scores = [s for s in scores if s is not None and not (isinstance(s, float) and np.isnan(s))]
+            # 过滤掉 NaN、None 和非数值（LLM 解析异常时可能产出字符串）
+            valid_scores = [s for s in scores if isinstance(s, (int, float)) and not (isinstance(s, float) and np.isnan(s))]
 
             if valid_scores:
                 summary["metrics_summary"][metric] = {
