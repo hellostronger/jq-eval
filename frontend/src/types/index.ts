@@ -58,11 +58,13 @@ export interface Dataset {
 
 export interface QARecord {
   id: string
-  snapshot_id: string
   question: string
   answer?: string
   contexts?: string[]
   ground_truth?: string
+  question_type?: string
+  difficulty?: string
+  target_chunk_ids?: string[]  // 检索指标 ground truth（基准数据集标注）
   metadata?: Record<string, any>
   created_at: string
 }
@@ -80,6 +82,7 @@ export interface Evaluation {
   metrics: string[]
   batch_size: number
   status: 'pending' | 'running' | 'completed' | 'failed'
+  progress?: number  // 0-100，运行中由后端上报
   started_at?: string
   completed_at?: string
   summary?: Record<string, any>
