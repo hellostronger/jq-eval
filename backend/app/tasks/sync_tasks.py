@@ -41,6 +41,7 @@ async def _run_data_sync(task, sync_task_id: int) -> Dict[str, Any]:
         sync_task.started_at = datetime.utcnow()
         await db.commit()
 
+        adapter = None
         try:
             # 获取数据源配置
             data_source = await db.get(DataSource, sync_task.source_id)
@@ -179,6 +180,7 @@ async def _run_data_sync(task, sync_task_id: int) -> Dict[str, Any]:
 
             # 断开连接
             await adapter.disconnect()
+            adapter = None
 
             # 更新任务状态
             sync_task.status = SyncTaskStatus.COMPLETED
@@ -199,6 +201,12 @@ async def _run_data_sync(task, sync_task_id: int) -> Dict[str, Any]:
 
         except Exception as e:
             logger.error(f"同步任务 {sync_task_id} 失败: {e}")
+            # 确保数据源连接被释放，避免连接泄漏
+            if adapter is not None:
+                try:
+                    await adapter.disconnect()
+                except Exception:
+                    logger.warning(f"同步任务 {sync_task_id} 断开数据源连接失败")
             sync_task.status = SyncTaskStatus.FAILED
             sync_task.log = {"error": str(e), **(sync_task.log or {})}
             sync_task.completed_at = datetime.utcnow()

@@ -93,6 +93,17 @@ class BaseSyncAdapter(ABC):
         """断开连接"""
         pass
 
+    async def __aenter__(self) -> "BaseSyncAdapter":
+        await self.connect()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        # __aexit__ 中断开连接绝不抛错，避免掩盖业务异常
+        try:
+            await self.disconnect()
+        except Exception:
+            pass
+
     @abstractmethod
     async def test_connection(self) -> Dict[str, Any]:
         """测试连接"""

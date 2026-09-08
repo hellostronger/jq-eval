@@ -155,8 +155,11 @@ async def test_connection(
     try:
         from ...services.sync import SyncAdapterFactory
         adapter = SyncAdapterFactory.create(data_source.system_type or "custom", data_source.connection_config)
-        probe = await adapter.test_connection()
-        await adapter.disconnect()
+        # test_connection 内部自连自断；若中途异常也兜底断开
+        try:
+            probe = await adapter.test_connection()
+        finally:
+            await adapter.disconnect()
         return {
             "success": bool(probe.get("success")),
             "message": probe.get("error") or "连接测试成功",
@@ -177,10 +180,9 @@ async def get_tables(
 
     try:
         from ...services.sync import SyncAdapterFactory
-        adapter = SyncAdapterFactory.create(data_source.system_type or "custom", data_source.connection_config)
-        await adapter.connect()
-        tables = await adapter.get_tables()
-        await adapter.disconnect()
+        # async with 保证异常路径也会断开连接
+        async with SyncAdapterFactory.create(data_source.system_type or "custom", data_source.connection_config) as adapter:
+            tables = await adapter.get_tables()
         return {"tables": tables, "source_id": str(source_id)}
     except Exception as e:
         logger.error(f"获取数据源表列表失败 source_id={source_id}: {type(e).__name__}: {e}")
@@ -197,10 +199,8 @@ async def get_schema(
 
     try:
         from ...services.sync import SyncAdapterFactory
-        adapter = SyncAdapterFactory.create(data_source.system_type or "custom", data_source.connection_config)
-        await adapter.connect()
-        schemas = await adapter.get_schema()
-        await adapter.disconnect()
+        async with SyncAdapterFactory.create(data_source.system_type or "custom", data_source.connection_config) as adapter:
+            schemas = await adapter.get_schema()
         return {
             "schemas": [s.model_dump() for s in schemas],
             "source_id": str(source_id)
@@ -223,15 +223,13 @@ async def preview_data(
     try:
         from ...services.sync import SyncAdapterFactory
         from ...services.sync.base import SyncConfig
-        adapter = SyncAdapterFactory.create(data_source.system_type or "custom", data_source.connection_config)
-        await adapter.connect()
-        sync_config = SyncConfig(batch_size=limit)
-        rows = []
-        async for row in adapter.fetch_data(table, sync_config):
-            rows.append(row)
-            if len(rows) >= limit:
-                break
-        await adapter.disconnect()
+        async with SyncAdapterFactory.create(data_source.system_type or "custom", data_source.connection_config) as adapter:
+            sync_config = SyncConfig(batch_size=limit)
+            rows = []
+            async for row in adapter.fetch_data(table, sync_config):
+                rows.append(row)
+                if len(rows) >= limit:
+                    break
         return {"data": rows, "table": table, "source_id": str(source_id)}
     except Exception as e:
         logger.error(f"预览数据失败 source_id={source_id} table={table}: {type(e).__name__}: {e}")
