@@ -1244,7 +1244,7 @@ async def create_document_from_text(
     }
 
 
-@router.get("/{dataset_id}/documents/{doc_id}", response_model=DocumentResponse)
+@router.get("/{dataset_id}/documents/{doc_id}/chunks", response_model=ChunkListResponse)
 async def list_document_chunks(
     dataset_id: UUID,
     doc_id: UUID,
