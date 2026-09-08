@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from celery.result import AsyncResult
 
 from ...core.database import get_db, get_db_context
-from ._common import get_or_404
+from ._common import get_or_404, delete_or_404
 from ...core.utc_datetime import UTCDatetime
 from ...core.celery_app import celery_app
 from ...models import Evaluation, EvalResult, Dataset, QARecord
@@ -268,9 +268,7 @@ async def delete_evaluation(
     db: AsyncSession = Depends(get_db)
 ):
     """删除评估任务"""
-    evaluation = await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
-
-    await db.delete(evaluation)
+    await delete_or_404(db, Evaluation, eval_id, "评估任务不存在")
     await db.commit()
     return {"message": "删除成功"}
 

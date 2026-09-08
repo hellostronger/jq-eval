@@ -35,3 +35,10 @@ async def get_or_404(db: AsyncSession, model: Type[DBBaseModel], obj_id, detail:
     if not obj:
         raise HTTPException(status_code=404, detail=detail)
     return obj
+
+
+async def delete_or_404(db: AsyncSession, model: Type[DBBaseModel], obj_id, detail: str):
+    """按主键删除对象，不存在则抛 404（删除后由调用方或 get_db 依赖统一 commit）"""
+    obj = await get_or_404(db, model, obj_id, detail)
+    await db.delete(obj)
+    return obj

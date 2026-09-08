@@ -6,7 +6,7 @@ import json
 from sqlalchemy import text
 
 from app.core.celery_app import celery_app
-from app.tasks._common import run_async
+from app.tasks._common import run_async, mark_task_failed
 from app.core.database import get_db_context
 from app.models.sync import SyncTask, SyncTaskStatus, DataSource
 from app.models.dataset import Dataset, DatasetSnapshot, QARecord
@@ -302,12 +302,7 @@ async def _run_data_import(task, dataset_id: int, file_path: str, import_type: s
             }
 
         except Exception as e:
-            logger.error(f"数据导入失败: {e}")
-            await db.rollback()
-            dataset = await db.get(Dataset, dataset_id)
-            if dataset:
-                dataset.status = "failed"
-                await db.commit()
+            await mark_task_failed(db, Dataset, dataset_id, str(e), logger)
             return {"error": str(e)}
 
 

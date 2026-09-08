@@ -9,7 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from ...core.database import get_db
-from ._common import get_or_404
+from ._common import get_or_404, delete_or_404
 from ...core.utc_datetime import UTCDatetime
 from ...models import Model, ModelRequestLog, ModelMapping
 from ...services.llm.llm_client import create_llm_from_config
@@ -523,8 +523,6 @@ async def delete_log(
     db: AsyncSession = Depends(get_db)
 ):
     """删除日志"""
-    log = await get_or_404(db, ModelRequestLog, log_id, "日志不存在")
-
-    await db.delete(log)
+    await delete_or_404(db, ModelRequestLog, log_id, "日志不存在")
     await db.commit()
     return {"message": "删除成功"}

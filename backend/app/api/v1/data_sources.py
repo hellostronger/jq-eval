@@ -10,7 +10,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from ...core.database import get_db
-from ._common import get_or_404
+from ._common import get_or_404, delete_or_404
 from ...models import DataSource, SyncTask
 
 router = APIRouter()
@@ -130,9 +130,7 @@ async def delete_data_source(
     db: AsyncSession = Depends(get_db)
 ):
     """删除数据源"""
-    data_source = await get_or_404(db, DataSource, source_id, "数据源不存在")
-
-    await db.delete(data_source)
+    await delete_or_404(db, DataSource, source_id, "数据源不存在")
     await db.commit()
     return {"message": "删除成功"}
 
