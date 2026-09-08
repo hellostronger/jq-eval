@@ -15,6 +15,7 @@ import {
 } from '@/api'
 import type { TrainingDataEval, Dataset, TrainingDataMetricDefinition, TrainingDataEvalResult, ModelConfig } from '@/types'
 import type { TrainingDataEvalCreateParams } from '@/api'
+import { usePollingWhenRunning } from '@/hooks/usePollingWhenRunning'
 
 const { Option } = Select
 const { TabPane } = Tabs
@@ -44,7 +45,6 @@ const TrainingDataEvals: React.FC = () => {
   const [results, setResults] = useState<TrainingDataEvalResult[]>([])
   const [resultsLoading, setResultsLoading] = useState(false)
   const [form] = Form.useForm()
-  const [pollingIntervals, setPollingIntervals] = useState<Record<string, number>>({})
 
   const fetchData = async () => {
     setLoading(true)
@@ -64,36 +64,23 @@ const TrainingDataEvals: React.FC = () => {
 
   useEffect(() => {
     fetchData()
-    return () => {
-      Object.values(pollingIntervals).forEach(interval => clearInterval(interval))
-    }
   }, [])
 
-  // 轮询运行中的任务
-  useEffect(() => {
-    const runningEvals = evaluations.filter(e => e.status === 'running')
-    runningEvals.forEach(evalItem => {
-      if (!pollingIntervals[evalItem.id]) {
-        const interval = window.setInterval(async () => {
-          try {
-            const status = await getTrainingDataEvalStatus(evalItem.id)
-            if (status.status !== 'running') {
-              clearInterval(pollingIntervals[evalItem.id])
-              setPollingIntervals(prev => {
-                const next = { ...prev }
-                delete next[evalItem.id]
-                return next
-              })
-              fetchData()
-            }
-          } catch (e) {
-            console.error('轮询状态失败:', e)
-          }
-        }, 3000)
-        setPollingIntervals(prev => ({ ...prev, [evalItem.id]: interval }))
+  // 轮询运行中的任务：有任务运行时持续检查状态，任一结束即刷新列表
+  usePollingWhenRunning(
+    evaluations.some(e => e.status === 'running'),
+    async () => {
+      const runningEvals = evaluations.filter(e => e.status === 'running')
+      const statuses = await Promise.all(
+        runningEvals.map(e => getTrainingDataEvalStatus(e.id).catch(() => null))
+      )
+      if (statuses.some(s => s && s.status !== 'running')) {
+        fetchData()
       }
-    })
-  }, [evaluations])
+    },
+    3000,
+    [evaluations],
+  )
 
   const fetchMetrics = async (dataType: string): Promise<TrainingDataMetricDefinition[]> => {
     try {
