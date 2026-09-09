@@ -42,6 +42,11 @@ class BaseTrainingDataMetric(ABC):
 
     def __init__(self, params: Dict[str, Any] = None, llm=None, embedding_model=None):
         self.params = params or {}
+        # 用户在指标配置中指定的阈值优先于类默认值（API 层写入 threshold/threshold_type）
+        if self.params.get("threshold") is not None:
+            self.default_threshold = self.params["threshold"]
+        if self.params.get("threshold_type"):
+            self.threshold_type = self.params["threshold_type"]
         # 引擎会按指标依赖注入模型实例，指标内通过 kwargs / 实例属性均可访问
         if llm is not None:
             self.llm = llm

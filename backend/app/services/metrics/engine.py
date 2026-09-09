@@ -149,12 +149,16 @@ class MetricEngine:
 
     @staticmethod
     def compute_summary(results: List[Dict[str, MetricResult]]) -> Dict[str, Any]:
-        """计算评估汇总"""
+        """计算评估汇总
+
+        输出同时携带 metrics_summary 与别名 metrics，并给出 overall_score
+        （前端 EvaluationDetail/EvaluationCompare 按 summary.metrics / summary.overall_score 读取）。
+        """
         import numpy as np
 
         summary = {
             "total_records": len(results),
-            "metrics_summary": {}
+            "metrics_summary": {},
         }
 
         # 获取所有指标名称
@@ -183,6 +187,11 @@ class MetricEngine:
                     "p75": float(np.percentile(valid_scores, 75)),
                     "count": len(valid_scores)
                 }
+
+        # 前端契约字段：metrics 为 metrics_summary 的别名；overall_score 为各指标均值的均值
+        summary["metrics"] = summary["metrics_summary"]
+        metric_means = [m["mean"] for m in summary["metrics_summary"].values() if m.get("count")]
+        summary["overall_score"] = float(np.mean(metric_means)) if metric_means else 0.0
 
         return summary
 

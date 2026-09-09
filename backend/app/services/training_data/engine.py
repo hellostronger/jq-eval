@@ -189,13 +189,23 @@ class TrainingDataMetricEngine:
                     "pass_rate": passed_count / len(scores)
                 }
 
-        # 计算整体质量分布
+        # 计算整体质量分布（按指标配置的 weight 加权平均；weight 均为默认 1.0 时等价于简单平均）
+        weights = {
+            (c.get('metric_name') or c.get('name')): float(c.get('weight', 1.0) or 1.0)
+            for c in self.metric_configs
+        }
         overall_scores = []
         for r in results:
-            # 计算每个样本的平均得分
-            valid_scores = [v.score for v in r.values() if v.error is None and v.score is not None]
-            if valid_scores:
-                avg_score = np.mean(valid_scores)
+            # 计算每个样本的加权得分
+            weighted_sum = 0.0
+            weight_sum = 0.0
+            for metric_name, v in r.items():
+                if v.error is None and v.score is not None:
+                    w = weights.get(metric_name, 1.0)
+                    weighted_sum += v.score * w
+                    weight_sum += w
+            if weight_sum > 0:
+                avg_score = weighted_sum / weight_sum
                 overall_scores.append(avg_score)
 
                 if avg_score >= 0.9:

@@ -98,9 +98,13 @@ async def _run_training_data_eval(task, eval_id: UUID) -> Dict[str, Any]:
             metric_configs = [
                 {
                     "metric_name": c.metric_name,
-                    "params": c.params or {},
+                    "params": {
+                        **(c.params or {}),
+                        # 阈值随 params 下发，指标实例化时覆盖类默认值
+                        **({"threshold": c.threshold} if c.threshold is not None else {}),
+                        **({"threshold_type": c.threshold_type} if c.threshold_type else {}),
+                    },
                     "weight": c.weight,
-                    "threshold": c.threshold
                 }
                 for c in metric_configs_result.scalars().all()
             ]
