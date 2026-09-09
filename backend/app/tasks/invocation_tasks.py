@@ -51,7 +51,8 @@ async def _prepare_direct_llm_config(connection_config: Dict[str, Any], db) -> D
         return connection_config
 
 
-@celery_app.task(bind=True, name="invocation_task")
+@celery_app.task(bind=True, name="invocation_task",
+                 soft_time_limit=110 * 60, time_limit=115 * 60)
 def invocation_task(self, batch_id: str) -> Dict[str, Any]:
     """执行RAG系统调用批次
 
@@ -300,7 +301,7 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
             await db.commit()
 
             return {
-                "batch_id": batch_id,
+                "batch_id": str(batch_id),
                 "status": "completed",
                 "total": len(qa_list),
                 "completed": completed,

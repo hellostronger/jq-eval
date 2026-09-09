@@ -587,6 +587,10 @@ async def generate_dataset(
     # 检查数据集是否存在
     dataset = await get_or_404(db, Dataset, dataset_id, "数据集不存在")
 
+    # 防重复投递：已有生成任务在途时拒绝再次启动
+    if dataset.generate_task_status in ("PENDING", "PROGRESS"):
+        raise HTTPException(status_code=400, detail="该数据集已有生成任务进行中，请稍后再试")
+
     # 检查模型是否存在
     llm_result = await db.execute(select(Model).where(Model.id == data.llm_model_id))
     llm_model = llm_result.scalar_one_or_none()

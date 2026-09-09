@@ -42,7 +42,8 @@ class _LLMTextAdapter:
         return str(response)
 
 
-@celery_app.task(bind=True, name="training_data_eval_task")
+@celery_app.task(bind=True, name="training_data_eval_task",
+                 soft_time_limit=110 * 60, time_limit=115 * 60)
 def training_data_eval_task(self, eval_id: str) -> Dict[str, Any]:
     """执行训练数据评估任务
 

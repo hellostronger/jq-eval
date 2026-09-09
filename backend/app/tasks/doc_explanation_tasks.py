@@ -14,7 +14,8 @@ from sqlalchemy import select
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(bind=True, name="doc_explanation_eval_task")
+@celery_app.task(bind=True, name="doc_explanation_eval_task",
+                 soft_time_limit=110 * 60, time_limit=115 * 60)
 def doc_explanation_eval_task(self, eval_id: str) -> Dict[str, Any]:
     """执行文档解释评估任务"""
     return run_async(_run_doc_explanation_eval(self, UUID(eval_id)))

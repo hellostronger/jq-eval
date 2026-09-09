@@ -18,7 +18,8 @@ from app.services.metrics import MetricEngine, get_metric_engine, METRIC_REGISTR
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(bind=True, name="evaluation_task")
+@celery_app.task(bind=True, name="evaluation_task",
+                 soft_time_limit=110 * 60, time_limit=115 * 60)
 def evaluation_task(self, evaluation_id: str) -> Dict[str, Any]:
     """执行单个评估任务
 
