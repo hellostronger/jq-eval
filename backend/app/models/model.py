@@ -1,5 +1,6 @@
 # 模型配置表
-from sqlalchemy import Column, String, Text, Integer, Boolean
+from sqlalchemy import Column, String, Integer, Boolean
+from ..core.crypto import EncryptedText
 from ..core.db_types import JSONType
 from .base import BaseModel
 
@@ -13,7 +14,7 @@ class Model(BaseModel):
     provider = Column(String(100), nullable=True)  # openai/anthropic/local/custom
     model_name = Column(String(200), nullable=True)  # 模型名称，如 gpt-4o-mini
     endpoint = Column(String(500), nullable=True)  # API地址
-    api_key_encrypted = Column(Text, nullable=True)  # API密钥（加密存储）
+    api_key_encrypted = Column(EncryptedText, nullable=True)  # API密钥（Fernet 加密存储，读写透明）
     params = Column(JSONType, nullable=True)  # 参数配置，如 temperature, max_tokens
     is_default = Column(Boolean, default=False)
     status = Column(String(50), default="active")  # active/inactive

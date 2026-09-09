@@ -1,6 +1,13 @@
 # 应用配置
+from pathlib import Path
+
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+
+# 项目根目录（backend/app/core/config.py -> 上溯 4 级）；
+# env_file 必须绝对化：uvicorn 从 backend/ 启动而 README 把 .env 放项目根，
+# 相对路径会静默不加载，所有默认值直接生效
+_ROOT = Path(__file__).resolve().parents[3]
 
 
 class Settings(BaseSettings):
@@ -12,11 +19,15 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     APP_DEBUG: bool = True
     SECRET_KEY: str = "your-secret-key-change-in-production"
+    # API 密钥静态加密主密钥（Fernet）；留空则从 SECRET_KEY 派生。
+    # 生产部署务必设置独立值——SECRET_KEY 默认占位符派生的密钥可被任何读源码者重建
+    FIELD_ENCRYPTION_KEY: str = ""
     # CORS 允许来源（逗号分隔），"*" 仅用于开发
     ALLOWED_ORIGINS: str = "*"
 
-    # 数据库配置
-    POSTGRES_HOST: str = "101.43.25.101"
+    # 数据库配置（默认 localhost，配合 docker-compose 本地开发；
+    # 生产通过根目录 .env 覆盖，切勿把真实服务器地址写进代码默认值）
+    POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str = "jqeval"
     POSTGRES_USER: str = "jqeval"
@@ -27,7 +38,7 @@ class Settings(BaseSettings):
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
     # Redis配置
-    REDIS_HOST: str = "101.43.25.101"
+    REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     REDIS_PASSWORD: str = "jqeval123"
     REDIS_DB: int = 0
@@ -37,7 +48,7 @@ class Settings(BaseSettings):
         return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
     # MinIO配置
-    MINIO_HOST: str = "101.43.25.101"
+    MINIO_HOST: str = "localhost"
     MINIO_PORT: int = 9000
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin123"
@@ -45,7 +56,7 @@ class Settings(BaseSettings):
     MINIO_SECURE: bool = False
 
     # Milvus配置
-    MILVUS_HOST: str = "101.43.25.101"
+    MILVUS_HOST: str = "localhost"
     MILVUS_PORT: int = 19530
     MILVUS_COLLECTION_PREFIX: str = "jqeval"
 
@@ -76,7 +87,8 @@ class Settings(BaseSettings):
     VIBEAGENT_LLM_MAX_TOKENS: int = 4000
 
     class Config:
-        env_file = ".env"
+        env_file = str(_ROOT / ".env")
+        env_file_encoding = "utf-8"
         case_sensitive = True
 
 
