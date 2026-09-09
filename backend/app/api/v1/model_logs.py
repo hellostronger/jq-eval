@@ -68,7 +68,7 @@ class MultiModelCompareRequest(BaseModel):
 class ReplayResult(BaseModel):
     log_id: UUID
     original_response: Optional[str]
-    original_model_id: UUID
+    original_model_id: Optional[UUID] = None  # batch-replay 失败分支无法解析源模型，允许为空
     original_model_name: Optional[str]
     replay_model_id: UUID
     replay_model_name: Optional[str]

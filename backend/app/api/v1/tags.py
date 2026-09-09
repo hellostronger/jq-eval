@@ -156,6 +156,32 @@ async def update_tag(
     return TagResponse.model_validate(tag)
 
 
+@router.delete("/unbind")
+async def unbind_tag_from_entity(
+    entity_type: str,
+    entity_id: UUID,
+    tag_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """解除实体标签绑定"""
+    result = await db.execute(
+        select(EntityTag).where(
+            and_(
+                EntityTag.entity_type == entity_type,
+                EntityTag.entity_id == entity_id,
+                EntityTag.tag_id == tag_id
+            )
+        )
+    )
+    entity_tag = result.scalar_one_or_none()
+    if not entity_tag:
+        raise HTTPException(status_code=404, detail="标签绑定不存在")
+
+    await db.delete(entity_tag)
+    await db.commit()
+    return {"message": "标签绑定已解除"}
+
+
 @router.delete("/{tag_id}")
 async def delete_tag(
     tag_id: UUID,
@@ -218,32 +244,6 @@ async def bind_tag_to_entity(
         tag_id=entity_tag.tag_id,
         tag=TagResponse.model_validate(tag)
     )
-
-
-@router.delete("/unbind")
-async def unbind_tag_from_entity(
-    entity_type: str,
-    entity_id: UUID,
-    tag_id: UUID,
-    db: AsyncSession = Depends(get_db)
-):
-    """解除实体标签绑定"""
-    result = await db.execute(
-        select(EntityTag).where(
-            and_(
-                EntityTag.entity_type == entity_type,
-                EntityTag.entity_id == entity_id,
-                EntityTag.tag_id == tag_id
-            )
-        )
-    )
-    entity_tag = result.scalar_one_or_none()
-    if not entity_tag:
-        raise HTTPException(status_code=404, detail="标签绑定不存在")
-
-    await db.delete(entity_tag)
-    await db.commit()
-    return {"message": "标签绑定已解除"}
 
 
 @router.get("/entity/{entity_type}/{entity_id}", response_model=List[TagResponse])

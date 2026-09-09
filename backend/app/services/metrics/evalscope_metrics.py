@@ -1,4 +1,5 @@
 # EvalScope评估指标实现
+import asyncio
 from typing import Optional, List, Dict, Any
 from collections import Counter
 
@@ -225,10 +226,14 @@ class SemanticSimilarity(BaseMetric):
             return MetricResult(score=0.0, error=str(e))
 
     async def _get_embedding(self, text: Optional[str]) -> Optional[List[float]]:
-        """获取文本Embedding"""
+        """获取文本Embedding（LangChain Embeddings 接口：优先 aembed_query，降级同步 embed_query）"""
+        if not text:
+            return None
         try:
-            if hasattr(self.embedding_model, 'embed'):
-                return await self.embedding_model.embed(text)
+            if hasattr(self.embedding_model, 'aembed_query'):
+                return await self.embedding_model.aembed_query(text)
+            if hasattr(self.embedding_model, 'embed_query'):
+                return await asyncio.to_thread(self.embedding_model.embed_query, text)
             return None
         except Exception:
             return None

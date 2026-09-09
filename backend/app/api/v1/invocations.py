@@ -166,9 +166,12 @@ async def retry_invocation_batch(
 
     # 确定要重试的结果
     if data and data.result_ids:
-        # 重试指定的结果
+        # 重试指定的结果（必须属于本批次，否则会重跑他批结果并错计本批数量）
         results_to_retry = await db.execute(
-            select(InvocationResult).where(InvocationResult.id.in_(data.result_ids))
+            select(InvocationResult).where(
+                InvocationResult.id.in_(data.result_ids),
+                InvocationResult.batch_id == batch_id,
+            )
         )
         retry_list = results_to_retry.scalars().all()
     else:
@@ -209,7 +212,12 @@ async def retry_single_result(
     if batch.status == "running":
         raise HTTPException(status_code=400, detail="调用批次正在执行中，无法重试")
 
-    result = await db.execute(select(InvocationResult).where(InvocationResult.id == result_id))
+    result = await db.execute(
+        select(InvocationResult).where(
+            InvocationResult.id == result_id,
+            InvocationResult.batch_id == batch_id,
+        )
+    )
     inv_result = result.scalar_one_or_none()
     if not inv_result:
         raise HTTPException(status_code=404, detail="调用结果不存在")

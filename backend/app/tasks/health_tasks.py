@@ -1,6 +1,6 @@
 # 健康检查和清理任务
 from typing import Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from sqlalchemy import text
 
@@ -151,9 +151,11 @@ async def _run_cleanup(days: int) -> Dict[str, Any]:
             )
 
             # 删除temp桶中超过指定天数的对象
+            # MinIO SDK 返回的 last_modified 是 tz-aware，需与 aware 截止点比较
+            cutoff_aware = cutoff_date.replace(tzinfo=timezone.utc)
             objects_to_delete = []
             for obj in client.list_objects("temp", recursive=True):
-                if obj.last_modified and obj.last_modified < cutoff_date:
+                if obj.last_modified and obj.last_modified < cutoff_aware:
                     objects_to_delete.append(DeleteObject(obj.object_name))
 
             if objects_to_delete:

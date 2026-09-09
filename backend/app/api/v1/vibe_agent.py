@@ -98,13 +98,15 @@ async def create_session(request: CreateSessionRequest):
     # 启动引擎会话
     result = await engine.start_session(session_id, request.description)
 
-    # 更新数据库
+    # 更新数据库（必须重新查询绑定到当前 session，直接改上一个 session 的游离对象不会落库）
     async with AsyncSessionLocal() as db:
-        await db.execute(
+        db_result = await db.execute(
             select(VibeAgentSession).where(VibeAgentSession.id == session_id)
         )
-        db_session.collected_info = engine.get_session_state(session_id).to_dict()
-        await db.commit()
+        saved = db_result.scalar_one_or_none()
+        if saved:
+            saved.collected_info = engine.get_session_state(session_id).to_dict()
+            await db.commit()
 
     return {
         "session_id": session_id,
@@ -355,20 +357,24 @@ async def execute_workflow(workflow_id: str, request: ExecuteWorkflowRequest):
         }
         result = await engine.execute_workflow(workflow_id, request.input_data)
 
-        # 更新执行记录
+        # 更新执行记录（重新查询绑定到当前 session，游离对象上的赋值不会落库）
         async with AsyncSessionLocal() as db:
-            await db.execute(
+            exec_result = await db.execute(
                 select(VibeAgentExecution).where(VibeAgentExecution.id == execution_id)
             )
-            execution.status = result.get("status", "failed")
-            execution.output_data = result.get("result", {})
-            execution.error_message = result.get("error")
-            execution.execution_time = result.get("execution_time")
+            saved_exec = exec_result.scalar_one_or_none()
+            if saved_exec:
+                saved_exec.status = result.get("status", "failed")
+                saved_exec.output_data = result.get("result", {})
+                saved_exec.error_message = result.get("error")
+                saved_exec.execution_time = result.get("execution_time")
 
-            await db.execute(
+            wf_result = await db.execute(
                 select(VibeAgentWorkflow).where(VibeAgentWorkflow.id == workflow_id)
             )
-            workflow.status = "ready"
+            saved_wf = wf_result.scalar_one_or_none()
+            if saved_wf:
+                saved_wf.status = "ready"
             await db.commit()
 
         return {
@@ -381,11 +387,20 @@ async def execute_workflow(workflow_id: str, request: ExecuteWorkflowRequest):
     except Exception as e:
         logger.error(f"工作流执行失败 execution_id={execution_id}: {type(e).__name__}: {e}")
         async with AsyncSessionLocal() as db:
-            await db.execute(
+            exec_result = await db.execute(
                 select(VibeAgentExecution).where(VibeAgentExecution.id == execution_id)
             )
-            execution.status = "failed"
-            execution.error_message = str(e)
+            saved_exec = exec_result.scalar_one_or_none()
+            if saved_exec:
+                saved_exec.status = "failed"
+                saved_exec.error_message = str(e)
+
+            wf_result = await db.execute(
+                select(VibeAgentWorkflow).where(VibeAgentWorkflow.id == workflow_id)
+            )
+            saved_wf = wf_result.scalar_one_or_none()
+            if saved_wf:
+                saved_wf.status = "error"
             await db.commit()
 
         raise HTTPException(status_code=500, detail=str(e))
@@ -413,15 +428,20 @@ async def tune_node(workflow_id: str, request: TuneNodeRequest):
 
     result = await engine.tune_node(workflow_id, request.node_id, request.feedback)
 
-    # 更新数据库中的节点配置
+    # 更新数据库中的节点配置（重新查询绑定到当前 session，游离对象上的赋值不会落库）
     async with AsyncSessionLocal() as db:
         # 更新 workflow 中的节点
-        nodes = workflow.nodes
-        for i, node in enumerate(nodes):
-            if node.get("id") == request.node_id:
-                nodes[i]["config"] = result.get("updated_config", {})
-                break
-        workflow.nodes = nodes
+        wf_result = await db.execute(
+            select(VibeAgentWorkflow).where(VibeAgentWorkflow.id == workflow_id)
+        )
+        saved_wf = wf_result.scalar_one_or_none()
+        if saved_wf:
+            nodes = saved_wf.nodes
+            for i, node in enumerate(nodes):
+                if node.get("id") == request.node_id:
+                    nodes[i]["config"] = result.get("updated_config", {})
+                    break
+            saved_wf.nodes = nodes
 
         # 更新节点配置表
         node_config_result = await db.execute(

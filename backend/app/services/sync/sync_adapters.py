@@ -209,7 +209,7 @@ class FastGPTSyncAdapter(BaseSyncAdapter):
             filter_query["createTime"] = {"$gt": config.since}
 
         cursor = self._db[table].find(filter_query)
-        for doc in cursor:
+        async for doc in cursor:
             yield doc
 
     def get_default_mappings(self) -> Dict[str, List[FieldMapping]]:

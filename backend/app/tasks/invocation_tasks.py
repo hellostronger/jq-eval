@@ -114,83 +114,90 @@ async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, 
         success_count = 0
         fail_count = 0
 
-        for inv_result in retry_results:
-            try:
-                # 删除旧结果
-                await db.delete(inv_result)
-                await db.flush()
+        try:
+            for inv_result in retry_results:
+                try:
+                    # 删除旧结果
+                    await db.delete(inv_result)
+                    await db.flush()
 
-                # 获取原始问题
-                qa_record = qa_map.get(inv_result.qa_record_id)
-                if not qa_record:
+                    # 获取原始问题
+                    qa_record = qa_map.get(inv_result.qa_record_id)
+                    if not qa_record:
+                        fail_count += 1
+                        continue
+
+                    start_time = time.time()
+                    response = await adapter.query(qa_record.question)
+                    latency = time.time() - start_time
+
+                    # 从 RAGResponse 对象获取数据
+                    answer = response.answer or ""
+                    contexts = response.contexts or []
+                    retrieval_ids = response.retrieval_ids or []
+
+                    # 创建新结果
+                    new_result = InvocationResult(
+                        batch_id=batch_id,
+                        qa_record_id=qa_record.id,
+                        rag_system_id=rag_system.id,
+                        question=qa_record.question,
+                        answer=answer,
+                        contexts=contexts,
+                        retrieval_ids=retrieval_ids,
+                        latency=latency,
+                        status="success"
+                    )
+                    db.add(new_result)
+                    success_count += 1
+
+                except Exception as e:
+                    logger.error(f"重试调用 {inv_result.id} 失败: {e}")
+                    # 创建失败结果
+                    new_result = InvocationResult(
+                        batch_id=batch_id,
+                        qa_record_id=inv_result.qa_record_id,
+                        rag_system_id=rag_system.id,
+                        question=inv_result.question,
+                        status="failed",
+                        error=str(e)
+                    )
+                    db.add(new_result)
                     fail_count += 1
-                    continue
 
-                start_time = time.time()
-                response = await adapter.query(qa_record.question)
-                latency = time.time() - start_time
+                await db.commit()
 
-                # 从 RAGResponse 对象获取数据
-                answer = response.answer or ""
-                contexts = response.contexts or []
-                retrieval_ids = response.retrieval_ids or []
-
-                # 创建新结果
-                new_result = InvocationResult(
-                    batch_id=batch_id,
-                    qa_record_id=qa_record.id,
-                    rag_system_id=rag_system.id,
-                    question=qa_record.question,
-                    answer=answer,
-                    contexts=contexts,
-                    retrieval_ids=retrieval_ids,
-                    latency=latency,
-                    status="success"
-                )
-                db.add(new_result)
-                success_count += 1
-
-            except Exception as e:
-                logger.error(f"重试调用 {inv_result.id} 失败: {e}")
-                # 创建失败结果
-                new_result = InvocationResult(
-                    batch_id=batch_id,
-                    qa_record_id=inv_result.qa_record_id,
-                    rag_system_id=rag_system.id,
-                    question=inv_result.question,
-                    status="failed",
-                    error=str(e)
-                )
-                db.add(new_result)
-                fail_count += 1
+            # 计数不再做增量加减（重试成功项会造成重复计数），直接按结果表重算
+            counts = await db.execute(
+                select(InvocationResult.status, func.count(InvocationResult.id)).where(
+                    InvocationResult.batch_id == batch_id
+                ).group_by(InvocationResult.status)
+            )
+            by_status = dict(counts.all())
+            batch.completed_count = by_status.get("success", 0)
+            batch.failed_count = by_status.get("failed", 0)
+            batch.status = "completed"
+            batch.completed_at = datetime.utcnow()
 
             await db.commit()
 
-        # 更新批次统计
-        batch.completed_count += success_count
-        batch.failed_count = batch.failed_count - len(retry_results) + fail_count
+            return {
+                "batch_id": str(batch_id),
+                "retried": len(retry_results),
+                "success": success_count,
+                "failed": fail_count
+            }
 
-        # 检查是否所有失败都已重试完成
-        remaining_failed = await db.execute(
-            select(func.count(InvocationResult.id)).where(
-                InvocationResult.batch_id == batch_id,
-                InvocationResult.status == "failed"
-            )
-        )
-        if remaining_failed.scalar() == 0 and batch.completed_count == batch.total_count:
-            batch.status = "completed"
-            batch.completed_at = datetime.utcnow()
-        else:
-            batch.status = "completed"  # 重试完成也算完成，只是可能还有失败
-
-        await db.commit()
-
-        return {
-            "batch_id": str(batch_id),
-            "retried": len(retry_results),
-            "success": success_count,
-            "failed": fail_count
-        }
+        except Exception as e:
+            # 与 _run_invocation 对齐：任何未预期异常都必须把批次标记为失败，
+            # 否则批次永久停留在 running
+            logger.error(f"重试任务异常 batch_id={batch_id}: {e}")
+            await db.rollback()
+            batch = await db.get(InvocationBatch, batch_id)
+            if batch:
+                batch.status = "failed"
+                await db.commit()
+            raise
 
 
 async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:

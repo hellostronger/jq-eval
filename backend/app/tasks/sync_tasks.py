@@ -1,6 +1,7 @@
 # 数据同步相关异步任务
 from typing import Dict, Any
 from datetime import datetime
+from uuid import UUID
 import logging
 import json
 from sqlalchemy import text
@@ -17,7 +18,10 @@ from app.services.sync.base import SyncConfig
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(bind=True, name="data_sync_task")
+# 数据同步/导入可能超过全局 30 分钟硬超时；task_acks_late 下超时 SIGKILL 会触发
+# 消息重投递、任务从头重跑（无幂等键会重复插入）。与 evaluation_task 同样覆写时限。
+@celery_app.task(bind=True, name="data_sync_task",
+                 soft_time_limit=110 * 60, time_limit=115 * 60)
 def data_sync_task(self, sync_task_id: str) -> Dict[str, Any]:
     """执行数据同步任务
 
@@ -28,7 +32,7 @@ def data_sync_task(self, sync_task_id: str) -> Dict[str, Any]:
     return run_async(_run_data_sync(self, UUID(str(sync_task_id))))
 
 
-async def _run_data_sync(task, sync_task_id: int) -> Dict[str, Any]:
+async def _run_data_sync(task, sync_task_id: UUID) -> Dict[str, Any]:
     """异步执行数据同步"""
     async with get_db_context() as db:
         # 获取同步任务配置
@@ -86,6 +90,7 @@ async def _run_data_sync(task, sync_task_id: int) -> Dict[str, Any]:
             sync_config = SyncConfig(
                 batch_size=100,
                 incremental=sync_task.task_type == "incremental",
+                since=data_source.last_sync_at,  # 增量同步的过滤起点，缺失会导致每次全量重拉
                 target_types=json.loads(sync_task.target_type) if sync_task.target_type else ["chunks", "qa_records"],
             )
 
@@ -207,14 +212,20 @@ async def _run_data_sync(task, sync_task_id: int) -> Dict[str, Any]:
                     await adapter.disconnect()
                 except Exception:
                     logger.warning(f"同步任务 {sync_task_id} 断开数据源连接失败")
-            sync_task.status = SyncTaskStatus.FAILED
-            sync_task.log = {"error": str(e), **(sync_task.log or {})}
-            sync_task.completed_at = datetime.utcnow()
-            await db.commit()
+            # 异常可能源自 flush/commit，session 处于 needs-rollback 状态；
+            # 不回滚则下面的 commit 抛 PendingRollbackError，任务永远停留在 RUNNING
+            await db.rollback()
+            sync_task = await db.get(SyncTask, sync_task_id)
+            if sync_task:
+                sync_task.status = SyncTaskStatus.FAILED
+                sync_task.log = {"error": str(e), **(sync_task.log or {})}
+                sync_task.completed_at = datetime.utcnow()
+                await db.commit()
             return {"error": str(e)}
 
 
-@celery_app.task(bind=True, name="data_import_task")
+@celery_app.task(bind=True, name="data_import_task",
+                 soft_time_limit=110 * 60, time_limit=115 * 60)
 def data_import_task(self, dataset_id: int, file_path: str, import_type: str = "qa") -> Dict[str, Any]:
     """数据导入任务"""
     return run_async(_run_data_import(self, dataset_id, file_path, import_type))

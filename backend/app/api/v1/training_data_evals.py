@@ -180,6 +180,80 @@ async def list_training_data_evals(
     return result.scalars().all()
 
 
+@router.get("/metrics/available")
+async def get_available_metrics(
+    data_type: Optional[str] = None
+):
+    """获取可用的训练数据评估指标"""
+    metrics = []
+    for name, metric_class in TRAINING_DATA_METRIC_REGISTRY.items():
+        if data_type is None or data_type in metric_class.data_types:
+            metrics.append(metric_class.get_info(metric_class()))
+    return {"metrics": metrics}
+
+
+@router.get("/templates")
+async def get_training_data_templates(
+    data_type: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """获取训练数据评估模板"""
+    query = select(TrainingDataTemplate).where(TrainingDataTemplate.is_enabled == True)
+    if data_type:
+        query = query.where(TrainingDataTemplate.data_type == data_type)
+    result = await db.execute(query.order_by(TrainingDataTemplate.sort_order))
+    templates = result.scalars().all()
+    return {
+        "templates": [
+            {
+                "id": str(t.id),
+                "name": t.name,
+                "display_name": t.display_name,
+                "data_type": t.data_type,
+                "description": t.description,
+                "metric_configs": t.metric_configs,
+                "default_thresholds": t.default_thresholds,
+                "is_builtin": t.is_builtin,
+            }
+            for t in templates
+        ]
+    }
+
+
+@router.get("/quality-rules")
+async def get_quality_rules(
+    data_type: Optional[str] = None,
+    rule_type: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """获取质量检查规则"""
+    query = select(TrainingQualityChecker).where(TrainingQualityChecker.is_enabled == True)
+    if data_type:
+        query = query.where(TrainingQualityChecker.data_types.contains([data_type]))
+    if rule_type:
+        query = query.where(TrainingQualityChecker.rule_type == rule_type)
+    result = await db.execute(query)
+    rules = result.scalars().all()
+    return {
+        "rules": [
+            {
+                "id": str(r.id),
+                "name": r.name,
+                "description": r.description,
+                "data_types": r.data_types,
+                "rule_type": r.rule_type,
+                "config": r.config,
+                "threshold_min": r.threshold_min,
+                "threshold_max": r.threshold_max,
+                "severity": r.severity,
+                "auto_fixable": r.auto_fixable,
+                "is_builtin": r.is_builtin,
+            }
+            for r in rules
+        ]
+    }
+
+
 @router.get("/{eval_id}", response_model=TrainingDataEvalResponse)
 async def get_training_data_eval(
     eval_id: UUID,
@@ -301,79 +375,6 @@ async def get_training_data_eval_results(
         ]
     }
 
-
-@router.get("/metrics/available")
-async def get_available_metrics(
-    data_type: Optional[str] = None
-):
-    """获取可用的训练数据评估指标"""
-    metrics = []
-    for name, metric_class in TRAINING_DATA_METRIC_REGISTRY.items():
-        if data_type is None or data_type in metric_class.data_types:
-            metrics.append(metric_class.get_info(metric_class()))
-    return {"metrics": metrics}
-
-
-@router.get("/templates")
-async def get_training_data_templates(
-    data_type: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
-):
-    """获取训练数据评估模板"""
-    query = select(TrainingDataTemplate).where(TrainingDataTemplate.is_enabled == True)
-    if data_type:
-        query = query.where(TrainingDataTemplate.data_type == data_type)
-    result = await db.execute(query.order_by(TrainingDataTemplate.sort_order))
-    templates = result.scalars().all()
-    return {
-        "templates": [
-            {
-                "id": str(t.id),
-                "name": t.name,
-                "display_name": t.display_name,
-                "data_type": t.data_type,
-                "description": t.description,
-                "metric_configs": t.metric_configs,
-                "default_thresholds": t.default_thresholds,
-                "is_builtin": t.is_builtin,
-            }
-            for t in templates
-        ]
-    }
-
-
-@router.get("/quality-rules")
-async def get_quality_rules(
-    data_type: Optional[str] = None,
-    rule_type: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
-):
-    """获取质量检查规则"""
-    query = select(TrainingQualityChecker).where(TrainingQualityChecker.is_enabled == True)
-    if data_type:
-        query = query.where(TrainingQualityChecker.data_types.contains([data_type]))
-    if rule_type:
-        query = query.where(TrainingQualityChecker.rule_type == rule_type)
-    result = await db.execute(query)
-    rules = result.scalars().all()
-    return {
-        "rules": [
-            {
-                "id": str(r.id),
-                "name": r.name,
-                "description": r.description,
-                "data_types": r.data_types,
-                "rule_type": r.rule_type,
-                "config": r.config,
-                "threshold_min": r.threshold_min,
-                "threshold_max": r.threshold_max,
-                "severity": r.severity,
-                "auto_fixable": r.auto_fixable,
-                "is_builtin": r.is_builtin,
-            }
-            for r in rules
-        ]
-    }
 
 
 @router.get("/{eval_id}/export")
