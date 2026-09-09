@@ -8,14 +8,14 @@ from pydantic import BaseModel
 
 from ...core.database import get_db
 from ...core.utc_datetime import UTCDatetime
-from ...models import DocExplanation, Document
+from ...models import DocExplanation, Document, Dataset
 from ...services.documents import (
     extract_text_from_upload,
     create_document,
     count_chunks,
     chunk_counts_for,
 )
-from ._common import validate_upload_size
+from ._common import validate_upload_size, get_or_404
 
 router = APIRouter()
 
@@ -105,6 +105,10 @@ async def upload_document(
 
     if not content.strip():
         raise HTTPException(status_code=400, detail="文档内容为空")
+
+    # 校验数据集存在，否则插入触发 FK 违例变成 500
+    if dataset_id:
+        await get_or_404(db, Dataset, dataset_id, "数据集不存在")
 
     document = await create_document(
         db,

@@ -98,15 +98,22 @@ async def _run_data_sync(task, sync_task_id: UUID) -> Dict[str, Any]:
             total_synced = 0
             target_types = sync_config.target_types or ["chunks", "qa_records"]
 
-            # 获取字段映射
+            # 获取字段映射（目标类型缺映射时立即报错——否则循环内逐条
+            # transformed.get(...) 全为空、静默导入 0 条却上报 completed）
             mappings = adapter.get_default_mappings()
+            for tt in target_types:
+                if not mappings.get(tt):
+                    raise ValueError(
+                        f"{data_source.system_type} 数据源未配置 {tt} 的字段映射，无法同步该类型"
+                    )
 
-            # 同步chunks（Chunk 挂在 Document 下：每个来源分片建一个同步 Document）
+            # 同步chunks
             if "chunks" in target_types:
                 chunk_mapping = mappings.get("chunks", [])
                 table_name = _get_source_table(data_source.system_type, "chunks")
 
                 count = 0
+                fetched = 0
                 document = Document(
                     title=f"{data_source.name}_chunks",
                     source_type="sync",
@@ -117,6 +124,7 @@ async def _run_data_sync(task, sync_task_id: UUID) -> Dict[str, Any]:
 
                 # fetch_data 是 async generator，必须 async for（await 会 TypeError）
                 async for raw_data in adapter.fetch_data(table_name, sync_config):
+                    fetched += 1
                     # 转换数据
                     transformed = adapter.transform_data(raw_data, chunk_mapping, "chunks")
 
@@ -141,6 +149,13 @@ async def _run_data_sync(task, sync_task_id: UUID) -> Dict[str, Any]:
                         )
 
                 await db.commit()
+                # 拉到了源数据却一条都没转换成功：映射字段与源数据结构不符，
+                # 必须以失败结束——静默 0 条 completed 会掩盖配置错误
+                if fetched and not count:
+                    raise ValueError(
+                        f"从 {table_name} 读取了 {fetched} 行，但没有一行解析出有效 content，"
+                        f"请检查 {data_source.system_type} 的 chunks 字段映射"
+                    )
                 total_synced += count
 
             # 同步QA记录
@@ -149,7 +164,9 @@ async def _run_data_sync(task, sync_task_id: UUID) -> Dict[str, Any]:
                 table_name = _get_source_table(data_source.system_type, "qa_records")
 
                 count = 0
+                fetched = 0
                 async for raw_data in adapter.fetch_data(table_name, sync_config):
+                    fetched += 1
                     # 转换数据
                     transformed = adapter.transform_data(raw_data, qa_mapping, "qa_records")
 
@@ -176,6 +193,11 @@ async def _run_data_sync(task, sync_task_id: UUID) -> Dict[str, Any]:
                         )
 
                 await db.commit()
+                if fetched and not count:
+                    raise ValueError(
+                        f"从 {table_name} 读取了 {fetched} 行，但没有一行解析出有效 question，"
+                        f"请检查 {data_source.system_type} 的 qa_records 字段映射"
+                    )
                 total_synced += count
 
             # 更新数据集记录数

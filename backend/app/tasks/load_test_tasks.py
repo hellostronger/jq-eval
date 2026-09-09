@@ -447,14 +447,18 @@ async def _execute_single_test(
                     "success": response.success and (latency_threshold is None or actual_latency <= latency_threshold),
                     "latency": actual_latency,
                     "full_latency": latency,
-                    "error": response.error
+                    "error": response.error,
+                    # _summarize_errors 按此字段区分"无首token输出"与"延迟超阈值"，
+                    # 不带上则恒为 None，所有超阈样本被误分类
+                    "first_token_latency": response.first_token_latency if is_first_token else None,
                 }
             except Exception as e:
                 return {
                     "success": False,
                     "latency": 0,
                     "full_latency": 0,
-                    "error": str(e)
+                    "error": str(e),
+                    "first_token_latency": None,
                 }
 
     # 记录整体开始时间

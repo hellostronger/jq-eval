@@ -274,7 +274,7 @@ async def get_stats(
         "logs_by_model": logs_by_model,
         "logs_by_type": logs_by_type,
         "logs_by_status": logs_by_status,
-        "avg_latency_ms": float(avg_latency_ms) if avg_latency_ms else None,
+        "avg_latency_ms": float(avg_latency_ms) if avg_latency_ms is not None else None,
         "replay_count": replay_count,
         "token_usage": token_usage,
         "logs_with_usage": logs_with_usage,

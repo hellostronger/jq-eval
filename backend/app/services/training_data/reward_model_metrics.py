@@ -64,6 +64,7 @@ class RewardModelPairQualityMetric(BaseTrainingDataMetric):
                     score = 0.6
             else:
                 # 基本长度和重叠度检查
+                parts = []
                 score = self._basic_quality_check(chosen, rejected)
 
             suggestions = []
