@@ -136,16 +136,18 @@ class DifyAdapter(BaseRAGAdapter):
                                     if first_token_time is None and data.get("answer"):
                                         first_token_time = time.time() - start_time
 
+                                # retriever_resources 只在 message_end 帧的 metadata 里，
+                                # 必须先收集再 break，否则引用上下文恒为空、检索指标静默失效
+                                if "metadata" in data and "retriever_resources" in data["metadata"]:
+                                    for resource in data["metadata"]["retriever_resources"]:
+                                        contexts.append(resource.get("content", ""))
+                                        retrieval_ids.append(resource.get("dataset_id", ""))
+
                                 if event == "message_end":
                                     break
 
                                 if "answer" in data and data["answer"]:
                                     answer_chunks.append(data["answer"])
-
-                                if "metadata" in data and "retriever_resources" in data["metadata"]:
-                                    for resource in data["metadata"]["retriever_resources"]:
-                                        contexts.append(resource.get("content", ""))
-                                        retrieval_ids.append(resource.get("dataset_id", ""))
                             except json.JSONDecodeError:
                                 continue
 

@@ -18,9 +18,18 @@ RAW_REQUEST_MAX_LEN = 16000  # 原始请求体截断上限，防止超大请求�
 
 
 def truncate(value: Any, max_len: int = RAW_REQUEST_MAX_LEN) -> Any:
-    """截断过长的内容"""
-    if isinstance(value, str) and len(value) > max_len:
-        return value[:max_len] + "...[truncated]"
+    """截断过长的内容。
+
+    raw_request 等实际传入 dict/list，必须递归进入截断字符串叶子
+    （base64 图片、长对话内容都会藏在嵌套结构里）——只对顶层 str 生效
+    等于对 dict 完全失效，日志体积上限形同虚设。
+    """
+    if isinstance(value, str):
+        return value[:max_len] + "...[truncated]" if len(value) > max_len else value
+    if isinstance(value, dict):
+        return {k: truncate(v, max_len) for k, v in value.items()}
+    if isinstance(value, list):
+        return [truncate(v, max_len) for v in value]
     return value
 
 

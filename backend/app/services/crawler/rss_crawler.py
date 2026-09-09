@@ -78,6 +78,18 @@ def _cleanup_element(elem) -> None:
         tag.decompose()
 
 
+async def _fetch_feed(url: str):
+    """用 httpx（30s 超时 + 浏览器 UA + 重定向控制）取回 feed 字节再解析。
+
+    直接 feedparser.parse(url) 会在 async 方法里走无超时的同步 urllib：
+    站点挂起时事件循环/Celery worker 被无限阻塞，且无 UA 大量站点直接 403。
+    """
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=DEFAULT_HEADERS) as client:
+        response = await client.get(url)
+    response.raise_for_status()
+    return await asyncio.to_thread(feedparser.parse, response.content)
+
+
 async def _get_page_text(client: "httpx.AsyncClient", url: str) -> Optional[str]:
     """请求页面，带UA失败时用裸头重试（部分站点对伪造UA的指纹校验更严）"""
     response = await client.get(url)
@@ -191,8 +203,8 @@ class RSSCrawler(BaseCrawler):
             return CrawlResult(errors=[{"error": "缺少RSS URL"}])
 
         try:
-            # 解析RSS
-            feed = feedparser.parse(url)
+            # 解析RSS（httpx 取回 + 线程解析，避免 async 中无超时同步 IO）
+            feed = await _fetch_feed(url)
 
             if feed.bozo and feed.bozo_exception:
                 logger.warning(f"RSS解析警告: {feed.bozo_exception}")
@@ -331,7 +343,7 @@ class RSSCrawler(BaseCrawler):
             return {"success": False, "error": "缺少RSS URL"}
 
         try:
-            feed = feedparser.parse(url)
+            feed = await _fetch_feed(url)
             if feed.bozo and feed.bozo_exception:
                 return {
                     "success": True,

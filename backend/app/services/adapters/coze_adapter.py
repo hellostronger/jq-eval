@@ -142,23 +142,30 @@ class CozeAdapter(BaseRAGAdapter):
                     contexts = []
 
                     async for line in response.aiter_lines():
-                        if line.strip():
-                            try:
-                                data = json.loads(line)
-                                # Coze流式响应处理
-                                event = data.get("event")
-                                if event == "message":
-                                    msg_data = data.get("data", {})
-                                    if msg_data.get("type") == "answer":
-                                        content = msg_data.get("content", "")
-                                        if content:
-                                            if first_token_time is None:
-                                                first_token_time = time.time() - start_time
-                                            answer_chunks.append(content)
-                                elif event == "done":
-                                    break
-                            except json.JSONDecodeError:
-                                continue
+                        # 标准 SSE 帧为 "data:{...}"，必须先剥前缀再解析；
+                        # 直接 json.loads(整行) 必然抛错被吞，答案恒为空
+                        line = line.strip()
+                        if not line or not line.startswith("data:"):
+                            continue
+                        payload_str = line[5:].strip()
+                        if payload_str == "[DONE]":
+                            break
+                        try:
+                            data = json.loads(payload_str)
+                            # Coze流式响应处理
+                            event = data.get("event")
+                            if event == "message":
+                                msg_data = data.get("data", {})
+                                if msg_data.get("type") == "answer":
+                                    content = msg_data.get("content", "")
+                                    if content:
+                                        if first_token_time is None:
+                                            first_token_time = time.time() - start_time
+                                        answer_chunks.append(content)
+                            elif event == "done":
+                                break
+                        except json.JSONDecodeError:
+                            continue
 
                     response_time = time.time() - start_time
                     answer = "".join(answer_chunks)

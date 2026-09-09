@@ -115,8 +115,12 @@ class WorkflowExecutor:
             # 使用 AsyncSandbox 连接远程沙箱
             sandbox = AsyncSandbox(base_url=self.sandbox_url)
 
-            # 执行代码
-            result = await sandbox.jupyter.execute_code(code=full_code)
+            # 远程执行同样受 self.timeout 约束：沙箱挂死时不能让会话无限等待
+            # （外层 except asyncio.TimeoutError 依赖这里真的抛出）
+            result = await asyncio.wait_for(
+                sandbox.jupyter.execute_code(code=full_code),
+                timeout=self.timeout,
+            )
 
             if result.data and result.data.outputs:
                 output = result.data.outputs[0].get("text", "{}")
@@ -127,6 +131,9 @@ class WorkflowExecutor:
 
             return {"status": "error", "error": "No output from sandbox"}
 
+        except asyncio.TimeoutError:
+            # 上抛给 execute() 统一记 timeout 状态，不能被下方 Exception 吞掉
+            raise
         except Exception as e:
             return {"status": "error", "error": f"Remote sandbox error: {str(e)}"}
 
@@ -261,10 +268,15 @@ except Exception as e:
 
             exec_result = await self.execute(python_code, input_data)
 
-            passed = True
-            if expected and exec_result.get("status") == "success":
+            # 执行失败/超时绝不判通过；有期望值时还需比对结果
+            status = exec_result.get("status")
+            if status != "success":
+                passed = False
+            elif expected:
                 actual = exec_result.get("result")
                 passed = self._compare_results(expected, actual)
+            else:
+                passed = True
 
             results.append({
                 "input": test_case.get("input"),
@@ -288,7 +300,9 @@ except Exception as e:
             return True
 
         if isinstance(expected, dict) and isinstance(actual, dict):
-            return all(actual.get(k) == v for k, v in expected.items() if k in actual)
+            # 期望键必须全部存在且相等——只比对 "k in actual" 会让
+            # 完全缺失所有期望键的 actual 也判为通过
+            return all(k in actual and actual[k] == v for k, v in expected.items())
 
         return str(expected) == str(actual)
 

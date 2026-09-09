@@ -242,6 +242,19 @@ def _anthropic_tools_to_internal(tools: Optional[List[Dict]]) -> Optional[List[D
     ]
 
 
+def _openai_tool_choice_to_internal(tool_choice: Optional[Any]) -> Optional[Any]:
+    """openai tool_choice -> 内部格式（auto/none/required/{"name":x}）
+
+    openai 指定函数形式 {"type":"function","function":{"name":x}} 不归一化的话，
+    出站转换器按顶层 "name" 键判断全部失配，强制调用静默退化为 auto。
+    """
+    if isinstance(tool_choice, dict) and tool_choice.get("type") == "function":
+        name = (tool_choice.get("function") or {}).get("name")
+        if name:
+            return {"name": name}
+    return tool_choice
+
+
 def _anthropic_tool_choice_to_internal(tool_choice: Optional[Any]) -> Optional[Any]:
     """anthropic tool_choice -> 内部格式"""
     if tool_choice is None:
@@ -347,7 +360,7 @@ def openai_request_to_internal(body: Dict[str, Any]) -> InternalRequest:
         max_tokens=body.get("max_tokens") or body.get("max_completion_tokens"),
         stop=stop,
         tools=tools,
-        tool_choice=body.get("tool_choice"),
+        tool_choice=_openai_tool_choice_to_internal(body.get("tool_choice")),
         stream=bool(body.get("stream", False)),
         extra=extra,
     )
@@ -499,6 +512,26 @@ def internal_to_openai_call_body(req: InternalRequest, model_name: str) -> Dict[
     return body
 
 
+def _merge_adjacent_roles(messages: List[Dict]) -> List[Dict]:
+    """合并 Anthropic 出站中相邻同角色消息（角色交替约束）。
+
+    content 统一为块数组后拼接；tool_result 与 user 文本都属 user 角色，
+    并行工具调用的多条 tool 消息因此能合并进同一条 user。
+    """
+    merged: List[Dict] = []
+    for msg in messages:
+        blocks = (
+            [{"type": "text", "text": msg["content"]}]
+            if isinstance(msg["content"], str)
+            else list(msg["content"])
+        )
+        if merged and merged[-1]["role"] == msg["role"]:
+            merged[-1]["content"].extend(blocks)
+        else:
+            merged.append({"role": msg["role"], "content": blocks})
+    return merged
+
+
 def internal_to_anthropic_call_body(req: InternalRequest, model_name: str,
                                     default_max_tokens: int = 2048) -> Dict[str, Any]:
     """InternalRequest -> Anthropic /v1/messages 出站请求体"""
@@ -532,6 +565,10 @@ def internal_to_anthropic_call_body(req: InternalRequest, model_name: str,
         if not blocks:
             blocks.append({"type": "text", "text": ""})
         messages.append({"role": m.role, "content": blocks})
+
+    # Anthropic 强制相邻消息角色交替；并行工具调用（多条 tool 结果）或
+    # openai 允许的连续同角色消息在出站时必须合并，否则上游直接 400
+    messages = _merge_adjacent_roles(messages)
 
     body: Dict[str, Any] = {
         "model": model_name,

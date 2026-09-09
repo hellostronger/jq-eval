@@ -24,10 +24,17 @@ class MinIOService:
             secret_key=settings.MINIO_SECRET_KEY,
             secure=settings.MINIO_SECURE
         )
-        self._ensure_buckets()
+        self._buckets_ready = False
+        self.ensure_buckets()
 
-    def _ensure_buckets(self):
-        """确保必要的bucket存在"""
+    def ensure_buckets(self) -> None:
+        """确保必要的bucket存在（幂等；未就绪时后续调用会重试）
+
+        MinIO 未就绪时 bucket_exists 抛 urllib3 连接级异常而非 S3Error，
+        构造器在模块导入时执行——不吞掉会让整个应用启动失败。
+        """
+        if self._buckets_ready:
+            return
         buckets = [
             "datasets",      # 数据集文件（CSV, JSON, Excel）
             "documents",     # 文档文件
@@ -43,6 +50,10 @@ class MinIOService:
                     logger.info(f"Created bucket: {bucket}")
             except S3Error as e:
                 logger.error(f"Error creating bucket {bucket}: {e}")
+            except Exception as e:
+                logger.warning(f"MinIO 暂不可达（{type(e).__name__}），bucket 检查延后重试: {e}")
+                return
+        self._buckets_ready = True
 
     async def upload_file(
         self,
@@ -96,9 +107,12 @@ class MinIOService:
         """下载文件"""
         try:
             response = self.client.get_object(bucket, object_name)
-            data = response.read()
-            response.close()
-            response.release_conn()
+            try:
+                data = response.read()
+            finally:
+                # 读流中途异常也要归还连接，否则 urllib3 连接泄漏
+                response.close()
+                response.release_conn()
 
             return {
                 "success": True,
@@ -296,5 +310,6 @@ minio_service = MinIOService()
 
 
 def get_minio_service() -> MinIOService:
-    """获取MinIO服务实例"""
+    """获取MinIO服务实例（使用前补齐启动时未就绪的 bucket）"""
+    minio_service.ensure_buckets()
     return minio_service
