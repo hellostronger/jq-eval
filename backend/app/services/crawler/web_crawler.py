@@ -164,7 +164,8 @@ class WebCrawler(BaseCrawler):
                 dt = datetime.strptime(time_text, fmt)
                 # 如果没有年份，使用当前年份
                 if dt.year == 1900:
-                    dt = dt.replace(year=datetime.now().year)
+                    # 全库时间统一 UTC，补年也用 utcnow 保持一致
+                    dt = dt.replace(year=datetime.utcnow().year)
                 return dt
             except ValueError:
                 continue
