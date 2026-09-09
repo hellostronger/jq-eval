@@ -7,6 +7,7 @@ from sqlalchemy import text, select
 from uuid import UUID
 
 from app.core.celery_app import celery_app
+from app.core.exceptions import TaskCancelled
 from app.tasks._common import run_async, make_progress_callback, mark_task_failed
 from app.core.database import get_db_context
 from app.models.evaluation import Evaluation, EvaluationStatus, EvalResult
@@ -161,10 +162,19 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
             # 执行评估
             progress_callback = make_progress_callback(task)
 
+            async def _check_cancel():
+                # 协作式取消：批次边界重读取消标志（独立短查询，不依赖当前事务对象）
+                flag = await db.execute(
+                    select(Evaluation.cancel_requested).where(Evaluation.id == evaluation_id)
+                )
+                if flag.scalar():
+                    raise TaskCancelled()
+
             results = await engine.evaluate_batch(
                 qa_records=eval_data,
                 batch_size=evaluation.batch_size or 10,
-                progress_callback=progress_callback
+                progress_callback=progress_callback,
+                check_cancel=_check_cancel,
             )
 
             # 保存结果 - 将 MetricResult 转换成字典
@@ -199,6 +209,20 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
                 "total_records": len(qa_list),
                 "summary": summary
             }
+
+        except TaskCancelled:
+            # 用户协作式取消：丢弃未落库的部分批次结果（结果只在全部完成后保存），
+            # 状态标记 cancelled 并清除取消标志，供重试
+            logger.info(f"评估任务 {evaluation_id} 已被用户取消")
+            await db.rollback()
+            evaluation = await db.get(Evaluation, evaluation_id)
+            if evaluation:
+                evaluation.status = EvaluationStatus.CANCELLED
+                evaluation.error = "任务已被用户取消"
+                evaluation.cancel_requested = False
+                evaluation.completed_at = datetime.utcnow()
+                await db.commit()
+            return {"evaluation_id": evaluation_id, "status": "cancelled"}
 
         except Exception as e:
             await mark_task_failed(db, Evaluation, evaluation_id, str(e), logger)

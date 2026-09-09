@@ -92,14 +92,22 @@ class MetricEngine:
         self,
         qa_records: List[Dict[str, Any]],
         batch_size: int = 10,
-        progress_callback=None
+        progress_callback=None,
+        check_cancel=None,
     ) -> List[Dict[str, MetricResult]]:
-        """批量评估"""
+        """批量评估
+
+        check_cancel: 可选的异步回调，在每个批次边界被调用；
+        检测到取消时抛 TaskCancelled（协作式取消，避免长任务只能 SIGKILL）。
+        """
         results = []
         total = len(qa_records)
 
         # 分批处理
         for i in range(0, total, batch_size):
+            if check_cancel:
+                await check_cancel()
+
             batch = qa_records[i:i + batch_size]
 
             # 并行处理一批

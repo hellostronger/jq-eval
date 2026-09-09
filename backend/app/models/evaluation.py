@@ -12,6 +12,7 @@ class EvaluationStatus(str, enum.Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class Evaluation(BaseModel):
@@ -36,9 +37,12 @@ class Evaluation(BaseModel):
     batch_size = Column(Integer, default=10)
 
     # 状态
-    status = Column(String(50), default="pending")  # pending/running/completed/failed
+    status = Column(String(50), default="pending")  # pending/running/completed/failed/cancelled
     progress = Column(Integer, default=0)
     error = Column(Text, nullable=True)
+    # 协作式取消标志：用户取消后置位，worker 在批次边界检查并停止，
+    # 修复"假取消"（此前取消只改库不杀任务，worker 结束时把状态覆写回 completed）
+    cancel_requested = Column(Boolean, default=False, nullable=False, server_default="false")
 
     # 结果汇总
     summary = Column(JSONType, nullable=True)

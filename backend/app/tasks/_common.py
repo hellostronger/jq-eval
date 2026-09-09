@@ -3,6 +3,10 @@ import asyncio
 from datetime import datetime
 
 
+class TaskCancelled(Exception):
+    """协作式取消：长任务在批次边界检测到用户取消请求时抛出，由任务层收尾为 cancelled"""
+
+
 def run_async(coro):
     """在同步环境（Celery worker）中运行异步函数"""
     loop = asyncio.new_event_loop()

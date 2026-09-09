@@ -401,24 +401,21 @@ async def cancel_evaluation(
 
     Args:
         eval_id: 评估任务ID
-        task_id: Celery 任务ID（可选，如果不提供则尝试从数据库获取最近的任务）
+        task_id: 保留参数（旧客户端兼容）。不再 SIGKILL worker——硬杀会让
+            DB 状态永久停留 running；统一走协作式取消，由 worker 落库 cancelled
     """
     evaluation = await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
 
     if evaluation.status != "running":
         raise HTTPException(status_code=400, detail="评估任务未在运行中，无法取消")
 
-    if task_id:
-        # 取消指定的 Celery 任务
-        celery_app.control.revoke(task_id, terminate=True, signal='SIGKILL')
-
-    # 更新评估状态
-    evaluation.status = "failed"
-    evaluation.error = "任务已被用户取消"
+    # 协作式取消：worker 在批次边界检测到该标志后停止并落库 cancelled。
+    # 此前"只改库不杀任务"是假取消——任务继续跑完并把状态覆写回 completed
+    evaluation.cancel_requested = True
     await db.commit()
 
     return {
-        "message": "评估任务已取消",
+        "message": "取消请求已提交，任务将在当前批次结束后停止",
         "eval_id": str(eval_id)
     }
 
@@ -455,6 +452,7 @@ async def retry_evaluation(
     evaluation.started_at = None
     evaluation.completed_at = None
     evaluation.progress = 0
+    evaluation.cancel_requested = False
 
     # 删除之前的评估结果（如果需要重新评估）
     from sqlalchemy import delete

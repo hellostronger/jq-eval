@@ -114,6 +114,17 @@ async def init_db():
                 ADD COLUMN reuse_invocation BOOLEAN DEFAULT true
             """))
 
+        # evaluations.cancel_requested（协作式取消标志）
+        result = await conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'evaluations' AND column_name = 'cancel_requested'
+        """))
+        if result.fetchone() is None:
+            await conn.execute(text("""
+                ALTER TABLE evaluations
+                ADD COLUMN cancel_requested BOOLEAN NOT NULL DEFAULT false
+            """))
+
         # invocation_results.retrieval_ids
         result = await conn.execute(text("""
             SELECT column_name FROM information_schema.columns
