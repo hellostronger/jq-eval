@@ -328,8 +328,10 @@ async def get_evaluation_results(
         select(func.count(EvalResult.id)).where(EvalResult.eval_id == eval_id)
     )).scalar()) or 0
 
-    # JOIN QARecord 表获取问题内容
-    results = await db.execute(base_query.offset(skip).limit(limit))
+    # JOIN QARecord 表获取问题内容（稳定排序，防翻页重复/漏行）
+    results = await db.execute(
+        base_query.order_by(EvalResult.id).offset(skip).limit(limit)
+    )
 
     return {
         "eval_id": str(eval_id),

@@ -345,8 +345,8 @@ async def get_training_data_eval_results(
         *([TrainingDataEvalResult.status == status] if status else [])
     ))).scalar()) or 0
 
-    # 分页查询
-    results = await db.execute(query.offset(skip).limit(limit))
+    # 分页查询（稳定排序，防翻页重复/漏行）
+    results = await db.execute(query.order_by(TrainingDataEvalResult.id).offset(skip).limit(limit))
 
     return {
         "eval_id": str(eval_id),

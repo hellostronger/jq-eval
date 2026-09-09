@@ -250,7 +250,8 @@ async def get_invocation_results(
     if status:
         query = query.where(InvocationResult.status == status)
 
-    query = query.offset(skip).limit(limit)
+    # 稳定排序，防翻页重复/漏行
+    query = query.order_by(InvocationResult.id).offset(skip).limit(limit)
     results = await db.execute(query)
     rows = results.all()
 

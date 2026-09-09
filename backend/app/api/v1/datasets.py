@@ -219,10 +219,11 @@ async def list_qa_records(
     )
     total = total_result.scalar() or 0
 
-    # 查询记录
+    # 查询记录（必须稳定排序：无 order_by 时 PG 不保证行序，翻页会重复/漏行）
     result = await db.execute(
         select(QARecord)
         .where(QARecord.dataset_id == dataset_id)
+        .order_by(QARecord.created_at, QARecord.id)
         .offset(skip)
         .limit(size)
     )
