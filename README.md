@@ -94,6 +94,7 @@ jq-eval/
 
 - **调用与评估分离的两段式设计**：先批量调用RAG/模型产出结果（invocation_results），评估任务可复用历史调用结果换指标重评，避免重复调用大模型浪费Token
 - **OpenAI/Anthropic 双协议代理**：入站请求统一转内部表示（protocol_converter），出站按目标模型协议转换，SSE流式透传，映射密钥鉴权（hmac比对），调用日志记录请求/响应/时延
+- **密钥静态加密**：上游 API 密钥与对外映射密钥 Fernet 加密落库，EncryptedText TypeDecorator 读写透明、历史明文渐进迁移，密钥轮换失败不留错误凭据
 - **指标插件化**：所有指标实现 BaseMetric 接口并注册 REGISTRY，前端"指标市场"动态勾选组合，检索指标与生成指标按评估阶段分组
 - **多源数据同步**：Dify/FastGPT/n8n/自定义库 四种同步适配器，字段映射可配置，同步前先探测连接/预览Schema，快照机制保证历史可追溯
 - **Celery 工程化**：NullPool 规避 asyncpg 跨 event loop 连接崩溃；任务失败统一 rollback+重取+标记 FAILED；PROGRESS 状态实时上报；任务超时与 acks_late 配置
@@ -268,7 +269,7 @@ celery -A app.core.celery_app beat --loglevel=info
 ```bash
 cd backend
 source venv/bin/activate   # Windows: .env\Scripts\Activate.ps1
-pytest                     # 51 个用例，SQLite 内存库，无需任何中间件，约 6s
+pytest                     # 65 个用例，SQLite 内存库，无需任何中间件，约 7s
 ```
 
 测试体系说明：模型层通过 `app/core/db_types.py` 的跨方言类型（UUIDType/JSONType/ArrayType）
