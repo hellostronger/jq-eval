@@ -269,7 +269,7 @@ celery -A app.core.celery_app beat --loglevel=info
 ```bash
 cd backend
 source venv/bin/activate   # Windows: .env\Scripts\Activate.ps1
-pytest                     # 65 个用例，SQLite 内存库，无需任何中间件，约 7s
+pytest                     # 69 个用例，SQLite 内存库，无需任何中间件，约 7s
 ```
 
 测试体系说明：模型层通过 `app/core/db_types.py` 的跨方言类型（UUIDType/JSONType/ArrayType）
