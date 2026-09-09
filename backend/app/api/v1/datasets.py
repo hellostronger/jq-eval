@@ -27,6 +27,28 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+async def _ensure_doc_in_dataset(db: AsyncSession, dataset_id: UUID, doc_id: UUID) -> Document:
+    """校验文档归属数据集：路径以 dataset 为边界，越界读取按 404 处理（不泄露资源是否存在）"""
+    document = await get_or_404(db, Document, doc_id, "文档不存在")
+    if document.dataset_id != dataset_id:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    return document
+
+
+async def _ensure_chunk_in_dataset(db: AsyncSession, dataset_id: UUID, chunk_id: UUID) -> Chunk:
+    """校验分片归属数据集（分片本身无 dataset_id，经由其文档归属）"""
+    result = await db.execute(
+        select(Chunk).join(Document, Chunk.doc_id == Document.id).where(
+            Chunk.id == chunk_id,
+            Document.dataset_id == dataset_id,
+        )
+    )
+    chunk = result.scalar_one_or_none()
+    if not chunk:
+        raise HTTPException(status_code=404, detail="分片不存在")
+    return chunk
+
+
 # Pydantic Schemas
 class DatasetCreate(BaseModel):
     name: str = Field(..., max_length=200)
@@ -387,50 +409,46 @@ async def import_data(
     # 读取文件内容
     file_content = await file.read()
 
-    # 确定文件类型
-    file_ext = file.filename.split(".")[-1].lower()
+    # 确定文件类型（filename 可能为空，直接 split 会 AttributeError → 500）
+    file_ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename and "." in file.filename else ""
     if file_ext not in ["json", "jsonl", "csv"]:
         raise HTTPException(status_code=400, detail="不支持文件类型，仅支持 JSON、JSONL、CSV")
 
     # 同步处理导入
     records = []
 
-    # 解析文件
-    if file_ext == "json":
-        import json
-        data = json.loads(file_content.decode("utf-8"))
-        if isinstance(data, list):
-            records = data
-        elif isinstance(data, dict) and "test_cases" in data:
-            records = data["test_cases"]
+    # 解析文件（格式错误转 400，不能让 JSONDecodeError/UnicodeDecodeError 冒成 500）
+    try:
+        if file_ext == "json":
+            data = json.loads(file_content.decode("utf-8"))
+            if isinstance(data, list):
+                records = data
+            elif isinstance(data, dict) and "test_cases" in data:
+                records = data["test_cases"]
 
-    elif file_ext == "jsonl":
-        import json
-        lines = file_content.decode("utf-8").strip().split("\n")
-        records = [json.loads(line) for line in lines if line]
+        elif file_ext == "jsonl":
+            lines = file_content.decode("utf-8").strip().split("\n")
+            records = [json.loads(line) for line in lines if line]
 
-    elif file_ext == "csv":
-        import csv
-        import io
-        import logging
-        logger = logging.getLogger(__name__)
+        elif file_ext == "csv":
+            # 使用 utf-8-sig 解码，自动处理 BOM
+            content = file_content.decode('utf-8-sig')
+            logger.info(f"CSV文件内容（前200字符）: {content[:200]}")
 
-        # 使用 utf-8-sig 解码，自动处理 BOM
-        content = file_content.decode('utf-8-sig')
-        logger.info(f"CSV文件内容（前200字符）: {content[:200]}")
+            reader = csv.DictReader(io.StringIO(content))
 
-        reader = csv.DictReader(io.StringIO(content))
+            # 打印CSV字段名
+            logger.info(f"CSV字段名: {reader.fieldnames}")
 
-        # 打印CSV字段名
-        logger.info(f"CSV字段名: {reader.fieldnames}")
+            records = []
+            for row in reader:
+                # 打印每行数据的完整内容
+                logger.info(f"CSV行数据: {row}")
+                records.append(row)
 
-        records = []
-        for row in reader:
-            # 打印每行数据的完整内容
-            logger.info(f"CSV行数据: {row}")
-            records.append(row)
-
-        logger.info(f"CSV解析完成，共 {len(records)} 条记录")
+            logger.info(f"CSV解析完成，共 {len(records)} 条记录")
+    except (json.JSONDecodeError, UnicodeDecodeError, csv.Error) as e:
+        raise HTTPException(status_code=400, detail=f"文件解析失败，请检查格式：{e}")
 
     # 调试日志
     import logging
@@ -548,9 +566,13 @@ async def import_data(
 
     # 更新统计
     await refresh_dataset_stats(
-        db, dataset_id, added=len(records),
+        db, dataset_id, added=saved_count,
+        # 与保存逻辑同源：存储时 ground_truth 会回退用 answer/gold_answer
+        # （见上方 ground_truth_value），标记条件必须一致，否则只含 answer 的
+        # CRAG 类文件导入后每条都有标准答案、has_ground_truth 却是 False
         mark_ground_truth=any(
-            r.get("ground_truth") or r.get("gold_answer") or r.get("answers") for r in records
+            r.get("ground_truth") or r.get("gold_answer") or r.get("answers")
+            or r.get("answer") for r in records
         ),
         mark_contexts=any(
             r.get("contexts") or r.get("gold_contexts")
@@ -970,7 +992,7 @@ async def get_document_detail(
     db: AsyncSession = Depends(get_db)
 ):
     """获取文档详情"""
-    document = await get_or_404(db, Document, doc_id, "文档不存在")
+    document = await _ensure_doc_in_dataset(db, dataset_id, doc_id)
 
     # 查询 chunk 数量
     count_result = await db.execute(
@@ -999,6 +1021,7 @@ async def list_dataset_chunks(
     """获取数据集关联的分片列表"""
     # 如果指定了 doc_id，直接查询该文档的分片
     if doc_id:
+        await _ensure_doc_in_dataset(db, dataset_id, doc_id)
         # 查询总数
         total_result = await db.execute(
             select(func.count(Chunk.id)).where(Chunk.doc_id == doc_id)
@@ -1052,18 +1075,19 @@ async def list_dataset_chunks(
     if not all_chunk_ids:
         return ChunkListResponse(items=[], total=0)
 
-    total = len(all_chunk_ids)
+    # 去重后交给 SQL 排序分页——Python set 迭代顺序不稳定，
+    # 原先 list(set)[skip:] 会让翻页结果集跨请求漂移（重复/漏行）
+    id_filter = Chunk.id.in_(list(all_chunk_ids))
+    total = (await db.execute(select(func.count(Chunk.id)).where(id_filter))).scalar() or 0
 
-    # 分页
     skip = (page - 1) * size
-    paginated_ids = list(all_chunk_ids)[skip:skip + size]
 
-    if not paginated_ids:
-        return ChunkListResponse(items=[], total=total)
-
-    # 查询分片
+    # 查询分片（确定性排序）
     chunks_result = await db.execute(
-        select(Chunk).where(Chunk.id.in_(paginated_ids))
+        select(Chunk).where(id_filter)
+        .order_by(Chunk.created_at, Chunk.id)
+        .offset(skip)
+        .limit(size)
     )
     chunks = chunks_result.scalars().all()
 
@@ -1098,7 +1122,7 @@ async def get_chunk_detail(
     db: AsyncSession = Depends(get_db)
 ):
     """获取分片详情"""
-    chunk = await get_or_404(db, Chunk, chunk_id, "分片不存在")
+    chunk = await _ensure_chunk_in_dataset(db, dataset_id, chunk_id)
 
     # 获取文档标题
     doc_result = await db.execute(
@@ -1262,6 +1286,8 @@ async def list_document_chunks(
     db: AsyncSession = Depends(get_db)
 ):
     """获取指定文档的所有分片（带原文位置标注）"""
+    await _ensure_doc_in_dataset(db, dataset_id, doc_id)
+
     # 查询总数
     total_result = await db.execute(
         select(func.count(Chunk.id)).where(Chunk.doc_id == doc_id)
