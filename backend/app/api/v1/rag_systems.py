@@ -11,6 +11,7 @@ import logging
 from ...core.database import get_db
 from ...core.utc_datetime import UTCDatetime
 from ...models import RAGSystem, RAGSystemType, Model
+from ._common import commit_delete
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -206,7 +207,7 @@ async def delete_rag_system(
         raise HTTPException(status_code=404, detail="RAG系统不存在")
 
     await db.delete(rag_system)
-    await db.commit()
+    await commit_delete(db, "该 RAG 系统已被调用批次引用，无法删除")
     return {"message": "删除成功"}
 
 

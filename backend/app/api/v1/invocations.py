@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from ...core.database import get_db
-from ._common import get_or_404
+from ._common import get_or_404, start_task
 from ...core.utc_datetime import UTCDatetime
 from ...models import InvocationBatch, InvocationResult, Dataset, QARecord, RAGSystem
 
@@ -137,13 +137,9 @@ async def run_invocation_batch(
     if batch.status == "running":
         raise HTTPException(status_code=400, detail="调用批次正在执行中")
 
-    # 更新状态为运行中
-    batch.status = "running"
-    await db.commit()
-
-    # 提交 Celery 异步任务
+    # 置运行中并派发；broker 不可达时状态自动回滚
     from ...tasks.invocation_tasks import invocation_task
-    task = invocation_task.delay(str(batch_id))
+    task = await start_task(db, batch, lambda: invocation_task.delay(str(batch_id)))
 
     return {
         "message": "调用批次已启动",

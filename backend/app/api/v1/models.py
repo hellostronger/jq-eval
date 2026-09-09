@@ -14,7 +14,7 @@ from ...models import Model
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-from ._common import mask_api_key, get_or_404, delete_or_404
+from ._common import mask_api_key, get_or_404, commit_delete
 
 # Pydantic Schemas
 class ModelCreate(BaseModel):
@@ -180,8 +180,9 @@ async def delete_model(
     db: AsyncSession = Depends(get_db)
 ):
     """删除模型配置"""
-    await delete_or_404(db, Model, model_id, "模型不存在")
-    await db.commit()
+    model = await get_or_404(db, Model, model_id, "模型不存在")
+    await db.delete(model)
+    await commit_delete(db, "该模型已被评估任务或其他资源引用，无法删除")
     return {"message": "删除成功"}
 
 

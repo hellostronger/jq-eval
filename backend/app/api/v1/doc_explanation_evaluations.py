@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from ...core.database import get_db
 from ...core.utc_datetime import UTCDatetime
 from ...models import DocExplanationEvaluation, DocExplanationEvalResult, DocExplanation, Document, Model
+from ._common import start_task
 
 router = APIRouter()
 
@@ -124,11 +125,9 @@ async def run_doc_explanation_evaluation(
     if evaluation.status == "running":
         raise HTTPException(status_code=400, detail="任务正在执行中")
 
-    evaluation.status = "running"
-    await db.commit()
-
+    # 置运行中并派发；broker 不可达时状态自动回滚
     from ...tasks.doc_explanation_tasks import doc_explanation_eval_task
-    task = doc_explanation_eval_task.delay(str(eval_id))
+    task = await start_task(db, evaluation, lambda: doc_explanation_eval_task.delay(str(eval_id)))
 
     return {
         "message": "评估任务已启动",

@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from celery.result import AsyncResult
 
 from ...core.database import get_db, get_db_context
-from ._common import get_or_404, delete_or_404
+from ._common import get_or_404, delete_or_404, start_task
 from ...core.utc_datetime import UTCDatetime
 from ...core.celery_app import celery_app
 from ...models import Evaluation, EvalResult, Dataset, QARecord
@@ -283,12 +283,8 @@ async def run_evaluation(
     if evaluation.status == "running":
         raise HTTPException(status_code=400, detail="评估任务正在执行中")
 
-    # 更新状态为运行中
-    evaluation.status = "running"
-    await db.commit()
-
-    # 提交 Celery 异步任务
-    task = evaluation_task.delay(str(eval_id))
+    # 置运行中并派发；broker 不可达时状态自动回滚，不会永久卡在 running
+    task = await start_task(db, evaluation, lambda: evaluation_task.delay(str(eval_id)))
 
     return {
         "message": "评估任务已启动",
@@ -452,8 +448,7 @@ async def retry_evaluation(
     # 更新 reuse_invocation 设置
     evaluation.reuse_invocation = reuse_invocation
 
-    # 清除之前的错误信息和时间，重置状态
-    evaluation.status = "pending"
+    # 清除之前的错误信息和时间
     evaluation.error = None
     evaluation.started_at = None
     evaluation.completed_at = None
@@ -463,14 +458,10 @@ async def retry_evaluation(
     from sqlalchemy import delete
     await db.execute(delete(EvalResult).where(EvalResult.eval_id == eval_id))
 
-    await db.commit()
-
-    # 启动新的评估任务
-    task = evaluation_task.delay(str(eval_id))
-
-    # 更新状态为运行中
-    evaluation.status = "running"
-    await db.commit()
+    # 置运行中并派发。原先"先提交 pending → delay → 再提交 running"存在竞态：
+    # 秒级完成的 worker 写入 completed 会被随后的 running 覆盖，状态永久卡死
+    task = await start_task(db, evaluation, lambda: evaluation_task.delay(str(eval_id)),
+                            fallback_value="pending")
 
     return {
         "message": "评估任务已重新启动",

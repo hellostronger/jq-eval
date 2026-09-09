@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from ...core.database import get_db
-from ._common import get_or_404
+from ._common import get_or_404, start_task
 from ...core.utc_datetime import UTCDatetime
 from ...models import LoadTest, LoadTestStatus, RAGSystem, Dataset, Model
 
@@ -220,13 +220,9 @@ async def run_load_test(
     if load_test.status == LoadTestStatus.RUNNING.value:
         raise HTTPException(status_code=400, detail="任务正在执行中")
 
-    # 更新状态为运行中
-    load_test.status = LoadTestStatus.RUNNING.value
-    await db.commit()
-
-    # 提交 Celery 异步任务
+    # 置运行中并派发；broker 不可达时状态自动回滚
     from ...tasks.load_test_tasks import load_test_task
-    task = load_test_task.delay(str(load_test_id))
+    task = await start_task(db, load_test, lambda: load_test_task.delay(str(load_test_id)))
 
     return {
         "message": "压测任务已启动",

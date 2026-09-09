@@ -123,7 +123,6 @@ async def get_framework(
 async def list_prompts(
     usage_scenario: Optional[str] = None,
     framework: Optional[str] = None,
-    tags: Optional[str] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db)

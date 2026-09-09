@@ -20,7 +20,7 @@ from ...services.documents import (
     create_document as create_doc_record,
     refresh_dataset_stats,
 )
-from ._common import get_or_404, validate_upload_size
+from ._common import get_or_404, validate_upload_size, commit_delete
 
 router = APIRouter()
 
@@ -170,7 +170,7 @@ async def delete_dataset(
     dataset = await get_or_404(db, Dataset, dataset_id, "数据集不存在")
 
     await db.delete(dataset)
-    await db.commit()
+    await commit_delete(db, "数据集已被评估任务或调用批次引用，无法删除")
     return {"message": "删除成功"}
 
 
@@ -325,7 +325,7 @@ async def delete_qa_record(
     # 更新数据集统计
     await refresh_dataset_stats(db, dataset_id, removed=1)
 
-    await db.commit()
+    await commit_delete(db, "该 QA 记录已被评估结果或调用结果引用，无法删除")
 
     return {"message": "删除成功", "record_id": str(record_id)}
 
@@ -356,10 +356,10 @@ async def batch_delete_qa_records(
     for record in records:
         await db.delete(record)
 
-    # 更新数据集统计
+    # 更新数据集统计（仅在实际删除成功时生效，见 commit_delete 失败即回滚）
     await refresh_dataset_stats(db, dataset_id, removed=deleted_count)
 
-    await db.commit()
+    await commit_delete(db, "部分 QA 记录已被评估结果或调用结果引用，无法删除")
 
     return {
         "message": "批量删除成功",

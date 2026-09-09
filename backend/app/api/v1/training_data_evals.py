@@ -9,7 +9,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from ...core.database import get_db
-from ._common import get_or_404
+from ._common import get_or_404, start_task
 from ...core.utc_datetime import UTCDatetime
 from ...models import (
     TrainingDataEval,
@@ -288,14 +288,11 @@ async def run_training_data_eval(
     if evaluation.status == "running":
         raise HTTPException(status_code=400, detail="评估任务正在执行中")
 
-    # 更新状态为运行中
-    evaluation.status = "running"
     evaluation.started_at = datetime.utcnow()
-    await db.commit()
 
-    # 提交 Celery 异步任务
+    # 置运行中并派发；broker 不可达时状态自动回滚
     from ...tasks.training_data_eval_tasks import training_data_eval_task
-    task = training_data_eval_task.delay(str(eval_id))
+    task = await start_task(db, evaluation, lambda: training_data_eval_task.delay(str(eval_id)))
 
     return {
         "message": "评估任务已启动",
