@@ -32,6 +32,8 @@ const EvaluationDetail: React.FC = () => {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [analysis, setAnalysis] = useState<EvaluationAnalysis | null>(null)
   const [loading, setLoading] = useState(false)
+  const [resultPage, setResultPage] = useState(1)
+  const [resultPageSize, setResultPageSize] = useState(50)
   const [retrying, setRetrying] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [retryModalVisible, setRetryModalVisible] = useState(false)
@@ -47,11 +49,12 @@ const EvaluationDetail: React.FC = () => {
     }
   }
 
-  const fetchResults = async () => {
+  // 服务端分页：不传参后端 limit 封顶 100，>100 条时旧实现第 3 页起永远空白
+  const fetchResults = async (page = 1, pageSize = 50) => {
     if (!id) return
     setLoading(true)
     try {
-      const data = await getEvaluationResults(id)
+      const data = await getEvaluationResults(id, { skip: (page - 1) * pageSize, limit: pageSize })
       // 后端返回 { results: [...], total, summary }，提取 results 数组和 summary
       setResults(data?.results || [])
       setTotal(data?.total || data?.results?.length || 0)
@@ -274,7 +277,20 @@ const EvaluationDetail: React.FC = () => {
           columns={metricsColumns}
           rowKey="id"
           loading={loading}
-          pagination={{ pageSize: 50, total, showSizeChanger: true }}
+          pagination={{
+            current: resultPage,
+            pageSize: resultPageSize,
+            total,
+            showSizeChanger: true,
+          }}
+          onChange={(pag) => {
+            // 服务端分页：翻页时按 skip/limit 重新拉取
+            const p = pag.current || 1
+            const s = pag.pageSize || 50
+            setResultPage(p)
+            setResultPageSize(s)
+            fetchResults(p, s)
+          }}
           scroll={{ x: 'max-content' }}
         />
       ),

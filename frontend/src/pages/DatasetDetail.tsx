@@ -67,36 +67,48 @@ const DatasetDetail: React.FC = () => {
     }
   }
 
+  // 竞态保护：快速翻页时慢的旧响应不得覆盖新页
+  const qaSeqRef = React.useRef(0)
+
   const fetchQARecords = async () => {
     if (!id) return
+    const seq = ++qaSeqRef.current
     setLoading(true)
     try {
       const data = await getQARecords(id, { page, size: pageSize })
+      if (seq !== qaSeqRef.current) return
       setQARecords(data.items)
       setTotal(data.total)
     } catch (e) {
       // 错误已在拦截器处理
     } finally {
-      setLoading(false)
+      if (seq === qaSeqRef.current) setLoading(false)
     }
   }
 
+  const docSeqRef = React.useRef(0)
+
   const fetchDocuments = async () => {
     if (!id) return
+    const seq = ++docSeqRef.current
     setDocLoading(true)
     try {
       const data = await getDatasetDocuments(id, { page: docPage, size: docPageSize })
+      if (seq !== docSeqRef.current) return
       setDocuments(data.items)
       setDocTotal(data.total)
     } catch (e) {
       // 错误已在拦截器处理
     } finally {
-      setDocLoading(false)
+      if (seq === docSeqRef.current) setDocLoading(false)
     }
   }
 
+  const chunkSeqRef = React.useRef(0)
+
   const fetchChunks = async () => {
     if (!id) return
+    const seq = ++chunkSeqRef.current
     setChunkLoading(true)
     try {
       const params: { page: number; size: number; doc_id?: string } = { page: chunkPage, size: chunkPageSize }
@@ -104,12 +116,13 @@ const DatasetDetail: React.FC = () => {
         params.doc_id = selectedDocId
       }
       const data = await getDatasetChunks(id, params)
+      if (seq !== chunkSeqRef.current) return
       setChunks(data.items)
       setChunkTotal(data.total)
     } catch (e) {
       // 错误已在拦截器处理
     } finally {
-      setChunkLoading(false)
+      if (seq === chunkSeqRef.current) setChunkLoading(false)
     }
   }
 

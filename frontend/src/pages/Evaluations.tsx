@@ -3,6 +3,7 @@ import { Card, Table, Button, Tag, Modal, Form, Input, Select, InputNumber, mess
 import { PlusOutlined, PlayCircleOutlined, SwitcherOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { formatTime } from '@/utils/format'
+import { usePollingWhenRunning } from '@/hooks/usePollingWhenRunning'
 import { getEvaluations, createEvaluation, startEvaluation, getDatasets, getModels, getInvocationBatches } from '@/api'
 import type { Evaluation, Dataset, ModelConfig, InvocationBatch } from '@/types'
 
@@ -45,6 +46,13 @@ const Evaluations: React.FC = () => {
   useEffect(() => {
     fetchData()
   }, [])
+
+  // 有评估运行中时自动轮询刷新状态，全部结束后停止（与 LoadTests 页一致）
+  usePollingWhenRunning(
+    evaluations.some((e) => e.status === 'running' || e.status === 'pending'),
+    fetchData,
+    5000,
+  )
 
   const showCreateDialog = () => {
     form.resetFields()

@@ -3,6 +3,7 @@ import { Card, Table, Button, Tag, Modal, Form, Input, Select, message, Space, P
 import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, ReloadOutlined, FileSearchOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { formatTime } from '@/utils/format'
+import { usePollingWhenRunning } from '@/hooks/usePollingWhenRunning'
 import { getInvocationBatches, createInvocationBatch, runInvocationBatch, retryInvocationBatch, deleteInvocationBatch, getDatasets, getRAGSystems } from '@/api'
 import type { InvocationBatch, Dataset, RAGSystem } from '@/types'
 
@@ -35,6 +36,13 @@ const Invocations: React.FC = () => {
   useEffect(() => {
     fetchData()
   }, [])
+
+  // 有批次运行中/排队中时自动轮询刷新进度，全部结束后停止
+  usePollingWhenRunning(
+    batches.some((b) => b.status === 'running' || b.status === 'pending'),
+    fetchData,
+    5000,
+  )
 
   const showCreateDialog = () => {
     form.resetFields()

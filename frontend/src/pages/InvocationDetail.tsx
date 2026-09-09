@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { Card, Table, Button, Tag, Space, Progress, message, Popconfirm, Modal, Spin, Select, Descriptions, Divider, Alert } from 'antd'
 import { ReloadOutlined, PlayCircleOutlined, ArrowLeftOutlined, EyeOutlined, CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { formatTimeFull } from '@/utils/format'
+import { usePollingWhenRunning } from '@/hooks/usePollingWhenRunning'
 import {
   getInvocationBatch,
   getInvocationResults,
@@ -38,8 +39,12 @@ const InvocationDetail: React.FC = () => {
   const [correctionResult, setCorrectionResult] = useState<AnnotationCorrection | null>(null)
   const [correctionDetailVisible, setCorrectionDetailVisible] = useState(false)
 
+  // 竞态保护：快速翻页/切筛选时慢的旧响应不得覆盖新结果
+  const seqRef = React.useRef(0)
+
   const fetchData = async () => {
     if (!id) return
+    const seq = ++seqRef.current
     setLoading(true)
     try {
       const [batchData, resultsData, datasetData, ragData, llmData] = await Promise.all([
@@ -49,22 +54,41 @@ const InvocationDetail: React.FC = () => {
         getRAGSystems(),
         getModels('llm'),
       ])
+      if (seq !== seqRef.current) return
       setBatch(batchData)
       setResults(resultsData)
       setDatasets(datasetData)
       setRagSystems(ragData)
       setLlmModels(llmData)
-      setTotal(batchData.total_count)
+      // 结果端点返回纯数组无 filtered total；按状态筛选时用批次计数字段推算，
+      // 直接用批次总数会造出大量空页
+      if (statusFilter === 'failed') {
+        setTotal(batchData.failed_count || 0)
+      } else if (statusFilter === 'success') {
+        setTotal(batchData.completed_count || 0)
+      } else if (statusFilter) {
+        setTotal(resultsData.length < pageSize ? (page - 1) * pageSize + resultsData.length : page * pageSize + 1)
+      } else {
+        setTotal(batchData.total_count)
+      }
     } catch (e) {
       // 错误已在拦截器处理
     } finally {
-      setLoading(false)
+      if (seq === seqRef.current) setLoading(false)
     }
   }
 
   useEffect(() => {
     fetchData()
   }, [id, page, pageSize, statusFilter])
+
+  // 批次运行中自动轮询刷新进度（与列表页/LoadTests 一致）
+  usePollingWhenRunning(
+    !!batch && (batch.status === 'running' || batch.status === 'pending'),
+    fetchData,
+    5000,
+    [id, page, statusFilter],
+  )
 
   const handleRetryAllFailed = async () => {
     if (!id) return
@@ -314,21 +338,21 @@ const InvocationDetail: React.FC = () => {
           <Tag
             color={statusFilter === undefined ? 'blue' : 'default'}
             style={{ cursor: 'pointer' }}
-            onClick={() => setStatusFilter(undefined)}
+            onClick={() => { setStatusFilter(undefined); setPage(1) }}
           >
             全部
           </Tag>
           <Tag
             color={statusFilter === 'success' ? 'green' : 'default'}
             style={{ cursor: 'pointer' }}
-            onClick={() => setStatusFilter('success')}
+            onClick={() => { setStatusFilter('success'); setPage(1) }}
           >
             成功
           </Tag>
           <Tag
             color={statusFilter === 'failed' ? 'red' : 'default'}
             style={{ cursor: 'pointer' }}
-            onClick={() => setStatusFilter('failed')}
+            onClick={() => { setStatusFilter('failed'); setPage(1) }}
           >
             失败
           </Tag>

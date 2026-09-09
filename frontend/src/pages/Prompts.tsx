@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Card, Table, Button, Modal, Form, Input, Select, Tag, Space, message, Typography } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, HistoryOutlined } from '@ant-design/icons'
 import { promptApi, PromptVersion, PromptFramework } from '../api/prompts'
+import { formatTimeFull } from '@/utils/format'
 
 const { TextArea } = Input
 const { Text } = Typography
@@ -90,6 +91,9 @@ const Prompts: React.FC = () => {
 
   const handleEdit = (record: PromptVersion) => {
     setSelectedPrompt(record)
+    // 必须先 resetFields：record 中 undefined 的字段（description/notes 等）
+    // 不会被 setFieldsValue 清空，会把上一条的残留值带进新版本提交
+    form.resetFields()
     form.setFieldsValue(record)
     setModalVisible(true)
   }
@@ -146,7 +150,7 @@ const Prompts: React.FC = () => {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 180,
-      render: (d: string) => new Date(d).toLocaleString(),
+      render: (d: string) => formatTimeFull(d),
     },
     {
       title: '操作',
@@ -288,7 +292,7 @@ const Prompts: React.FC = () => {
               title: '修改时间',
               dataIndex: 'created_at',
               key: 'created_at',
-              render: (d: string) => new Date(d).toLocaleString(),
+              render: (d: string) => formatTimeFull(d),
             },
           ]}
         />

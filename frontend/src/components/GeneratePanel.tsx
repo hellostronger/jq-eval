@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Card, Form, Input, Button, Select, message, Progress, Space, InputNumber, Collapse, Table, Modal, Tag } from 'antd'
 import { PlusOutlined, DeleteOutlined, PlayCircleOutlined, FileAddOutlined } from '@ant-design/icons'
 import { generateDataset, getGenerateStatus, getCurrentGenerateTask, getModels, getDocuments } from '@/api'
@@ -47,6 +47,11 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
     loadModels()
   }, [])
 
+  // 父组件每次渲染都会新建 onGenerateSuccess 引用；用 ref 持有避免其进入
+  // effect 依赖——否则父组件任意状态变化都会重放 current-task 请求并重建轮询定时器
+  const onSuccessRef = useRef(onGenerateSuccess)
+  onSuccessRef.current = onGenerateSuccess
+
   // 加载时检查是否有进行中的任务（恢复轮询）
   useEffect(() => {
     let cancelled = false
@@ -63,7 +68,7 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
           if (celeryStatus === 'SUCCESS') {
             setProgress(100)
             message.success(`生成完成: ${statusResult.result?.generated_count || 0} 条数据`)
-            onGenerateSuccess()
+            onSuccessRef.current()
             // 清除本地状态，数据库状态会在轮询 API 中自动清除
             setTaskId(null)
             setStatus('idle')
@@ -84,7 +89,7 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
     }
     checkCurrentTask()
     return () => { cancelled = true }
-  }, [datasetId, onGenerateSuccess])
+  }, [datasetId])
 
   // 轮询任务状态
   useEffect(() => {
@@ -102,7 +107,7 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
         if (result.status === 'SUCCESS') {
           setProgress(100)
           message.success(`生成完成: ${result.result?.generated_count || 0} 条数据`)
-          onGenerateSuccess()
+          onSuccessRef.current()
           // 清除本地状态，数据库状态会在 API 中自动清除
           setTaskId(null)
           setStatus('idle')
@@ -128,7 +133,7 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
       if (seq !== latest) return
     }, 2000)
     return () => clearInterval(timer)
-  }, [taskId, status, datasetId, onGenerateSuccess])
+  }, [taskId, status, datasetId])
 
   // 打开已有文档选择弹窗（只列出归属本数据集的文档与全局文档）
   const openDocSelect = async () => {

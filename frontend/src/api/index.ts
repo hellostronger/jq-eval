@@ -305,8 +305,8 @@ interface EvaluationResultsResponse {
   }
 }
 
-export const getEvaluationResults = (id: string) => {
-  return request.get<EvaluationResultsResponse>(`/evaluations/${id}/results`)
+export const getEvaluationResults = (id: string, params?: { skip?: number; limit?: number }) => {
+  return request.get<EvaluationResultsResponse>(`/evaluations/${id}/results`, { params })
 }
 
 interface EvaluationAnalysis {

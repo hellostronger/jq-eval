@@ -49,7 +49,11 @@ const OpenSourceDatasets: React.FC = () => {
     { value: 'multi', label: '多语言' },
   ]
 
+  // 竞态保护：快速翻页/切筛选时慢的旧响应不得覆盖新结果
+  const seqRef = React.useRef(0)
+
   const fetchDatasets = async () => {
+    const seq = ++seqRef.current
     setLoading(true)
     try {
       const data = await getOpenSourceDatasets({
@@ -60,16 +64,20 @@ const OpenSourceDatasets: React.FC = () => {
         language: filterLanguage,
         status: filterStatus,
       })
+      if (seq !== seqRef.current) return
       setDatasets(data.items)
       setTotal(data.total)
     } finally {
-      setLoading(false)
+      if (seq === seqRef.current) setLoading(false)
     }
   }
 
   useEffect(() => {
     fetchDatasets()
   }, [page, size, searchText, filterType, filterLanguage, filterStatus])
+
+  // 筛选/搜索变化时回到第一页，避免停留在不存在的页号上显示空表
+  const resetPage = () => setPage(1)
 
   // HuggingFace 搜索
   const handleHfSearch = async () => {
@@ -354,8 +362,8 @@ const OpenSourceDatasets: React.FC = () => {
             placeholder="搜索名称/描述"
             allowClear
             enterButton={<SearchOutlined />}
-            onSearch={setSearchText}
-            onChange={(e) => setSearchText(e.target.value)}
+            onSearch={(v) => { resetPage(); setSearchText(v) }}
+            onChange={(e) => { resetPage(); setSearchText(e.target.value) }}
           />
         </Col>
         <Col span={4}>
@@ -364,7 +372,7 @@ const OpenSourceDatasets: React.FC = () => {
             allowClear
             options={DATASET_TYPES}
             value={filterType}
-            onChange={setFilterType}
+            onChange={(v) => { resetPage(); setFilterType(v) }}
           />
         </Col>
         <Col span={4}>
@@ -373,7 +381,7 @@ const OpenSourceDatasets: React.FC = () => {
             allowClear
             options={LANGUAGES}
             value={filterLanguage}
-            onChange={setFilterLanguage}
+            onChange={(v) => { resetPage(); setFilterLanguage(v) }}
           />
         </Col>
         <Col span={4}>
@@ -385,7 +393,7 @@ const OpenSourceDatasets: React.FC = () => {
               { value: 'archived', label: '归档' },
             ]}
             value={filterStatus}
-            onChange={setFilterStatus}
+            onChange={(v) => { resetPage(); setFilterStatus(v) }}
           />
         </Col>
         <Col span={4}>

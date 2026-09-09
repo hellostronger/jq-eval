@@ -44,6 +44,7 @@ const TrainingDataEvals: React.FC = () => {
   const [saving, setSaving] = useState(false)
   const [results, setResults] = useState<TrainingDataEvalResult[]>([])
   const [resultsTotal, setResultsTotal] = useState(0)
+  const [resultsPage, setResultsPage] = useState(1)
   const [resultsLoading, setResultsLoading] = useState(false)
   const [form] = Form.useForm()
 
@@ -195,18 +196,24 @@ const TrainingDataEvals: React.FC = () => {
     })
   }
 
+  // 服务端分页：不传参后端 limit 封顶 100，>100 条时后页永远空白
+  const fetchEvalResults = async (evaluationId: string, page = 1) => {
+    setResultsLoading(true)
+    try {
+      const { results: data, total: totalCount } = await getTrainingDataEvalResults(evaluationId, { skip: (page - 1) * 10, limit: 10 })
+      setResults(data)
+      setResultsTotal(totalCount ?? data.length)
+      setResultsPage(page)
+    } finally {
+      setResultsLoading(false)
+    }
+  }
+
   const showDetail = async (evaluation: TrainingDataEval) => {
     setSelectedEval(evaluation)
     setDetailModalVisible(true)
     if (evaluation.status === 'completed') {
-      setResultsLoading(true)
-      try {
-        const { results: data, total: totalCount } = await getTrainingDataEvalResults(evaluation.id)
-        setResults(data)
-        setResultsTotal(totalCount ?? data.length)
-      } finally {
-        setResultsLoading(false)
-      }
+      await fetchEvalResults(evaluation.id, 1)
     }
   }
 
@@ -574,7 +581,12 @@ const TrainingDataEvals: React.FC = () => {
                   loading={resultsLoading}
                   dataSource={results}
                   rowKey="id"
-                  pagination={{ pageSize: 10, total: resultsTotal }}
+                  pagination={{
+                    current: resultsPage,
+                    pageSize: 10,
+                    total: resultsTotal,
+                  }}
+                  onChange={(pag) => selectedEval && fetchEvalResults(selectedEval.id, pag.current || 1)}
                   columns={[
                     {
                       title: '问题',

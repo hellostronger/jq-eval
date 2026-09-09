@@ -167,7 +167,8 @@ const VibeAgent: React.FC = () => {
     if (isConnected) {
       wsSendMessage('user_message', inputText)
     } else {
-      // HTTP fallback
+      // HTTP fallback（vibeAgentApi 用裸 axios 不经过统一错误拦截器，
+      // 必须自行 catch——否则用户消息上屏后永远无回复且无任何提示）
       vibeAgentApi.sendMessage(sessionId!, inputText).then(result => {
         if (result.type === 'clarification') {
           addMessage('assistant', result.message, 'question')
@@ -178,6 +179,8 @@ const VibeAgent: React.FC = () => {
         } else if (result.type === 'generate_request') {
           handleGenerate()
         }
+      }).catch(() => {
+        addMessage('assistant', '请求失败，请检查网络或稍后重试')
       })
     }
 

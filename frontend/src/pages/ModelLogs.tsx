@@ -6,6 +6,7 @@ import {
   getModelMappings, createMapping, updateMapping, resetMappingKey, deleteMapping,
 } from '@/api'
 import type { ModelMapping } from '@/api'
+import { formatTimeFull } from '@/utils/format'
 
 const { Text, Paragraph } = Typography
 
@@ -149,7 +150,11 @@ const LogsTab: React.FC = () => {
     }
   }
 
+  // 竞态保护：快速翻页/切筛选时慢的旧响应不得覆盖新页结果
+  const logsSeqRef = React.useRef(0)
+
   const fetchLogs = async () => {
+    const seq = ++logsSeqRef.current
     setLoading(true)
     try {
       const data = await getModelLogs({
@@ -160,10 +165,11 @@ const LogsTab: React.FC = () => {
         skip: page * pageSize,
         limit: pageSize,
       })
+      if (seq !== logsSeqRef.current) return // 过期响应，丢弃
       setLogs(data.items)
       setTotal(data.total)
     } finally {
-      setLoading(false)
+      if (seq === logsSeqRef.current) setLoading(false)
     }
   }
 
@@ -315,7 +321,7 @@ const LogsTab: React.FC = () => {
       title: '时间',
       dataIndex: 'created_at',
       key: 'created_at',
-      render: (v: string) => new Date(v).toLocaleString(),
+      render: (v: string) => formatTimeFull(v),
     },
     {
       title: '操作',
@@ -367,7 +373,7 @@ const LogsTab: React.FC = () => {
           allowClear
           style={{ width: 200 }}
           value={selectedModelId}
-          onChange={setSelectedModelId}
+          onChange={(v) => { setSelectedModelId(v); setPage(0) }}
           options={models.map(m => ({ value: m.id, label: m.name }))}
         />
         <Select
@@ -375,7 +381,7 @@ const LogsTab: React.FC = () => {
           allowClear
           style={{ width: 120 }}
           value={selectedType}
-          onChange={setSelectedType}
+          onChange={(v) => { setSelectedType(v); setPage(0) }}
           options={[
             { value: 'chat', label: 'Chat' },
             { value: 'embedding', label: 'Embedding' },
@@ -387,7 +393,7 @@ const LogsTab: React.FC = () => {
           allowClear
           style={{ width: 120 }}
           value={selectedStatus}
-          onChange={setSelectedStatus}
+          onChange={(v) => { setSelectedStatus(v); setPage(0) }}
           options={[
             { value: 'success', label: '成功' },
             { value: 'failed', label: '失败' },
@@ -399,7 +405,7 @@ const LogsTab: React.FC = () => {
           allowClear
           style={{ width: 130 }}
           value={selectedSource}
-          onChange={setSelectedSource}
+          onChange={(v) => { setSelectedSource(v); setPage(0) }}
           options={[
             { value: 'direct', label: '直接调用' },
             { value: 'mapping', label: '映射调用' },
@@ -444,7 +450,7 @@ const LogsTab: React.FC = () => {
               </Descriptions.Item>
               <Descriptions.Item label="耗时">{selectedLog.latency_ms}ms</Descriptions.Item>
               <Descriptions.Item label="回放">{selectedLog.is_replay ? '是' : '否'}</Descriptions.Item>
-              <Descriptions.Item label="时间">{new Date(selectedLog.created_at).toLocaleString()}</Descriptions.Item>
+              <Descriptions.Item label="时间">{formatTimeFull(selectedLog.created_at)}</Descriptions.Item>
               {(() => {
                 const usage = selectedLog.response_metadata?.usage_tokens || selectedLog.response_metadata?.usage
                 return usage ? (
@@ -844,7 +850,7 @@ curl -X POST "${baseUrl}/v1/messages" \\${authLineA}
       dataIndex: 'last_called_at',
       key: 'last_called_at',
       width: 150,
-      render: (v: string) => v ? new Date(v).toLocaleString() : '-',
+      render: (v: string) => v ? formatTimeFull(v) : '-',
     },
     {
       title: '操作',

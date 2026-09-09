@@ -304,7 +304,9 @@ const LoadTests: React.FC = () => {
                 key: 'success_rate',
                 width: 100,
                 render: (_: unknown, r: LoadTestStepResult) => {
-                  const rate = r.success_rate ?? 1
+                  // 旧数据缺字段时不能默认 1（显示 100% 全成功是误导），显示 '-'
+                  if (r.success_rate == null) return '-'
+                  const rate = r.success_rate
                   return <span style={{ color: rate < 1 ? '#cf1322' : undefined }}>{(rate * 100).toFixed(0)}%</span>
                 },
               },
