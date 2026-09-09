@@ -450,9 +450,8 @@ async def import_data(
     except (json.JSONDecodeError, UnicodeDecodeError, csv.Error) as e:
         raise HTTPException(status_code=400, detail=f"文件解析失败，请检查格式：{e}")
 
-    # 调试日志
-    import logging
-    logger = logging.getLogger(__name__)
+    # 调试日志（模块级 logger 已定义，此处不可再赋值——会把 logger 变成
+    # 局部变量，使上面 CSV 分支的 logger.info 触发 UnboundLocalError）
     logger.info(f"导入文件解析结果: file_type={file_ext}, total_records={len(records)}")
     if records:
         logger.info(f"第一条记录完整内容: {records[0]}")
@@ -460,7 +459,6 @@ async def import_data(
         logger.info(f"第一条记录question字段值: '{records[0].get('question', '')}'")
 
     # 保存到数据库
-    import json
     saved_count = 0
 
     # 兼容开源基准数据集（StratRAG / CRAG 等）：字段别名 + 未知字段保留
