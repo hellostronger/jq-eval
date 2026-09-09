@@ -13,7 +13,7 @@ async def _run_sync(func, *args, **kwargs):
     return await asyncio.to_thread(func, *args, **kwargs)
 
 
-async def _ragas_evaluate_single(metric_obj, metric_key: str, data_dict: dict, llm=None) -> MetricResult:
+async def _ragas_evaluate_single(metric_obj, metric_key: str, data_dict: dict, llm=None, embedding_model=None) -> MetricResult:
     """Ragas 指标公共计算路径：构造单条数据集 -> evaluate -> 取分数
 
     ragas.evaluate 是同步函数，放到线程中执行；ragas 未安装时由调用方走简化计算。
@@ -23,6 +23,10 @@ async def _ragas_evaluate_single(metric_obj, metric_key: str, data_dict: dict, l
 
     if llm:
         metric_obj.llm = llm
+    # answer_relevancy 等指标依赖 embeddings；不注入则静默使用 ragas 全局默认
+    # 模型（走环境变量里的另一套配置），分数来源与页面所选模型不一致
+    if embedding_model is not None and hasattr(metric_obj, "embeddings"):
+        metric_obj.embeddings = embedding_model
 
     data = Dataset.from_dict(data_dict)
     result = await _run_sync(evaluate, data, metrics=[metric_obj])
@@ -291,8 +295,9 @@ class RagasAnswerRelevance(BaseMetric):
             contexts_list = [str(c) if c else "" for c in contexts]
             return await _ragas_evaluate_single(
                 answer_relevancy, "answer_relevancy",
-                {"question": [question], "answer": [answer], "contexts": [contexts_list]},  # ragas 0.1.7 需要 contexts
+                {"question": [question], "answer": [answer], "contexts": [contexts_list]},
                 llm=self.llm,
+                embedding_model=self.embedding_model,
             )
         except ImportError:
             return await self._compute_simple(question, answer)

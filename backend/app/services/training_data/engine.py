@@ -30,12 +30,16 @@ class TrainingDataMetricEngine:
         data_type: str,
         llm=None,
         embedding_model=None,
-        metric_configs: List[Dict[str, Any]] = None
+        metric_configs: List[Dict[str, Any]] = None,
+        pass_threshold: float = 0.6,
     ):
         self.data_type = data_type
         self.llm = llm
         self.embedding_model = embedding_model
         self.metric_configs = metric_configs or []
+        # 样本级"通过"阈值：与 quality_distribution 的 acceptable 档位对齐，
+        # 任务层与 compute_summary 共用同一口径，避免两套通过率互相矛盾
+        self.pass_threshold = pass_threshold
 
         # 初始化指标实例
         self.metrics: Dict[str, BaseTrainingDataMetric] = {}
@@ -190,41 +194,41 @@ class TrainingDataMetricEngine:
                 }
 
         # 计算整体质量分布（按指标配置的 weight 加权平均；weight 均为默认 1.0 时等价于简单平均）
-        weights = {
-            (c.get('metric_name') or c.get('name')): float(c.get('weight', 1.0) or 1.0)
-            for c in self.metric_configs
-        }
-        overall_scores = []
-        for r in results:
-            # 计算每个样本的加权得分
-            weighted_sum = 0.0
-            weight_sum = 0.0
-            for metric_name, v in r.items():
-                if v.error is None and v.score is not None:
-                    w = weights.get(metric_name, 1.0)
-                    weighted_sum += v.score * w
-                    weight_sum += w
-            if weight_sum > 0:
-                avg_score = weighted_sum / weight_sum
-                overall_scores.append(avg_score)
-
-                if avg_score >= 0.9:
-                    summary["quality_distribution"]["excellent"] += 1
-                elif avg_score >= 0.8:
-                    summary["quality_distribution"]["good"] += 1
-                elif avg_score >= 0.6:
-                    summary["quality_distribution"]["acceptable"] += 1
-                else:
-                    summary["quality_distribution"]["poor"] += 1
+        overall_scores = [self.overall_score(r) for r in results]
+        overall_scores = [s for s in overall_scores if s is not None]
+        for avg_score in overall_scores:
+            if avg_score >= 0.9:
+                summary["quality_distribution"]["excellent"] += 1
+            elif avg_score >= 0.8:
+                summary["quality_distribution"]["good"] += 1
+            elif avg_score >= 0.6:
+                summary["quality_distribution"]["acceptable"] += 1
+            else:
+                summary["quality_distribution"]["poor"] += 1
 
         # 计算总体通过率
         if overall_scores:
-            summary["passed_samples"] = sum(1 for s in overall_scores if s >= 0.6)
+            summary["passed_samples"] = sum(1 for s in overall_scores if s >= self.pass_threshold)
             summary["failed_samples"] = len(overall_scores) - summary["passed_samples"]
             summary["pass_rate"] = summary["passed_samples"] / len(overall_scores)
             summary["average_score"] = float(np.mean(overall_scores))
 
         return summary
+
+    def overall_score(self, result_dict: Dict[str, TrainingDataMetricResult]) -> Optional[float]:
+        """单样本整体得分：按指标 weight 加权平均（无有效得分返回 None）"""
+        weights = {
+            (c.get('metric_name') or c.get('name')): float(c.get('weight', 1.0) or 1.0)
+            for c in self.metric_configs
+        }
+        weighted_sum = 0.0
+        weight_sum = 0.0
+        for metric_name, v in result_dict.items():
+            if v.error is None and v.score is not None:
+                w = weights.get(metric_name, 1.0)
+                weighted_sum += v.score * w
+                weight_sum += w
+        return weighted_sum / weight_sum if weight_sum > 0 else None
 
     def generate_suggestions(
         self,

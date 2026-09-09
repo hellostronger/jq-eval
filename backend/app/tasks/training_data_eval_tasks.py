@@ -206,13 +206,14 @@ async def _run_training_data_eval(task, eval_id: UUID) -> Dict[str, Any]:
             for i, result_dict in enumerate(results):
                 qa = qa_list[i]
 
-                # 计算整体得分
-                valid_scores = [v.score for v in result_dict.values()
-                              if v.error is None and v.score is not None]
-                overall_score = sum(valid_scores) / len(valid_scores) if valid_scores else 0.0
+                # 整体得分与通过判定统一走 engine（加权、同一阈值），
+                # 避免任务层"无权重均值≥0.7"与汇总"加权均值≥0.6"两套口径互相矛盾
+                overall_score = engine.overall_score(result_dict)
+                if overall_score is None:
+                    overall_score = 0.0
 
                 # 判断是否通过
-                status = "passed" if overall_score >= 0.7 else "failed"
+                status = "passed" if overall_score >= engine.pass_threshold else "failed"
                 if status == "passed":
                     passed_count += 1
                 else:
