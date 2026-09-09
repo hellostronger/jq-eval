@@ -91,9 +91,6 @@ class RewardModelPairQualityMetric(BaseTrainingDataMetric):
 
     def _basic_quality_check(self, chosen: str, rejected: str) -> float:
         """基本质量检查"""
-        len_chosen = len(chosen)
-        len_rejected = len(rejected)
-
         # 计算文本重叠度
         chosen_words = set(chosen.lower().split())
         rejected_words = set(rejected.lower().split())

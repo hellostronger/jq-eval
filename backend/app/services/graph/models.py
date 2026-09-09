@@ -83,21 +83,6 @@ class RelationExtractRequest(BaseModel):
     language: str = Field(default="Chinese", description="输出语言")
 
 
-class EntityExtractResult(BaseModel):
-    """实体抽取结果"""
-    success: bool = Field(..., description="是否成功")
-    entities: List[GraphEntity] = Field(default_factory=list, description="抽取的实体")
-    error: Optional[str] = Field(None, description="错误信息")
-    processing_time: float = Field(default=0.0, description="处理时间(秒)")
-
-
-class RelationExtractRequest(BaseModel):
-    """关系抽取请求"""
-    text: str = Field(..., description="输入文本")
-    entities: List[str] = Field(default_factory=list, description="已有实体名称列表")
-    language: str = Field(default="Chinese", description="输出语言")
-
-
 class RelationExtractResult(BaseModel):
     """关系抽取结果"""
     success: bool = Field(..., description="是否成功")

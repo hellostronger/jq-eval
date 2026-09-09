@@ -4,8 +4,6 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 
 from .base import BaseModel
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy import Column, UUID, ForeignKey
 
 
 class Dataset(BaseModel):

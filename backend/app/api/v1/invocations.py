@@ -235,7 +235,7 @@ async def get_invocation_results(
     db: AsyncSession = Depends(get_db)
 ):
     """获取调用批次的结果"""
-    batch = await get_or_404(db, InvocationBatch, batch_id, "调用批次不存在")
+    await get_or_404(db, InvocationBatch, batch_id, "调用批次不存在")
 
     # 关联QA记录获取ground_truth
     query = (

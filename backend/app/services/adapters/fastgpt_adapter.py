@@ -2,8 +2,11 @@
 import httpx
 import time
 import json
+import logging
 from typing import Optional, List, Dict, Any
 from .base import BaseRAGAdapter, RAGResponse
+
+logger = logging.getLogger(__name__)
 
 
 class FastGPTAdapter(BaseRAGAdapter):
@@ -211,6 +214,7 @@ class FastGPTAdapter(BaseRAGAdapter):
                 data = response.json()
                 return data.get("data", [])
         except Exception as e:
+            logger.warning(f"获取 FastGPT 知识库列表失败: {e}")
             return []
 
     async def get_dataset_list(
@@ -240,4 +244,5 @@ class FastGPTAdapter(BaseRAGAdapter):
                 data = response.json()
                 return data.get("data", {}).get("list", [])
         except Exception as e:
+            logger.warning(f"获取 FastGPT 数据集列表失败: {e}")
             return []

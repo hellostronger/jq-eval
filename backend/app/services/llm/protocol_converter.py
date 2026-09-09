@@ -659,7 +659,6 @@ def internal_to_openai_response(resp: InternalResponse) -> Dict[str, Any]:
 
 def internal_to_anthropic_response(resp: InternalResponse) -> Dict[str, Any]:
     """InternalResponse -> Anthropic messages 响应"""
-    import time as _time
     import uuid as _uuid
 
     content: List[Dict] = []

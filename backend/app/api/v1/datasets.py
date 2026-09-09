@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, text
+from sqlalchemy import select, func
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from pydantic import BaseModel, Field
@@ -268,8 +268,8 @@ async def create_qa_record(
     db: AsyncSession = Depends(get_db)
 ):
     """添加QA记录"""
-    # 检查数据集是否存在
-    dataset = await get_or_404(db, Dataset, dataset_id, "数据集不存在")
+    # 检查数据集是否存在（get_or_404 不存在时直接抛 404）
+    await get_or_404(db, Dataset, dataset_id, "数据集不存在")
 
     qa_record = QARecord(
         dataset_id=dataset_id,
@@ -1280,10 +1280,9 @@ async def list_document_chunks(
     chunks = chunks_result.scalars().all()
 
     # 获取文档标题
-    doc_result = await db.execute(select(Document.title, Document.content).where(Document.id == doc_id))
+    doc_result = await db.execute(select(Document.title).where(Document.id == doc_id))
     doc_row = doc_result.fetchone()
     doc_title = doc_row.title if doc_row else None
-    doc_content = doc_row.content if doc_row else None
 
     items = [
         ChunkResponse(

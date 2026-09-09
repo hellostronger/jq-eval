@@ -85,7 +85,7 @@ async def _run_doc_explanation_eval(task, eval_id: UUID) -> Dict[str, Any]:
             llm = await _init_llm(llm_model)
             # 按模型的 save_logs 开关挂接调用日志（失败不影响评估）
             try:
-                from app.services.llm import create_log_recorder
+                from app.services.llm import create_log_recorder, LLMCallLogger
                 recorder = await create_log_recorder(db, llm_model.id)
                 if recorder.is_enabled():
                     llm = LLMCallLogger(llm, recorder, request_type="chat")

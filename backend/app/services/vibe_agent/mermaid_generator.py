@@ -161,7 +161,7 @@ class MermaidGenerator:
         lines = diagram.split("\n")
 
         # 添加入口点样式
-        entry_style_line = f"    classDef entryClass fill:#4CAF50,stroke:#2E7D32,stroke-width:2px,color:white"
+        entry_style_line = "    classDef entryClass fill:#4CAF50,stroke:#2E7D32,stroke-width:2px,color:white"
         apply_style_line = f"    {entry_id}:::entryClass"
 
         # 找到样式定义位置后插入

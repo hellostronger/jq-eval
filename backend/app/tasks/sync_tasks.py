@@ -92,7 +92,6 @@ async def _run_data_sync(task, sync_task_id: int) -> Dict[str, Any]:
             # 同步数据
             total_synced = 0
             target_types = sync_config.target_types or ["chunks", "qa_records"]
-            sync_errors = []
 
             # 获取字段映射
             mappings = adapter.get_default_mappings()

@@ -184,7 +184,7 @@ class LangGraphCodeGenerator:
 
         # 构建图
         code_lines.append("# 构建工作流图")
-        code_lines.append(f"workflow = StateGraph(WorkflowState)")
+        code_lines.append("workflow = StateGraph(WorkflowState)")
         for node in nodes:
             code_lines.append(f"workflow.add_node('{node['id']}', {node['id']}_node)")
         code_lines.append("")

@@ -93,9 +93,6 @@ async def compare_evaluations(
             raise HTTPException(status_code=400, detail=f"评估任务 {eval_id} 未完成，无法对比")
         evaluations.append(evaluation)
 
-    # 按评估任务名称建立映射
-    eval_map = {str(e.id): e.name for e in evaluations}
-
     # 获取所有评估结果，按 qa_record_id 组织
     all_results = {}
     for evaluation in evaluations:

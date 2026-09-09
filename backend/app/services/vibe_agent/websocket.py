@@ -152,7 +152,6 @@ class WebSocketHandler:
         """处理接收的消息"""
         message_type = data.get("type", "unknown")
         content = data.get("content", "")
-        metadata = data.get("metadata", {})
 
         try:
             if message_type == "start":

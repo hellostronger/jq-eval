@@ -252,7 +252,7 @@ async def execute_sync(
     db: AsyncSession = Depends(get_db)
 ):
     """执行数据同步"""
-    data_source = await get_or_404(db, DataSource, source_id, "数据源不存在")
+    await get_or_404(db, DataSource, source_id, "数据源不存在")
 
     # 验证数据集存在
     from ...models import Dataset

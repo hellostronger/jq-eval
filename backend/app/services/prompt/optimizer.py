@@ -30,11 +30,6 @@ class PromptOptimizer:
         Returns:
             优化后的 prompt 和说明
         """
-        # 构建优化指令
-        optimization_prompt = self._build_optimization_prompt(
-            prompt, framework, scenario, target_audience, constraints
-        )
-
         # 在 sandbox 中执行优化
         sandbox = Sandbox(base_url=self.sandbox_url)
 
@@ -95,28 +90,6 @@ print(json.dumps(result, ensure_ascii=False))
             "framework": framework or "basic",
             "changes": []
         }
-
-    def _build_optimization_prompt(
-        self,
-        prompt: str,
-        framework: Optional[str],
-        scenario: Optional[str],
-        target_audience: Optional[str],
-        constraints: Optional[str]
-    ) -> str:
-        """构建优化指令"""
-        parts = [f"原始 Prompt: {prompt}"]
-
-        if framework:
-            parts.append(f"使用框架: {framework}")
-        if scenario:
-            parts.append(f"使用场景: {scenario}")
-        if target_audience:
-            parts.append(f"目标受众: {target_audience}")
-        if constraints:
-            parts.append(f"约束条件: {constraints}")
-
-        return "\n".join(parts)
 
     def select_framework(self, task_description: str, complexity: str = "medium") -> str:
         """根据任务描述推荐框架"""

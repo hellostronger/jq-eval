@@ -220,7 +220,7 @@ async def test_model(
             request_data = _build_doc_parser_test_request(provider, model)
             logger.info(f"DocParser测试请求: url={request_data['url']}")
         else:
-            logger.info(f"非LLM/Embedding模型，直接返回成功")
+            logger.info("非LLM/Embedding模型，直接返回成功")
             return {
                 "success": True,
                 "message": "配置验证通过",

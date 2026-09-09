@@ -2,8 +2,11 @@
 import httpx
 import time
 import json
+import logging
 from typing import Optional, List, Dict, Any
 from .base import BaseRAGAdapter, RAGResponse
+
+logger = logging.getLogger(__name__)
 
 
 class CozeAdapter(BaseRAGAdapter):
@@ -213,4 +216,5 @@ class CozeAdapter(BaseRAGAdapter):
 
                 return data.get("data", {}).get("conversations", [])
         except Exception as e:
+            logger.warning(f"获取 Coze 会话列表失败: {e}")
             return []

@@ -79,8 +79,8 @@ async def create_training_data_eval(
     db: AsyncSession = Depends(get_db)
 ):
     """创建训练数据评估任务"""
-    # 检查数据集是否存在
-    dataset = await get_or_404(db, Dataset, data.dataset_id, "数据集不存在")
+    # 检查数据集是否存在（get_or_404 不存在时直接抛 404）
+    await get_or_404(db, Dataset, data.dataset_id, "数据集不存在")
 
     # 校验评估用模型
     if data.llm_model_id:

@@ -8,7 +8,7 @@ from uuid import uuid4
 import os
 
 from ...services.vibe_agent import (
-    get_engine, WebSocketHandler, get_connection_manager,
+    get_engine, create_engine, WebSocketHandler, get_connection_manager,
 )
 from ...models.vibe_agent import (
     VibeAgentSession,

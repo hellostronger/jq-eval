@@ -262,7 +262,6 @@ class ConversationManager:
         # 检查是否完成
         is_complete = result.get("is_complete", False)
         missing_required = result.get("missing_required_slots", [])
-        user_intent = result.get("user_intent", "补充信息")
 
         if is_complete or state.is_complete():
             state.current_state = "preview"

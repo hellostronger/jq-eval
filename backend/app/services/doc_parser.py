@@ -154,8 +154,6 @@ class MineruBatchClient:
     @staticmethod
     async def _get_via_doh(client: httpx.AsyncClient, url: str) -> httpx.Response:
         """用阿里 DoH 解析真实 IP 后固定连接请求（SNI/Host 保持原域名，证书校验不变）"""
-        import json
-
         u = httpx.URL(url)
         async with httpx.AsyncClient(timeout=30) as doh_client:
             doh_resp = await doh_client.get(

@@ -58,7 +58,6 @@ class VLMImageTextAlignmentMetric(BaseTrainingDataMetric):
             else:
                 # 如果没有图像描述，基于文本质量评分
                 score = 0.6
-                details = {"message": "缺少图像描述信息"}
 
             score = max(0.0, min(1.0, score))
 

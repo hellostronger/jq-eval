@@ -198,6 +198,7 @@ class RerankerLabelConsistencyMetric(BaseTrainingDataMetric):
                 "similarity": round(similarity, 4),
                 "label": label,
                 "expected_label": expected_label,
+                "label_match": label_match,
                 "consistency": consistency
             }
 
