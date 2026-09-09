@@ -1,5 +1,5 @@
 # 评估执行路由
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional, Dict, Any
@@ -203,7 +203,8 @@ async def list_evaluations(
         query = query.where(Evaluation.dataset_id == dataset_id)
     query = query.order_by(Evaluation.created_at.desc())
     if limit:
-        query = query.limit(limit)
+        # 运行时钳制，防止 limit 过大全表拉取
+        query = query.limit(min(limit, 500))
     result = await db.execute(query)
     return result.scalars().all()
 
@@ -318,8 +319,8 @@ async def get_evaluation_status(
 @router.get("/{eval_id}/results")
 async def get_evaluation_results(
     eval_id: UUID,
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
     db: AsyncSession = Depends(get_db)
 ):
     """获取评估结果，包含每条 QA 记录的详细信息和得分"""

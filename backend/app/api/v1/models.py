@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ...core.database import get_db
 from ...models import Model
@@ -18,7 +18,7 @@ from ._common import mask_api_key, get_or_404, delete_or_404
 
 # Pydantic Schemas
 class ModelCreate(BaseModel):
-    name: str
+    name: str = Field(..., max_length=200)
     model_type: str  # llm/embedding/reranker/doc_parser
     provider: Optional[str] = None
     model_name: Optional[str] = None
@@ -38,7 +38,7 @@ class ModelCreate(BaseModel):
 
 class ModelResponse(BaseModel):
     id: UUID
-    name: str
+    name: str = Field(..., max_length=200)
     model_type: str
     provider: Optional[str]
     model_name: Optional[str]

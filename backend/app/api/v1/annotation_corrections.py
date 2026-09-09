@@ -1,6 +1,6 @@
 # 标注矫正API路由
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional
@@ -160,8 +160,8 @@ async def list_batch_corrections(
     batch_id: UUID,
     status: Optional[str] = None,
     is_doubtful: Optional[bool] = None,
-    page: int = 1,
-    size: int = 20,
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
 ):
     """获取批次的矫正结果列表"""

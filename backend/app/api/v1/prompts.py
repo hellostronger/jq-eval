@@ -1,5 +1,5 @@
 # Prompt 管理 API
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from typing import List, Optional
@@ -124,8 +124,8 @@ async def list_prompts(
     usage_scenario: Optional[str] = None,
     framework: Optional[str] = None,
     tags: Optional[str] = None,
-    skip: int = 0,
-    limit: int = 20,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db)
 ):
     """获取 Prompt 列表"""

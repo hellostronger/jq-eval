@@ -1,12 +1,12 @@
 # 数据集管理路由
 import logging
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
 from typing import List, Optional, Dict, Any
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import io
 import csv
 import json
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 # Pydantic Schemas
 class DatasetCreate(BaseModel):
-    name: str
+    name: str = Field(..., max_length=200)
     description: Optional[str] = None
     source_type: Optional[str] = None
     source_url: Optional[str] = None
@@ -37,7 +37,7 @@ class DatasetCreate(BaseModel):
 
 class DatasetResponse(BaseModel):
     id: UUID
-    name: str
+    name: str = Field(..., max_length=200)
     description: Optional[str]
     source_type: Optional[str]
     record_count: int
@@ -183,8 +183,8 @@ class QARecordListResponse(BaseModel):
 @router.get("/{dataset_id}/qa-records", response_model=QARecordListResponse)
 async def list_qa_records(
     dataset_id: UUID,
-    page: int = 1,
-    size: int = 10,
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1, le=200),
     db: AsyncSession = Depends(get_db)
 ):
     """获取数据集的QA记录（分页）"""
@@ -914,8 +914,8 @@ class CreateFromNewsRequest(BaseModel):
 @router.get("/{dataset_id}/documents", response_model=DocumentListResponse)
 async def list_dataset_documents(
     dataset_id: UUID,
-    page: int = 1,
-    size: int = 10,
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1, le=200),
     db: AsyncSession = Depends(get_db)
 ):
     """获取数据集关联的文档列表（按文档归属 dataset_id 查询）"""
@@ -991,8 +991,8 @@ async def get_document_detail(
 @router.get("/{dataset_id}/chunks", response_model=ChunkListResponse)
 async def list_dataset_chunks(
     dataset_id: UUID,
-    page: int = 1,
-    size: int = 10,
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1, le=200),
     doc_id: Optional[UUID] = None,
     db: AsyncSession = Depends(get_db)
 ):
@@ -1257,8 +1257,8 @@ async def create_document_from_text(
 async def list_document_chunks(
     dataset_id: UUID,
     doc_id: UUID,
-    page: int = 1,
-    size: int = 20,
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db)
 ):
     """获取指定文档的所有分片（带原文位置标注）"""

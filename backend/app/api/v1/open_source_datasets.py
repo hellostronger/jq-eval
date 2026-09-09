@@ -1,5 +1,5 @@
 # 开源数据集管理路由
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional
@@ -103,7 +103,7 @@ class HFDatasetImportRequest(BaseModel):
 @router.get("/hf-search", response_model=HFDatasetSearchResponse)
 async def search_hf_datasets(
     query: str,
-    limit: int = 10,
+    limit: int = Query(10, ge=1, le=200),
     author: Optional[str] = None,
     tags: Optional[str] = None,
     language: Optional[str] = None,
@@ -269,8 +269,8 @@ async def create_open_source_dataset(
 
 @router.get("", response_model=OpenSourceDatasetListResponse)
 async def list_open_source_datasets(
-    page: int = 1,
-    size: int = 10,
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1, le=200),
     dataset_type: Optional[str] = None,
     language: Optional[str] = None,
     status: Optional[str] = None,

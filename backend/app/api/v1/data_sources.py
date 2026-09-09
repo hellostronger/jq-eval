@@ -2,7 +2,7 @@
 import json
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional, Dict, Any
@@ -206,7 +206,7 @@ async def get_schema(
 async def preview_data(
     source_id: UUID,
     table: str,
-    limit: int = 10,
+    limit: int = Query(10, ge=1, le=200),
     db: AsyncSession = Depends(get_db)
 ):
     """预览表数据"""

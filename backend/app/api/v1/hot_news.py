@@ -1,5 +1,5 @@
 # 热点新闻路由
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 from typing import List, Optional, Dict, Any
@@ -378,8 +378,8 @@ async def trigger_crawl(
 async def list_articles(
     source_id: Optional[UUID] = None,
     domain: Optional[str] = None,
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db)
 ):
     """获取文章列表"""

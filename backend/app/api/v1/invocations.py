@@ -1,5 +1,5 @@
 # RAG系统调用批次路由
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional
@@ -229,8 +229,8 @@ async def retry_single_result(
 @router.get("/{batch_id}/results", response_model=List[InvocationResultResponse])
 async def get_invocation_results(
     batch_id: UUID,
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
     status: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):

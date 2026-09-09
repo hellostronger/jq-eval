@@ -1,5 +1,5 @@
 # 训练数据评估 API 路由
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -254,8 +254,8 @@ async def get_training_data_eval_status(
 async def get_training_data_eval_results(
     eval_id: UUID,
     status: Optional[str] = None,
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
     db: AsyncSession = Depends(get_db)
 ):
     """获取训练数据评估结果"""
