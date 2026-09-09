@@ -4,6 +4,7 @@ import { PlusOutlined, PlayCircleOutlined, EyeOutlined } from '@ant-design/icons
 import { useNavigate } from 'react-router-dom'
 import { formatTime } from '@/utils/format'
 import { getDocExplanationEvaluations, createDocExplanationEvaluation, runDocExplanationEvaluation, getModels, getDocExplanations } from '@/api'
+import { usePollingWhenRunning } from '@/hooks/usePollingWhenRunning'
 import type { DocExplanationEvaluation, ModelConfig, DocExplanation } from '@/types'
 
 const DocExplanationEvaluations: React.FC = () => {
@@ -35,6 +36,13 @@ const DocExplanationEvaluations: React.FC = () => {
   useEffect(() => {
     fetchData()
   }, [])
+
+  // 有评估运行中时自动轮询刷新状态，全部结束后停止
+  usePollingWhenRunning(
+    evaluations.some((e) => e.status === 'running' || e.status === 'pending'),
+    fetchData,
+    5000,
+  )
 
   const showCreateModal = () => {
     form.resetFields()

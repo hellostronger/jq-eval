@@ -3,6 +3,7 @@ import { Card, Table, Button, Tag, Modal, Form, Input, InputNumber, Select, mess
 import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, ReloadOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { formatTime } from '@/utils/format'
 import { getLoadTests, createLoadTest, runLoadTest, deleteLoadTest, getRAGSystems, getDatasets, getModels } from '@/api'
+import { usePollingWhenRunning } from '@/hooks/usePollingWhenRunning'
 import type { LoadTest, RAGSystem, Dataset, LoadTestQpsLimitResult, LoadTestLatencyDistResult, LoadTestErrorSummary, LoadTestStepResult } from '@/types'
 
 const { TextArea } = Input
@@ -62,6 +63,13 @@ const LoadTests: React.FC = () => {
   useEffect(() => {
     fetchData()
   }, [])
+
+  // 有压测运行中时自动轮询刷新状态，全部结束后停止
+  usePollingWhenRunning(
+    loadTests.some((t) => t.status === 'running' || t.status === 'pending'),
+    fetchData,
+    5000,
+  )
 
   const showCreateDialog = () => {
     form.resetFields()
