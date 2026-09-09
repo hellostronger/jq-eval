@@ -60,7 +60,7 @@ class EvaluationMetricConfig(BaseModel):
     __tablename__ = "evaluation_metric_configs"
 
     eval_id = Column(UUID(as_uuid=True), ForeignKey("evaluations.id", ondelete="CASCADE"), nullable=False, index=True)
-    metric_id = Column(UUID(as_uuid=True), ForeignKey("metric_definitions.id"), nullable=False)
+    metric_id = Column(UUID(as_uuid=True), ForeignKey("metric_definitions.id"), nullable=False, index=True)
 
     # 用户自定义参数
     params = Column(JSONB, default=dict)

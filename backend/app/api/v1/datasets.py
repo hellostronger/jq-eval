@@ -621,14 +621,18 @@ async def generate_dataset(
         if source_type == "existing_doc" and not source.get("document_ids"):
             raise HTTPException(status_code=400, detail="existing_doc 类型需要 document_ids")
 
-        # existing_doc：校验文档存在且归属当前数据集（或为全局文档）
+        # existing_doc：校验文档存在且归属当前数据集（或为全局文档）—— 一次 in 查询批量校验
         if source_type == "existing_doc":
+            doc_uuids = []
             for doc_id in source.get("document_ids", []):
                 try:
-                    doc_uuid = UUID(str(doc_id))
+                    doc_uuids.append(UUID(str(doc_id)))
                 except (ValueError, TypeError):
                     raise HTTPException(status_code=400, detail=f"无效的文档 ID: {doc_id}")
-                doc = await db.get(Document, doc_uuid)
+            docs_result = await db.execute(select(Document).where(Document.id.in_(doc_uuids)))
+            docs_by_id = {d.id: d for d in docs_result.scalars().all()}
+            for doc_id in doc_uuids:
+                doc = docs_by_id.get(doc_id)
                 if not doc:
                     raise HTTPException(status_code=404, detail=f"文档不存在: {doc_id}")
                 if doc.dataset_id and doc.dataset_id != dataset_id:

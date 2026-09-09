@@ -57,7 +57,7 @@ class DocParseResult(BaseModel):
     # 解析产物
     md_content = Column(Text, nullable=True)          # full.md
     content_list = Column(JSONB, nullable=True)       # {file}_content_list.json
-    doc_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)  # 生成的 Document
+    doc_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True)  # 生成的 Document
 
     # 中间状态（官方API）：task_id / batch_id
     remote_task_id = Column(String(200), nullable=True)

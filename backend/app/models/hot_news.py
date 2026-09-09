@@ -65,7 +65,7 @@ class HotArticle(BaseModel):
     content_hash = Column(String(64), nullable=True, index=True)
 
     # 关联文档（可选）
-    doc_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True)
+    doc_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True, index=True)
 
     # 元数据
     article_metadata = Column(JSONB, default=dict)

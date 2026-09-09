@@ -19,7 +19,7 @@ class VibeAgentSession(BaseModel):
     llm_config = Column(JSONB, default=dict)  # LLM配置
 
     # 关联的工作流
-    workflow_id = Column(UUID(as_uuid=True), ForeignKey("vibe_agent_workflows.id", ondelete="SET NULL"), nullable=True)
+    workflow_id = Column(UUID(as_uuid=True), ForeignKey("vibe_agent_workflows.id", ondelete="SET NULL"), nullable=True, index=True)
 
     def __repr__(self):
         return f"<VibeAgentSession {self.id} status={self.status}>"
@@ -29,7 +29,7 @@ class VibeAgentWorkflow(BaseModel):
     """VibeAgent 工作流定义"""
     __tablename__ = "vibe_agent_workflows"
 
-    session_id = Column(UUID(as_uuid=True), ForeignKey("vibe_agent_sessions.id", ondelete="SET NULL"), nullable=True)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("vibe_agent_sessions.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String(200), nullable=False)  # 工作流名称
     description = Column(Text, nullable=True)  # 工作流描述
 
@@ -67,7 +67,7 @@ class VibeAgentWorkflowVersion(BaseModel):
     """工作流版本历史"""
     __tablename__ = "vibe_agent_workflow_versions"
 
-    workflow_id = Column(UUID(as_uuid=True), ForeignKey("vibe_agent_workflows.id", ondelete="CASCADE"), nullable=False)
+    workflow_id = Column(UUID(as_uuid=True), ForeignKey("vibe_agent_workflows.id", ondelete="CASCADE"), nullable=False, index=True)
     version = Column(Integer, nullable=False)
 
     # 版本内容
@@ -92,7 +92,7 @@ class VibeAgentExecution(BaseModel):
     """工作流执行记录"""
     __tablename__ = "vibe_agent_executions"
 
-    workflow_id = Column(UUID(as_uuid=True), ForeignKey("vibe_agent_workflows.id", ondelete="CASCADE"), nullable=False)
+    workflow_id = Column(UUID(as_uuid=True), ForeignKey("vibe_agent_workflows.id", ondelete="CASCADE"), nullable=False, index=True)
     workflow_version_id = Column(UUID(as_uuid=True), ForeignKey("vibe_agent_workflow_versions.id", ondelete="SET NULL"), nullable=True)
 
     # 输入输出
@@ -119,7 +119,7 @@ class VibeAgentNodeConfig(BaseModel):
     """工作流节点配置（支持参数调优）"""
     __tablename__ = "vibe_agent_node_configs"
 
-    workflow_id = Column(UUID(as_uuid=True), ForeignKey("vibe_agent_workflows.id", ondelete="CASCADE"), nullable=False)
+    workflow_id = Column(UUID(as_uuid=True), ForeignKey("vibe_agent_workflows.id", ondelete="CASCADE"), nullable=False, index=True)
 
     # 节点标识
     node_id = Column(String(100), nullable=False)  # 节点唯一标识
@@ -151,7 +151,7 @@ class VibeAgentSessionMessage(BaseModel):
     """会话消息记录"""
     __tablename__ = "vibe_agent_session_messages"
 
-    session_id = Column(UUID(as_uuid=True), ForeignKey("vibe_agent_sessions.id", ondelete="CASCADE"), nullable=False)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("vibe_agent_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
 
     # 消息内容
     role = Column(String(20), nullable=False)  # user/assistant/system

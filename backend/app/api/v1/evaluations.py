@@ -81,11 +81,12 @@ async def compare_evaluations(
     if len(data.eval_ids) < 2:
         raise HTTPException(status_code=400, detail="至少需要选择2个评估任务进行对比")
 
-    # 获取所有评估任务
+    # 获取所有评估任务（一次 in 查询，替代逐 id 的 N+1）
+    result = await db.execute(select(Evaluation).where(Evaluation.id.in_(data.eval_ids)))
+    found = {str(e.id): e for e in result.scalars().all()}
     evaluations = []
     for eval_id in data.eval_ids:
-        result = await db.execute(select(Evaluation).where(Evaluation.id == eval_id))
-        evaluation = result.scalar_one_or_none()
+        evaluation = found.get(str(eval_id))
         if not evaluation:
             raise HTTPException(status_code=404, detail=f"评估任务 {eval_id} 不存在")
         if evaluation.status != "completed":

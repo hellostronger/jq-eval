@@ -41,7 +41,7 @@ class PromptVersionHistory(BaseModel):
     """Prompt 版本历史"""
     __tablename__ = "prompt_version_history"
 
-    prompt_version_id = Column(UUID(as_uuid=True), ForeignKey("prompt_versions.id", ondelete="CASCADE"), nullable=False)
+    prompt_version_id = Column(UUID(as_uuid=True), ForeignKey("prompt_versions.id", ondelete="CASCADE"), nullable=False, index=True)
     version = Column(Integer, nullable=False)
     content = Column(Text, nullable=False)
     change_type = Column(String(20), nullable=False)  # create/update/optimize

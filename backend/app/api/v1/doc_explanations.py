@@ -247,11 +247,14 @@ async def create_doc_explanations_batch(
     db: AsyncSession = Depends(get_db)
 ):
     """批量创建文档解释"""
+    # 一次 in 查询校验全部 doc_id，替代逐条查询的 N+1
+    batch_doc_ids = list({item.doc_id for item in data.explanations})
+    doc_result = await db.execute(select(Document.id).where(Document.id.in_(batch_doc_ids)))
+    valid_doc_ids = set(doc_result.scalars().all())
+
     explanations = []
     for item in data.explanations:
-        result = await db.execute(select(Document).where(Document.id == item.doc_id))
-        document = result.scalar_one_or_none()
-        if not document:
+        if item.doc_id not in valid_doc_ids:
             continue
 
         explanation = DocExplanation(

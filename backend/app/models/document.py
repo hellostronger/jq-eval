@@ -28,7 +28,7 @@ class Chunk(BaseModel):
     """分片表"""
     __tablename__ = "chunks"
 
-    doc_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    doc_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
     content = Column(Text, nullable=False)
     chunk_index = Column(Integer, nullable=False)
     start_char = Column(Integer, nullable=True)

@@ -31,7 +31,7 @@ class ModelRequestLog(BaseModel):
     # 回放标记
     is_replay = Column(Boolean, default=False)  # 是否是回放测试
     replay_from_log_id = Column(UUID(as_uuid=True), nullable=True)  # 回放源日志ID
-    replay_model_id = Column(UUID(as_uuid=True), ForeignKey("models.id", ondelete="SET NULL"), nullable=True)  # 回放使用的模型ID
+    replay_model_id = Column(UUID(as_uuid=True), ForeignKey("models.id", ondelete="SET NULL"), nullable=True, index=True)  # 回放使用的模型ID
 
     # 调用来源
     source = Column(String(20), default="direct", nullable=False)  # direct=直接调用/mapping=映射调用
