@@ -320,7 +320,7 @@ def openai_request_to_internal(body: Dict[str, Any]) -> InternalRequest:
         stop = [stop]
 
     # 工具定义
-    tools = None
+    tools: Optional[List[Dict]] = None
     if body.get("tools"):
         tools = []
         for t in body["tools"]:

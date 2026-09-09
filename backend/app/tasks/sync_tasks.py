@@ -110,7 +110,8 @@ async def _run_data_sync(task, sync_task_id: int) -> Dict[str, Any]:
                 db.add(document)
                 await db.flush()
 
-                for raw_data in await adapter.fetch_data(table_name, sync_config):
+                # fetch_data 是 async generator，必须 async for（await 会 TypeError）
+                async for raw_data in adapter.fetch_data(table_name, sync_config):
                     # 转换数据
                     transformed = adapter.transform_data(raw_data, chunk_mapping, "chunks")
 
@@ -143,7 +144,7 @@ async def _run_data_sync(task, sync_task_id: int) -> Dict[str, Any]:
                 table_name = _get_source_table(data_source.system_type, "qa_records")
 
                 count = 0
-                for raw_data in await adapter.fetch_data(table_name, sync_config):
+                async for raw_data in adapter.fetch_data(table_name, sync_config):
                     # 转换数据
                     transformed = adapter.transform_data(raw_data, qa_mapping, "qa_records")
 

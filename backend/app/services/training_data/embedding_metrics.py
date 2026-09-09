@@ -205,7 +205,7 @@ class EmbeddingCompletenessMetric(BaseTrainingDataMetric):
             completeness_checks.append(0.0)
             suggestions.append("缺少上下文数据")
 
-        score = np.mean(completeness_checks)
+        score = float(np.mean(completeness_checks))
 
         return TrainingDataMetricResult(
             score=score,

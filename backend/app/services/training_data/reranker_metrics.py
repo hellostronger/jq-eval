@@ -65,6 +65,8 @@ class RerankerPairQualityMetric(_EmbedMixin, BaseTrainingDataMetric):
             )
 
         try:
+            difference: float  # 两个分支分别赋 int 差值 / float 相似度差
+
             # 如果没有embedding模型，使用简单的文本重叠度
             if not embedding_model:
                 pos_words = set(positive_doc.lower().split())
@@ -111,9 +113,9 @@ class RerankerPairQualityMetric(_EmbedMixin, BaseTrainingDataMetric):
                         suggestions = []
 
                     details = {
-                        "positive_similarity": round(pos_sim, 4),
-                        "negative_similarity": round(neg_sim, 4),
-                        "difference": round(difference, 4)
+                        "positive_similarity": float(round(pos_sim, 4)),
+                        "negative_similarity": float(round(neg_sim, 4)),
+                        "difference": float(round(difference, 4))
                     }
                 except Exception as embed_err:
                     return TrainingDataMetricResult(
@@ -258,6 +260,7 @@ class RerankerHardNegativeQualityMetric(BaseTrainingDataMetric):
                 recall = overlap / total_query
 
             # 难负样本应有中等相似度（0.3-0.6）
+            suggestions: List[str]
             if 0.3 <= recall <= 0.6:
                 score = 0.9
                 quality = "excellent"
@@ -269,7 +272,7 @@ class RerankerHardNegativeQualityMetric(BaseTrainingDataMetric):
             elif recall < 0.1:
                 score = 0.4
                 quality = "too_easy"
-                suggestions = ["难负样本与查询相似度太低，可能不够""难"""]
+                suggestions = ["难负样本与查询相似度太低，可能不够难"]
             elif recall > 0.7:
                 score = 0.3
                 quality = "too_similar"

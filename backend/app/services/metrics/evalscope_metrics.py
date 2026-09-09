@@ -51,7 +51,7 @@ class EvalScopeBLEU(BaseMetric):
         except Exception as e:
             return MetricResult(score=0.0, error=str(e))
 
-    def _compute_bleu(self, prediction: str, reference: str) -> MetricResult:
+    def _compute_bleu(self, prediction: Optional[str], reference: Optional[str]) -> MetricResult:
         """简化版BLEU计算"""
         if not prediction or not reference:
             return MetricResult(score=0.0)
@@ -128,7 +128,7 @@ class EvalScopeROUGE(BaseMetric):
         except Exception as e:
             return MetricResult(score=0.0, error=str(e))
 
-    def _compute_rouge_l(self, prediction: str, reference: str) -> MetricResult:
+    def _compute_rouge_l(self, prediction: Optional[str], reference: Optional[str]) -> MetricResult:
         """简化版ROUGE-L计算（基于最长公共子序列）"""
         if not prediction or not reference:
             return MetricResult(score=0.0)
@@ -224,7 +224,7 @@ class SemanticSimilarity(BaseMetric):
         except Exception as e:
             return MetricResult(score=0.0, error=str(e))
 
-    async def _get_embedding(self, text: str) -> Optional[List[float]]:
+    async def _get_embedding(self, text: Optional[str]) -> Optional[List[float]]:
         """获取文本Embedding"""
         try:
             if hasattr(self.embedding_model, 'embed'):
@@ -246,7 +246,7 @@ class SemanticSimilarity(BaseMetric):
 
         return dot_product / (norm1 * norm2)
 
-    def _compute_char_similarity(self, text1: str, text2: str) -> MetricResult:
+    def _compute_char_similarity(self, text1: Optional[str], text2: Optional[str]) -> MetricResult:
         """基于字符的相似度计算"""
         if not text1 or not text2:
             return MetricResult(score=0.0)

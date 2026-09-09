@@ -1,6 +1,6 @@
 # 评估指标基类
 from abc import ABC, abstractmethod
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple, Union
 from pydantic import BaseModel
 
 
@@ -83,15 +83,15 @@ class BaseTrainingDataMetric(ABC):
             "threshold_type": self.threshold_type
         }
 
-    def check_threshold(self, score: float, threshold: Optional[float] = None) -> bool:
-        """检查得分是否通过阈值"""
+    def check_threshold(self, score: float, threshold: Optional[Union[float, List[float], Tuple[float, ...]]] = None) -> bool:
+        """检查得分是否通过阈值（range 类型时 threshold 为 [min, max] 列表）"""
         if threshold is None:
             threshold = self.default_threshold
 
         if self.threshold_type == "min":
-            return score >= threshold
+            return score >= float(threshold)  # type: ignore[arg-type]
         elif self.threshold_type == "max":
-            return score <= threshold
+            return score <= float(threshold)  # type: ignore[arg-type]
         elif self.threshold_type == "range":
             # threshold 为 [min, max] 列表
             min_val, max_val = threshold if isinstance(threshold, (list, tuple)) else (0, threshold)
