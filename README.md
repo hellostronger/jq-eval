@@ -71,9 +71,9 @@ cp .env.example .env
 jq-eval/
 ├── backend/                 # 后端代码
 │   ├── app/
-│   │   ├── api/v1/         # API路由（24个路由模块，224个端点）
+│   │   ├── api/v1/         # API路由（24个路由模块，219个端点）
 │   │   ├── core/           # 配置/数据库/Celery
-│   │   ├── models/         # SQLAlchemy 模型（19张业务表）
+│   │   ├── models/         # SQLAlchemy 模型（46张业务表，跨方言类型层）
 │   │   ├── tasks/          # Celery 异步任务（评估/生成/解析/压测/爬虫）
 │   │   └── services/       # 业务服务（adapters/metrics/llm/graph/training_data/vibe_agent...）
 │   └── requirements.txt
@@ -123,7 +123,7 @@ jq-eval/
 | 层 | 技术 |
 |----|------|
 | 前端 | React 18 + TypeScript + Ant Design 5 + ECharts + Vite |
-| 后端 | Python 3.11+ / FastAPI (async) / SQLAlchemy 2 (asyncpg) |
+| 后端 | Python 3.10+ / FastAPI (async) / SQLAlchemy 2 (asyncpg) |
 | 异步任务 | Celery + Redis（Beat 定时调度，任务进度实时上报） |
 | 存储 | PostgreSQL (JSONB) / Milvus (向量) / MinIO (对象) / Redis |
 | 评估 | Ragas / EvalScope / 自研指标引擎（检索与生成阶段解耦） |
@@ -154,7 +154,7 @@ docker-compose restart milvus
 
 ### 0. 前置要求
 
-- Python 3.11+（开发时使用 3.12）
+- Python 3.10+（开发与测试验证环境为 3.10，3.11/3.12 兼容）
 - Node.js 18+、pnpm（`npm i -g pnpm`）
 - Docker（用于中间件）
 

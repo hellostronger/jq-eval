@@ -1,7 +1,9 @@
 [project]
 name = "backend"
 version = "0.1.0"
-description = "Add your description here"
+description = "JQ-Eval 智能评估系统后端（FastAPI + Celery + SQLAlchemy async）"
 readme = "README.md"
-requires-python = ">=3.13"
+# 实际验证运行环境为 Python 3.10（venv + 全量测试通过）；3.11/3.12 兼容
+requires-python = ">=3.10"
+# 运行时依赖统一由 requirements.txt 管理（pip install -r requirements.txt）
 dependencies = []
