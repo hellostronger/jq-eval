@@ -39,7 +39,7 @@ GET /health
 ### 1.2 服务就绪检查
 
 ```
-GET /api/v1/health/ready
+GET /api/v1/ready
 ```
 
 检查所有中间件连接状态（PostgreSQL、Redis、Milvus、MinIO）。

@@ -81,7 +81,7 @@ export interface Evaluation {
   reuse_invocation?: boolean  // 是否复用存量调用结果
   metrics: string[]
   batch_size: number
-  status: 'pending' | 'running' | 'completed' | 'failed'
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
   progress?: number  // 0-100，运行中由后端上报
   started_at?: string
   completed_at?: string

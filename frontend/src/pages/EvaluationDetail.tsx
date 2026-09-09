@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react'
 import { Card, Descriptions, Table, Tag, Tabs, Row, Col, Statistic, Button, message, Space, Modal, Switch } from 'antd'
 import { useParams } from 'react-router-dom'
-import { ReloadOutlined } from '@ant-design/icons'
+import { ReloadOutlined, StopOutlined } from '@ant-design/icons'
 import { formatShortTime, formatTime } from '@/utils/format'
 import ReactECharts from 'echarts-for-react'
-import { getEvaluation, getEvaluationResults, retryEvaluationWithOption } from '@/api'
+import { getEvaluation, getEvaluationResults, getEvaluationAnalysis, retryEvaluationWithOption, cancelEvaluation } from '@/api'
+import type { EvaluationAnalysis } from '@/api'
 import type { Evaluation } from '@/types'
 
 interface EvalResult {
@@ -29,8 +30,10 @@ const EvaluationDetail: React.FC = () => {
   const [results, setResults] = useState<EvalResult[]>([])
   const [total, setTotal] = useState(0)
   const [summary, setSummary] = useState<Summary | null>(null)
+  const [analysis, setAnalysis] = useState<EvaluationAnalysis | null>(null)
   const [loading, setLoading] = useState(false)
   const [retrying, setRetrying] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
   const [retryModalVisible, setRetryModalVisible] = useState(false)
   const [reuseInvocation, setReuseInvocation] = useState(true)
 
@@ -53,6 +56,15 @@ const EvaluationDetail: React.FC = () => {
       setResults(data?.results || [])
       setTotal(data?.total || data?.results?.length || 0)
       setSummary(data?.summary || null)
+      // 有结果时拉取根因分析（无结果后端返 400，静默忽略）
+      if (data?.results?.length) {
+        try {
+          const res = await getEvaluationAnalysis(id)
+          setAnalysis(res?.analysis || null)
+        } catch {
+          setAnalysis(null)
+        }
+      }
     } catch (e) {
       // 错误已在拦截器处理
     } finally {
@@ -66,6 +78,21 @@ const EvaluationDetail: React.FC = () => {
     setReuseInvocation(evaluation.reuse_invocation ?? true)
   }
 
+  const handleCancel = async () => {
+    if (!id) return
+    setCancelling(true)
+    try {
+      const res = await cancelEvaluation(id)
+      message.success(res?.message || '取消请求已提交')
+      // 协作式取消：worker 在批次边界停止后状态才变 cancelled，稍后轮询刷新
+      setTimeout(() => fetchEvaluation(), 3000)
+    } catch (e) {
+      // 错误已在拦截器处理
+    } finally {
+      setCancelling(false)
+    }
+  }
+
   const confirmRetry = async () => {
     if (!id) return
     setRetrying(true)
@@ -77,6 +104,7 @@ const EvaluationDetail: React.FC = () => {
       await fetchEvaluation()
       setResults([])
       setSummary(null)
+      setAnalysis(null)
     } catch (e) {
       message.error('重试失败')
     } finally {
@@ -95,6 +123,7 @@ const EvaluationDetail: React.FC = () => {
       running: 'processing',
       pending: 'default',
       failed: 'error',
+      cancelled: 'warning',
     }
     return types[status] || 'default'
   }
@@ -197,6 +226,46 @@ const EvaluationDetail: React.FC = () => {
       ),
     },
     {
+      key: 'analysis',
+      label: '根因分析',
+      children: analysis ? (
+        <>
+          <Card title="根因定位" style={{ marginBottom: 16 }}>
+            <Space direction="vertical">
+              <span>
+                瓶颈环节：
+                <Tag color={analysis.root_cause.stage === 'none' ? 'green' : 'volcano'}>
+                  {{ retrieval: '检索', generation: '生成', knowledge: '知识覆盖', none: '无明显瓶颈' }[analysis.root_cause.stage] || analysis.root_cause.stage}
+                </Tag>
+                置信度：
+                <Tag color={{ high: 'red', medium: 'orange' }[analysis.root_cause.confidence] || 'default'}>
+                  {{ high: '高', medium: '中', low: '低' }[analysis.root_cause.confidence] || analysis.root_cause.confidence}
+                </Tag>
+              </span>
+              <span>
+                阶段均值：
+                <Tag>检索 {analysis.retrieval_analysis.average ?? '-'}</Tag>
+                <Tag>生成 {analysis.generation_analysis.average ?? '-'}</Tag>
+              </span>
+              {analysis.weak_metrics.length > 0 && (
+                <span>
+                  未达标指标：
+                  {analysis.weak_metrics.map(m => <Tag key={m} color="error">{m}</Tag>)}
+                </span>
+              )}
+            </Space>
+          </Card>
+          <Card title="调参建议">
+            <ol style={{ margin: 0, paddingLeft: 20 }}>
+              {analysis.recommendations.map((r, i) => <li key={i}>{r}</li>)}
+            </ol>
+          </Card>
+        </>
+      ) : (
+        <Card>暂无分析结果（评估完成后自动加载）</Card>
+      ),
+    },
+    {
       key: 'results',
       label: '详细结果',
       children: (
@@ -216,8 +285,18 @@ const EvaluationDetail: React.FC = () => {
     <Card
       title={evaluation?.name || '评估详情'}
       extra={
-        evaluation?.status === 'failed' && (
-          <Space>
+        <Space>
+          {evaluation?.status === 'running' && (
+            <Button
+              danger
+              icon={<StopOutlined />}
+              loading={cancelling}
+              onClick={handleCancel}
+            >
+              取消
+            </Button>
+          )}
+          {(evaluation?.status === 'failed' || evaluation?.status === 'cancelled') && (
             <Button
               type="primary"
               icon={<ReloadOutlined />}
@@ -226,8 +305,8 @@ const EvaluationDetail: React.FC = () => {
             >
               重试
             </Button>
-          </Space>
-        )
+          )}
+        </Space>
       }
     >
       <Descriptions bordered column={4} style={{ marginBottom: 16 }}>

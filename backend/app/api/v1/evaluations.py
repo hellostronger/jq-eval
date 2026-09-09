@@ -309,6 +309,114 @@ async def get_evaluation_status(
     }
 
 
+# 根因分析阈值：低于该均值视为该指标"不达标"
+ANALYSIS_WEAK_THRESHOLD = 0.6
+
+
+@router.get("/{eval_id}/analysis")
+async def get_evaluation_analysis(
+    eval_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """根因分析：按 检索(process/retrieval) / 生成(result) 两阶段聚合各指标均分，
+    依据两阶段的相对强弱定位瓶颈环节并给出调参建议。
+
+    规则（RAG 评估的标准诊断链路）：
+    - 检索阶段弱 → 根因在召回：上下文本身没找对，生成再好也没用
+    - 检索强 + faithfulness 弱 → 生成阶段没照着上下文答（幻觉/自由发挥）
+    - faithfulness 强 + answer_relevancy 弱 → 答非所问（问题理解偏差）
+    - 两阶段都强 + correctness 弱 → 知识覆盖缺口（语料缺内容）
+    """
+    # 仅做存在性校验（404），后续只读结果表
+    await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
+
+    rows = await db.execute(
+        select(EvalResult.scores).where(EvalResult.eval_id == eval_id)
+    )
+    all_scores = [r[0] for r in rows.all() if r[0]]
+    if not all_scores:
+        raise HTTPException(status_code=400, detail="评估尚无结果，无法分析")
+
+    from ...services.metrics.engine import METRIC_REGISTRY
+
+    # 逐指标求均值（跳过 error 样本）
+    metric_values: Dict[str, List[float]] = {}
+    for scores in all_scores:
+        for name, item in scores.items():
+            if isinstance(item, dict) and item.get("score") is not None and not item.get("error"):
+                metric_values.setdefault(name, []).append(float(item["score"]))
+    metric_means = {
+        name: sum(vals) / len(vals)
+        for name, vals in metric_values.items()
+        if vals
+    }
+
+    def _stage_of(metric_name: str) -> tuple:
+        cls = METRIC_REGISTRY.get(metric_name)
+        if not cls:
+            return ("unknown", "unknown")
+        return (cls.eval_stage, cls.category)
+
+    retrieval_scores = {n: s for n, s in metric_means.items() if _stage_of(n) == ("process", "retrieval")}
+    generation_scores = {n: s for n, s in metric_means.items() if _stage_of(n)[0] == "result"}
+
+    def _avg(d: Dict[str, float]) -> Optional[float]:
+        return sum(d.values()) / len(d) if d else None
+
+    retrieval_avg = _avg(retrieval_scores)
+    generation_avg = _avg(generation_scores)
+    weak_metrics = sorted(
+        [n for n, s in metric_means.items() if s < ANALYSIS_WEAK_THRESHOLD],
+        key=lambda n: metric_means[n]
+    )
+
+    # 根因定位
+    root_cause: Dict[str, Any] = {}
+    recommendations: List[str] = []
+
+    if retrieval_avg is not None and retrieval_avg < ANALYSIS_WEAK_THRESHOLD:
+        root_cause = {"stage": "retrieval", "confidence": "high" if retrieval_avg < 0.4 else "medium"}
+        recommendations.append("检索阶段是瓶颈：检查分片策略（chunk 大小/重叠）与向量模型是否匹配语料领域")
+        recommendations.append("尝试提高召回 top-k 并用 reranker 重排，观察 context_precision 是否回升")
+        if "context_recall" in retrieval_scores and \
+           retrieval_scores["context_recall"] < ANALYSIS_WEAK_THRESHOLD:
+            recommendations.append("context_recall 偏低说明知识库缺少相关内容，建议补充同步数据源文档")
+    else:
+        faith = metric_means.get("faithfulness")
+        relev = metric_means.get("answer_relevancy")
+        correct = metric_means.get("answer_correctness") or metric_means.get("exact_match")
+        if faith is not None and faith < ANALYSIS_WEAK_THRESHOLD:
+            root_cause = {"stage": "generation", "confidence": "high"}
+            recommendations.append("上下文召回尚可但生成未遵循上下文（疑似幻觉）：在提示词中强制\"仅依据给定资料回答\"，并降低 temperature")
+        elif relev is not None and relev < ANALYSIS_WEAK_THRESHOLD:
+            root_cause = {"stage": "generation", "confidence": "medium"}
+            recommendations.append("答案忠实但偏离问题：建议增加 query 改写/分解步骤，或在系统提示中强调切题")
+        elif correct is not None and correct < ANALYSIS_WEAK_THRESHOLD:
+            root_cause = {"stage": "knowledge", "confidence": "medium"}
+            recommendations.append("流程指标健康但正确性不足：知识库内容缺口，建议核对数据集 ground truth 覆盖并补充语料")
+        else:
+            root_cause = {"stage": "none", "confidence": "high"}
+            recommendations.append("各阶段指标均达标，当前配置可作为基线；可扩测更多困难样本（multi_context/reasoning 类）验证上限")
+
+    return {
+        "eval_id": str(eval_id),
+        "analysis": {
+            "metric_means": {k: round(v, 4) for k, v in metric_means.items()},
+            "retrieval_analysis": {
+                "average": round(retrieval_avg, 4) if retrieval_avg is not None else None,
+                "metrics": {k: round(v, 4) for k, v in retrieval_scores.items()},
+            },
+            "generation_analysis": {
+                "average": round(generation_avg, 4) if generation_avg is not None else None,
+                "metrics": {k: round(v, 4) for k, v in generation_scores.items()},
+            },
+            "weak_metrics": weak_metrics,
+            "root_cause": root_cause,
+            "recommendations": recommendations,
+        },
+    }
+
+
 @router.get("/{eval_id}/results")
 async def get_evaluation_results(
     eval_id: UUID,

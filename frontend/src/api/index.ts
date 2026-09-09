@@ -309,6 +309,21 @@ export const getEvaluationResults = (id: string) => {
   return request.get<EvaluationResultsResponse>(`/evaluations/${id}/results`)
 }
 
+interface EvaluationAnalysis {
+  metric_means: Record<string, number>
+  retrieval_analysis: { average: number | null; metrics: Record<string, number> }
+  generation_analysis: { average: number | null; metrics: Record<string, number> }
+  weak_metrics: string[]
+  root_cause: { stage: string; confidence: string }
+  recommendations: string[]
+}
+
+export const getEvaluationAnalysis = (id: string) => {
+  return request.get<{ eval_id: string; analysis: EvaluationAnalysis }>(`/evaluations/${id}/analysis`)
+}
+
+export type { EvaluationAnalysis }
+
 export const compareEvaluations = (evalIds: string[]) => {
   return request.post<{
     evaluations: Array<{ id: string; name: string; metrics: string[]; summary: Record<string, any> }>
@@ -326,6 +341,10 @@ export const retryEvaluationWithOption = (id: string, reuseInvocation: boolean =
   return request.post<{ message: string; eval_id: string; task_id: string; reuse_invocation: boolean }>(
     `/evaluations/${id}/retry?reuse_invocation=${reuseInvocation}`
   )
+}
+
+export const cancelEvaluation = (id: string) => {
+  return request.post<{ message: string; eval_id: string }>(`/evaluations/${id}/cancel`)
 }
 
 // 调用批次API

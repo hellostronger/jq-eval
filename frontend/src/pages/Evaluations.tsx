@@ -104,6 +104,7 @@ const Evaluations: React.FC = () => {
       running: 'processing',
       pending: 'default',
       failed: 'error',
+      cancelled: 'warning',
     }
     return types[status] || 'default'
   }
