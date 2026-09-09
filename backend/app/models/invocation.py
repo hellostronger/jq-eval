@@ -1,8 +1,7 @@
 # RAG系统调用结果模型
 from sqlalchemy import Column, String, Text, Integer, Float, ForeignKey, DateTime
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
-
+from ..core.db_types import JSONType, UUIDType
 from .base import BaseModel
 
 
@@ -11,8 +10,8 @@ class InvocationBatch(BaseModel):
     __tablename__ = "invocation_batches"
 
     name = Column(String(200), nullable=False)
-    dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id"), nullable=False, index=True)
-    rag_system_id = Column(UUID(as_uuid=True), ForeignKey("rag_systems.id"), nullable=False, index=True)
+    dataset_id = Column(UUIDType(as_uuid=True), ForeignKey("datasets.id"), nullable=False, index=True)
+    rag_system_id = Column(UUIDType(as_uuid=True), ForeignKey("rag_systems.id"), nullable=False, index=True)
 
     # 状态
     status = Column(String(50), default="pending")  # pending/running/completed/failed
@@ -36,17 +35,17 @@ class InvocationResult(BaseModel):
     """单条RAG调用结果"""
     __tablename__ = "invocation_results"
 
-    batch_id = Column(UUID(as_uuid=True), ForeignKey("invocation_batches.id"), nullable=False, index=True)
-    qa_record_id = Column(UUID(as_uuid=True), ForeignKey("qa_records.id"), nullable=False, index=True)
-    rag_system_id = Column(UUID(as_uuid=True), ForeignKey("rag_systems.id"), nullable=False, index=True)
+    batch_id = Column(UUIDType(as_uuid=True), ForeignKey("invocation_batches.id"), nullable=False, index=True)
+    qa_record_id = Column(UUIDType(as_uuid=True), ForeignKey("qa_records.id"), nullable=False, index=True)
+    rag_system_id = Column(UUIDType(as_uuid=True), ForeignKey("rag_systems.id"), nullable=False, index=True)
 
     # 问题快照
     question = Column(Text, nullable=False)
 
     # 调用结果
     answer = Column(Text, nullable=True)
-    contexts = Column(JSONB, nullable=True)  # 检索到的上下文片段列表
-    retrieval_ids = Column(JSONB, nullable=True)  # 检索到的chunk ID列表（用于检索指标计算）
+    contexts = Column(JSONType, nullable=True)  # 检索到的上下文片段列表
+    retrieval_ids = Column(JSONType, nullable=True)  # 检索到的chunk ID列表（用于检索指标计算）
 
     # 性能指标
     latency = Column(Float, nullable=True)  # 响应耗时（秒）

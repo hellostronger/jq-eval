@@ -1,7 +1,6 @@
 # 模型调用映射表
 from sqlalchemy import Column, String, Text, Boolean, DateTime, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
-
+from ..core.db_types import UUIDType
 from .base import BaseModel
 
 
@@ -10,7 +9,7 @@ class ModelMapping(BaseModel):
     __tablename__ = "model_mappings"
 
     name = Column(String(200), nullable=False)
-    target_model_id = Column(UUID(as_uuid=True), ForeignKey("models.id", ondelete="CASCADE"), nullable=False, index=True)
+    target_model_id = Column(UUIDType(as_uuid=True), ForeignKey("models.id", ondelete="CASCADE"), nullable=False, index=True)
     api_key = Column(Text, nullable=True)  # sk-mx- 前缀密钥，auth_required=False 时可为空
     auth_required = Column(Boolean, default=True)  # 是否校验 API Key
     log_enabled = Column(Boolean, default=False)  # 是否记录调用日志

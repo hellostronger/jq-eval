@@ -1,8 +1,7 @@
 # 文档解析模型（minerU 等解析服务）
 from sqlalchemy import Column, String, Text, Integer, Float, ForeignKey, DateTime
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
-
+from ..core.db_types import JSONType, UUIDType
 from .base import BaseModel
 
 
@@ -12,10 +11,10 @@ class DocParseBatch(BaseModel):
 
     name = Column(String(200), nullable=False)
     # 解析服务（models 表中 model_type=doc_parser 的记录）
-    parser_model_id = Column(UUID(as_uuid=True), ForeignKey("models.id"), nullable=False, index=True)
+    parser_model_id = Column(UUIDType(as_uuid=True), ForeignKey("models.id"), nullable=False, index=True)
     parser_model_name = Column(String(200), nullable=True)
     # 归属数据集（数据集内触发解析时填写；全局解析为 NULL）
-    dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id"), nullable=True, index=True)
+    dataset_id = Column(UUIDType(as_uuid=True), ForeignKey("datasets.id"), nullable=True, index=True)
 
     # 状态: pending/running/completed/failed
     status = Column(String(50), default="pending")
@@ -23,7 +22,7 @@ class DocParseBatch(BaseModel):
     error = Column(Text, nullable=True)
 
     # 解析参数快照（language/output_format/is_ocr 等）
-    config = Column(JSONB, default=dict)
+    config = Column(JSONType, default=dict)
 
     # 统计
     total_files = Column(Integer, default=0)
@@ -31,7 +30,7 @@ class DocParseBatch(BaseModel):
     failed_files = Column(Integer, default=0)
 
     # 评估汇总（评估后写入）
-    evaluation_summary = Column(JSONB, nullable=True)
+    evaluation_summary = Column(JSONType, nullable=True)
 
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
@@ -43,7 +42,7 @@ class DocParseResult(BaseModel):
     """单文件解析结果"""
     __tablename__ = "doc_parse_results"
 
-    batch_id = Column(UUID(as_uuid=True), ForeignKey("doc_parse_batches.id", ondelete="CASCADE"), nullable=False, index=True)
+    batch_id = Column(UUIDType(as_uuid=True), ForeignKey("doc_parse_batches.id", ondelete="CASCADE"), nullable=False, index=True)
 
     # 源文件（MinIO documents bucket）
     file_name = Column(String(500), nullable=False)
@@ -56,8 +55,8 @@ class DocParseResult(BaseModel):
 
     # 解析产物
     md_content = Column(Text, nullable=True)          # full.md
-    content_list = Column(JSONB, nullable=True)       # {file}_content_list.json
-    doc_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True)  # 生成的 Document
+    content_list = Column(JSONType, nullable=True)       # {file}_content_list.json
+    doc_id = Column(UUIDType(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True)  # 生成的 Document
 
     # 中间状态（官方API）：task_id / batch_id
     remote_task_id = Column(String(200), nullable=True)
@@ -66,7 +65,7 @@ class DocParseResult(BaseModel):
     duration = Column(Float, nullable=True)
 
     # 解析质量评估结果
-    evaluation = Column(JSONB, nullable=True)
+    evaluation = Column(JSONType, nullable=True)
 
     completed_at = Column(DateTime, nullable=True)
 

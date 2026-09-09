@@ -7,7 +7,7 @@ from app.models import Dataset, Model, RAGSystem
 @pytest.mark.asyncio
 async def test_list_evaluations(client: AsyncClient):
     """测试获取评估列表"""
-    response = await client.get("/evaluations")
+    response = await client.get("/api/v1/evaluations")
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
@@ -20,7 +20,7 @@ async def test_create_evaluation(
     sample_llm_model: Model
 ):
     """测试创建评估任务"""
-    response = await client.post("/evaluations", json={
+    response = await client.post("/api/v1/evaluations", json={
         "name": "Test Evaluation",
         "description": "A test evaluation",
         "dataset_id": str(sample_dataset.id),
@@ -36,7 +36,7 @@ async def test_create_evaluation(
 @pytest.mark.asyncio
 async def test_get_metrics(client: AsyncClient):
     """测试获取指标列表"""
-    response = await client.get("/metrics")
+    response = await client.get("/api/v1/metrics")
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
@@ -45,7 +45,7 @@ async def test_get_metrics(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_get_metric_categories(client: AsyncClient):
     """测试获取指标分类"""
-    response = await client.get("/metrics/categories")
+    response = await client.get("/api/v1/metrics/categories")
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)

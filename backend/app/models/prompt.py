@@ -1,8 +1,7 @@
 # Prompt 模型
 from sqlalchemy import Column, String, Text, Integer, ForeignKey, Boolean
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
-
+from ..core.db_types import JSONType, UUIDType
 from .base import BaseModel
 
 
@@ -15,16 +14,16 @@ class PromptVersion(BaseModel):
     version = Column(Integer, default=1)
     description = Column(Text, nullable=True)
     framework = Column(String(50), nullable=True)  # 使用的框架
-    parameters = Column(JSONB, default=dict)  # 框架参数
+    parameters = Column(JSONType, default=dict)  # 框架参数
     is_active = Column(Boolean, default=True)
 
     # 优化相关信息
     original_prompt = Column(Text, nullable=True)  # 原始 prompt
     optimization_notes = Column(Text, nullable=True)  # 优化说明
-    test_cases = Column(JSONB, default=list)  # 测试用例
+    test_cases = Column(JSONType, default=list)  # 测试用例
 
     # 标签
-    tags = Column(JSONB, default=list)
+    tags = Column(JSONType, default=list)
 
     # 使用场景
     usage_scenario = Column(String(50), nullable=True)
@@ -41,7 +40,7 @@ class PromptVersionHistory(BaseModel):
     """Prompt 版本历史"""
     __tablename__ = "prompt_version_history"
 
-    prompt_version_id = Column(UUID(as_uuid=True), ForeignKey("prompt_versions.id", ondelete="CASCADE"), nullable=False, index=True)
+    prompt_version_id = Column(UUIDType(as_uuid=True), ForeignKey("prompt_versions.id", ondelete="CASCADE"), nullable=False, index=True)
     version = Column(Integer, nullable=False)
     content = Column(Text, nullable=False)
     change_type = Column(String(20), nullable=False)  # create/update/optimize
@@ -62,9 +61,9 @@ class PromptFramework(BaseModel):
     description = Column(Text, nullable=True)
     complexity = Column(String(20), nullable=False)  # simple/medium/complex
     domain = Column(String(50), nullable=True)  # 适用领域
-    elements = Column(JSONB, default=list)  # 框架元素
+    elements = Column(JSONType, default=list)  # 框架元素
     template = Column(Text, nullable=True)  # 框架模板
-    examples = Column(JSONB, default=list)  # 使用示例
+    examples = Column(JSONType, default=list)  # 使用示例
     is_active = Column(Boolean, default=True)
     sort_order = Column(Integer, default=0)
 

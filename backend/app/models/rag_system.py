@@ -1,8 +1,7 @@
 # RAG系统配置模型
 from sqlalchemy import Column, String, Text, Integer, Boolean, DateTime
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
-
+from ..core.db_types import JSONType, UUIDType
 from .base import BaseModel
 
 
@@ -15,10 +14,10 @@ class RAGSystemType(BaseModel):
     description = Column(Text, nullable=True)
 
     # 连接配置Schema（JSON Schema格式）
-    connection_schema = Column(JSONB, nullable=False)
+    connection_schema = Column(JSONType, nullable=False)
 
     # 支持的能力
-    capabilities = Column(JSONB, default=dict)
+    capabilities = Column(JSONType, default=dict)
 
     # API文档链接
     api_doc_url = Column(String(500), nullable=True)
@@ -39,13 +38,13 @@ class RAGSystem(BaseModel):
     description = Column(Text, nullable=True)
 
     # 连接配置
-    connection_config = Column(JSONB, nullable=False)
+    connection_config = Column(JSONType, nullable=False)
 
     # 模型配置（可选）
-    llm_config = Column(JSONB, default=dict)
+    llm_config = Column(JSONType, default=dict)
 
     # 检索配置
-    retrieval_config = Column(JSONB, default=dict)
+    retrieval_config = Column(JSONType, default=dict)
 
     # 状态
     status = Column(String(50), default="active")
@@ -57,7 +56,7 @@ class RAGSystem(BaseModel):
     last_call_at = Column(DateTime, nullable=True)
 
     # 所属用户
-    owner_id = Column(UUID(as_uuid=True), nullable=True)
+    owner_id = Column(UUIDType(as_uuid=True), nullable=True)
 
     # 关系
     invocation_batches = relationship("InvocationBatch", back_populates="rag_system")

@@ -1,9 +1,8 @@
 # 热点新闻相关模型
 from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, DateTime
-from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
 from sqlalchemy.orm import relationship
 from datetime import datetime
-
+from ..core.db_types import ArrayType, JSONType, UUIDType
 from .base import BaseModel
 
 
@@ -17,7 +16,7 @@ class HotNewsSource(BaseModel):
     source_type = Column(String(20), nullable=False)  # rss/web/custom
 
     # 爬取配置（CSS选择器、XPath、解析规则等）
-    crawl_config = Column(JSONB, default=dict)
+    crawl_config = Column(JSONType, default=dict)
 
     # 爬取频率（cron表达式）
     crawl_frequency = Column(String(100), default="0 * * * *")  # 默认每小时
@@ -34,7 +33,7 @@ class HotNewsSource(BaseModel):
     last_article_count = Column(Integer, default=0)
 
     # 所属用户（可选）
-    owner_id = Column(UUID(as_uuid=True), nullable=True)
+    owner_id = Column(UUIDType(as_uuid=True), nullable=True)
 
     # 关系
     articles = relationship("HotArticle", back_populates="source", cascade="all, delete-orphan")
@@ -44,7 +43,7 @@ class HotArticle(BaseModel):
     """热点文章表"""
     __tablename__ = "hot_articles"
 
-    source_id = Column(UUID(as_uuid=True), ForeignKey("hot_news_sources.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_id = Column(UUIDType(as_uuid=True), ForeignKey("hot_news_sources.id", ondelete="CASCADE"), nullable=False, index=True)
 
     # 文章信息
     title = Column(String(500), nullable=False)
@@ -59,16 +58,16 @@ class HotArticle(BaseModel):
     # 来源
     source_url = Column(String(1000), nullable=True)
     category = Column(String(100), nullable=True)
-    tags = Column(ARRAY(String), default=list)
+    tags = Column(ArrayType(String), default=list)
 
     # 去重
     content_hash = Column(String(64), nullable=True, index=True)
 
     # 关联文档（可选）
-    doc_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True, index=True)
+    doc_id = Column(UUIDType(as_uuid=True), ForeignKey("documents.id"), nullable=True, index=True)
 
     # 元数据
-    article_metadata = Column(JSONB, default=dict)
+    article_metadata = Column(JSONType, default=dict)
 
     # 关系
     source = relationship("HotNewsSource", back_populates="articles")

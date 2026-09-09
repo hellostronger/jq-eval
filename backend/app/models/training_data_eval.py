@@ -1,9 +1,8 @@
 # 训练数据评估模型
 import enum
-from sqlalchemy import Column, String, Text, Integer, Float, Boolean, ForeignKey, ARRAY, DateTime
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import Column, String, Text, Integer, Float, Boolean, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
-
+from ..core.db_types import ArrayType, JSONType, UUIDType
 from .base import BaseModel
 
 
@@ -23,14 +22,14 @@ class TrainingDataEval(BaseModel):
     description = Column(Text, nullable=True)
 
     # 数据关联
-    dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id"), nullable=False, index=True)
+    dataset_id = Column(UUIDType(as_uuid=True), ForeignKey("datasets.id"), nullable=False, index=True)
 
     # 训练数据类型
     data_type = Column(String(50), nullable=False)  # llm/embedding/reranker/reward_model/dpo/vlm/vla
 
     # 评估配置
-    config = Column(JSONB, default=dict)
-    metrics = Column(ARRAY(String), nullable=False)
+    config = Column(JSONType, default=dict)
+    metrics = Column(ArrayType(String), nullable=False)
 
     # 状态
     status = Column(String(50), default="pending")
@@ -38,7 +37,7 @@ class TrainingDataEval(BaseModel):
     error = Column(Text, nullable=True)
 
     # 结果汇总
-    summary = Column(JSONB, nullable=True)
+    summary = Column(JSONType, nullable=True)
 
     # 统计数据
     total_samples = Column(Integer, default=0)
@@ -47,7 +46,7 @@ class TrainingDataEval(BaseModel):
     pass_rate = Column(Float, default=0.0)
 
     # 质量分布
-    quality_distribution = Column(JSONB, nullable=True)
+    quality_distribution = Column(JSONType, nullable=True)
 
     # 时间
     started_at = Column(DateTime, nullable=True)
@@ -63,12 +62,12 @@ class TrainingDataMetricConfig(BaseModel):
     """训练数据评估指标配置表"""
     __tablename__ = "training_data_metric_configs"
 
-    eval_id = Column(UUID(as_uuid=True), ForeignKey("training_data_evals.id", ondelete="CASCADE"), nullable=False, index=True)
+    eval_id = Column(UUIDType(as_uuid=True), ForeignKey("training_data_evals.id", ondelete="CASCADE"), nullable=False, index=True)
     metric_name = Column(String(100), nullable=False)
     metric_type = Column(String(50), nullable=False)  # quality/diversity/completeness/consistency/safety
 
     # 用户自定义参数
-    params = Column(JSONB, default=dict)
+    params = Column(JSONType, default=dict)
     weight = Column(Float, default=1.0)
     enabled = Column(Boolean, default=True)
 
@@ -84,19 +83,19 @@ class TrainingDataEvalResult(BaseModel):
     """训练数据评估结果表"""
     __tablename__ = "training_data_eval_results"
 
-    eval_id = Column(UUID(as_uuid=True), ForeignKey("training_data_evals.id"), nullable=False, index=True)
-    qa_record_id = Column(UUID(as_uuid=True), ForeignKey("qa_records.id"), nullable=False, index=True)
+    eval_id = Column(UUIDType(as_uuid=True), ForeignKey("training_data_evals.id"), nullable=False, index=True)
+    qa_record_id = Column(UUIDType(as_uuid=True), ForeignKey("qa_records.id"), nullable=False, index=True)
 
     # 各指标得分
-    scores = Column(JSONB, nullable=False)
+    scores = Column(JSONType, nullable=False)
 
     # 详细分析过程
-    details = Column(JSONB, nullable=True)
+    details = Column(JSONType, nullable=True)
 
     # 质量标签
-    quality_tags = Column(ARRAY(String), default=list)
-    issues = Column(ARRAY(String), default=list)
-    suggestions = Column(ARRAY(String), default=list)
+    quality_tags = Column(ArrayType(String), default=list)
+    issues = Column(ArrayType(String), default=list)
+    suggestions = Column(ArrayType(String), default=list)
 
     # 样本状态
     status = Column(String(20), default="passed")  # passed/failed/warning
@@ -115,13 +114,13 @@ class TrainingQualityChecker(BaseModel):
     description = Column(Text, nullable=True)
 
     # 规则适用的训练数据类型
-    data_types = Column(ARRAY(String), default=list)  # ["llm", "embedding", ...]
+    data_types = Column(ArrayType(String), default=list)  # ["llm", "embedding", ...]
 
     # 规则类型
     rule_type = Column(String(50), nullable=False)  # length/diversity/similarity/format/content/safety
 
     # 规则配置
-    config = Column(JSONB, default=dict)
+    config = Column(JSONType, default=dict)
 
     # 阈值
     threshold_min = Column(Float, nullable=True)
@@ -132,7 +131,7 @@ class TrainingQualityChecker(BaseModel):
 
     # 自动修复
     auto_fixable = Column(Boolean, default=False)
-    fix_config = Column(JSONB, nullable=True)
+    fix_config = Column(JSONType, nullable=True)
 
     # 状态
     is_enabled = Column(Boolean, default=True)
@@ -144,8 +143,8 @@ class TrainingQualityChecker(BaseModel):
     fail_count = Column(Integer, default=0)
 
     # 创建者
-    created_by = Column(UUID(as_uuid=True), nullable=True)
-    updated_by = Column(UUID(as_uuid=True), nullable=True)
+    created_by = Column(UUIDType(as_uuid=True), nullable=True)
+    updated_by = Column(UUIDType(as_uuid=True), nullable=True)
 
 
 class TrainingDataTemplate(BaseModel):
@@ -160,16 +159,16 @@ class TrainingDataTemplate(BaseModel):
     data_type = Column(String(50), nullable=False)
 
     # 适用的数据集类型
-    dataset_types = Column(ARRAY(String), default=list)
+    dataset_types = Column(ArrayType(String), default=list)
 
     # 推荐的指标配置
-    metric_configs = Column(JSONB, default=list)
+    metric_configs = Column(JSONType, default=list)
 
     # 推荐的阈值
-    default_thresholds = Column(JSONB, default=dict)
+    default_thresholds = Column(JSONType, default=dict)
 
     # 样例数据
-    sample_data = Column(JSONB, nullable=True)
+    sample_data = Column(JSONType, nullable=True)
 
     # 状态
     is_builtin = Column(Boolean, default=False)

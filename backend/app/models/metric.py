@@ -1,8 +1,7 @@
 # 指标定义模型
 from sqlalchemy import Column, String, Text, Integer, Float, Boolean, ForeignKey, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
-
+from ..core.db_types import JSONType, UUIDType
 from .base import BaseModel
 
 
@@ -21,8 +20,8 @@ class MetricDefinition(BaseModel):
     eval_stage = Column(String(20), nullable=False, default='result')  # process/result
 
     # 参数Schema（JSON Schema格式）
-    params_schema = Column(JSONB, nullable=True)
-    default_params = Column(JSONB, default=dict)
+    params_schema = Column(JSONType, nullable=True)
+    default_params = Column(JSONType, default=dict)
 
     # 依赖声明
     requires_llm = Column(Boolean, default=True)
@@ -47,7 +46,7 @@ class MetricDefinition(BaseModel):
     is_builtin = Column(Boolean, default=False)
 
     # 来源
-    owner_id = Column(UUID(as_uuid=True), nullable=True)
+    owner_id = Column(UUIDType(as_uuid=True), nullable=True)
     source_url = Column(String(500), nullable=True)
 
     # 统计
@@ -87,9 +86,9 @@ class EntityTag(BaseModel):
     # 实体类型：qa_record/dataset/invocation_batch
     entity_type = Column(String(50), nullable=False, index=True)
     # 实体ID
-    entity_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    entity_id = Column(UUIDType(as_uuid=True), nullable=False, index=True)
     # 标签ID
-    tag_id = Column(UUID(as_uuid=True), ForeignKey("tags.id", ondelete="CASCADE"), nullable=False, index=True)
+    tag_id = Column(UUIDType(as_uuid=True), ForeignKey("tags.id", ondelete="CASCADE"), nullable=False, index=True)
 
     # 关系
     tag = relationship("Tag")

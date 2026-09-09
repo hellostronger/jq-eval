@@ -1,8 +1,7 @@
 # 数据同步相关模型
 import enum
 from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, DateTime
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-
+from ..core.db_types import JSONType, UUIDType
 from .base import BaseModel
 
 
@@ -23,13 +22,13 @@ class DataSource(BaseModel):
     system_type = Column(String(50), nullable=True)  # dify/fastgpt/n8n/coze/custom
 
     # 连接配置
-    connection_config = Column(JSONB, nullable=False)
+    connection_config = Column(JSONType, nullable=False)
 
     # 同步配置
-    sync_config = Column(JSONB, default=dict)
+    sync_config = Column(JSONType, default=dict)
 
     # 同步目标
-    target_tables = Column(JSONB, default=dict)
+    target_tables = Column(JSONType, default=dict)
 
     # 状态
     status = Column(String(50), default="active")
@@ -41,14 +40,14 @@ class DataSource(BaseModel):
     total_synced = Column(Integer, default=0)
 
     # 所属用户
-    owner_id = Column(UUID(as_uuid=True), nullable=True)
+    owner_id = Column(UUIDType(as_uuid=True), nullable=True)
 
 
 class SyncTask(BaseModel):
     """同步任务记录表"""
     __tablename__ = "sync_tasks"
 
-    source_id = Column(UUID(as_uuid=True), ForeignKey("data_sources.id"), nullable=False, index=True)
+    source_id = Column(UUIDType(as_uuid=True), ForeignKey("data_sources.id"), nullable=False, index=True)
 
     # 任务信息
     task_type = Column(String(50), nullable=True)  # full/incremental/schema_detect
@@ -64,7 +63,7 @@ class SyncTask(BaseModel):
     failed_records = Column(Integer, default=0)
 
     # 详细日志
-    log = Column(JSONB, default=dict)
+    log = Column(JSONType, default=dict)
 
     # 时间
     started_at = Column(DateTime, nullable=True)
@@ -75,7 +74,7 @@ class SchemaMapping(BaseModel):
     """Schema映射记录表"""
     __tablename__ = "schema_mappings"
 
-    source_id = Column(UUID(as_uuid=True), ForeignKey("data_sources.id"), nullable=False, index=True)
+    source_id = Column(UUIDType(as_uuid=True), ForeignKey("data_sources.id"), nullable=False, index=True)
 
     # 源表/集合名称
     source_table = Column(String(100), nullable=True)
@@ -84,10 +83,10 @@ class SchemaMapping(BaseModel):
     target_type = Column(String(50), nullable=True)  # document/chunk/qa_record
 
     # 字段映射
-    field_mappings = Column(JSONB, nullable=False)
+    field_mappings = Column(JSONType, nullable=False)
 
     # 过滤条件
-    filter_condition = Column(JSONB, default=dict)
+    filter_condition = Column(JSONType, default=dict)
 
 
 class DataSourceType(BaseModel):
@@ -99,13 +98,13 @@ class DataSourceType(BaseModel):
     description = Column(Text, nullable=True)
 
     # 连接配置Schema
-    connection_schema = Column(JSONB, nullable=False)
+    connection_schema = Column(JSONType, nullable=False)
 
     # 可同步的数据类型
-    sync_targets = Column(JSONB, nullable=False)
+    sync_targets = Column(JSONType, nullable=False)
 
     # Schema映射模板
-    schema_mappings = Column(JSONB, default=dict)
+    schema_mappings = Column(JSONType, default=dict)
 
     # 系统信息
     system_type = Column(String(50), nullable=True)

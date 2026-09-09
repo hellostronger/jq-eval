@@ -7,7 +7,7 @@ from app.models import RAGSystem
 @pytest.mark.asyncio
 async def test_list_rag_systems(client: AsyncClient, sample_rag_system: RAGSystem):
     """测试获取 RAG 系统列表"""
-    response = await client.get("/rag-systems")
+    response = await client.get("/api/v1/rag-systems")
     assert response.status_code == 200
     data = response.json()
     assert len(data) >= 1
@@ -16,7 +16,7 @@ async def test_list_rag_systems(client: AsyncClient, sample_rag_system: RAGSyste
 @pytest.mark.asyncio
 async def test_create_rag_system(client: AsyncClient):
     """测试创建 RAG 系统"""
-    response = await client.post("/rag-systems", json={
+    response = await client.post("/api/v1/rag-systems", json={
         "name": "New RAG System",
         "system_type": "dify",
         "description": "A Dify RAG system",
@@ -31,7 +31,7 @@ async def test_create_rag_system(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_get_rag_system(client: AsyncClient, sample_rag_system: RAGSystem):
     """测试获取 RAG 系统详情"""
-    response = await client.get(f"/rag-systems/{sample_rag_system.id}")
+    response = await client.get(f"/api/v1/rag-systems/{sample_rag_system.id}")
     assert response.status_code == 200
     data = response.json()
     assert data["id"] == str(sample_rag_system.id)
@@ -40,10 +40,12 @@ async def test_get_rag_system(client: AsyncClient, sample_rag_system: RAGSystem)
 
 @pytest.mark.asyncio
 async def test_update_rag_system(client: AsyncClient, sample_rag_system: RAGSystem):
-    """测试更新 RAG 系统"""
-    response = await client.put(f"/rag-systems/{sample_rag_system.id}", json={
+    """测试更新 RAG 系统（PUT 为整体替换，需完整请求体）"""
+    response = await client.put(f"/api/v1/rag-systems/{sample_rag_system.id}", json={
         "name": "Updated RAG System",
-        "description": "Updated description"
+        "system_type": "custom",
+        "description": "Updated description",
+        "connection_config": {"api_url": "http://localhost:8000"}
     })
     assert response.status_code == 200
     data = response.json()
@@ -53,5 +55,5 @@ async def test_update_rag_system(client: AsyncClient, sample_rag_system: RAGSyst
 @pytest.mark.asyncio
 async def test_delete_rag_system(client: AsyncClient, sample_rag_system: RAGSystem):
     """测试删除 RAG 系统"""
-    response = await client.delete(f"/rag-systems/{sample_rag_system.id}")
+    response = await client.delete(f"/api/v1/rag-systems/{sample_rag_system.id}")
     assert response.status_code in [200, 204]

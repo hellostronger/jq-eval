@@ -54,9 +54,10 @@ beautifulsoup4==4.12.3
 lxml==5.1.0
 markdownify==0.14.1
 
-# Development
+# Development（pytest-asyncio 0.23.3 与 pytest 8.x 组合有 FixtureDef.unittest 收集 bug，固定 0.23.8；aiosqlite 为测试内存库驱动）
 pytest==8.2.1
-pytest-asyncio==0.23.3
+pytest-asyncio==0.23.8
+aiosqlite==0.22.1
 
 # Agent Sandbox（可选：缺失时 VibeAgent 回退本地 subprocess 执行）
 agent-sandbox==0.0.30

@@ -1,9 +1,8 @@
 # 评估任务和结果模型
 import enum
-from sqlalchemy import Column, String, Text, Integer, Float, Boolean, ForeignKey, ARRAY, DateTime
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import Column, String, Text, Integer, Float, Boolean, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
-
+from ..core.db_types import ArrayType, JSONType, UUIDType
 from .base import BaseModel
 
 
@@ -21,19 +20,19 @@ class Evaluation(BaseModel):
 
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
-    dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id"), nullable=False, index=True)
+    dataset_id = Column(UUIDType(as_uuid=True), ForeignKey("datasets.id"), nullable=False, index=True)
 
     # 关联系统配置
-    rag_system_id = Column(UUID(as_uuid=True), ForeignKey("rag_systems.id"), nullable=True, index=True)
-    llm_model_id = Column(UUID(as_uuid=True), ForeignKey("models.id"), nullable=True, index=True)
-    embedding_model_id = Column(UUID(as_uuid=True), ForeignKey("models.id"), nullable=True, index=True)
+    rag_system_id = Column(UUIDType(as_uuid=True), ForeignKey("rag_systems.id"), nullable=True, index=True)
+    llm_model_id = Column(UUIDType(as_uuid=True), ForeignKey("models.id"), nullable=True, index=True)
+    embedding_model_id = Column(UUIDType(as_uuid=True), ForeignKey("models.id"), nullable=True, index=True)
 
     # 关联调用结果批次
-    invocation_batch_id = Column(UUID(as_uuid=True), ForeignKey("invocation_batches.id"), nullable=True, index=True)
+    invocation_batch_id = Column(UUIDType(as_uuid=True), ForeignKey("invocation_batches.id"), nullable=True, index=True)
     reuse_invocation = Column(Boolean, default=False)  # 是否复用存量调用结果
 
     # 评估配置
-    metrics = Column(ARRAY(String), nullable=False)
+    metrics = Column(ArrayType(String), nullable=False)
     batch_size = Column(Integer, default=10)
 
     # 状态
@@ -42,7 +41,7 @@ class Evaluation(BaseModel):
     error = Column(Text, nullable=True)
 
     # 结果汇总
-    summary = Column(JSONB, nullable=True)
+    summary = Column(JSONType, nullable=True)
 
     # 时间
     started_at = Column(DateTime, nullable=True)
@@ -59,11 +58,11 @@ class EvaluationMetricConfig(BaseModel):
     """评估指标配置表"""
     __tablename__ = "evaluation_metric_configs"
 
-    eval_id = Column(UUID(as_uuid=True), ForeignKey("evaluations.id", ondelete="CASCADE"), nullable=False, index=True)
-    metric_id = Column(UUID(as_uuid=True), ForeignKey("metric_definitions.id"), nullable=False, index=True)
+    eval_id = Column(UUIDType(as_uuid=True), ForeignKey("evaluations.id", ondelete="CASCADE"), nullable=False, index=True)
+    metric_id = Column(UUIDType(as_uuid=True), ForeignKey("metric_definitions.id"), nullable=False, index=True)
 
     # 用户自定义参数
-    params = Column(JSONB, default=dict)
+    params = Column(JSONType, default=dict)
     weight = Column(Float, default=1.0)
     enabled = Column(Boolean, default=True)
 
@@ -75,18 +74,18 @@ class EvalResult(BaseModel):
     """评估结果表"""
     __tablename__ = "eval_results"
 
-    eval_id = Column(UUID(as_uuid=True), ForeignKey("evaluations.id"), nullable=False, index=True)
-    qa_record_id = Column(UUID(as_uuid=True), ForeignKey("qa_records.id"), nullable=False, index=True)
-    invocation_result_id = Column(UUID(as_uuid=True), ForeignKey("invocation_results.id"), nullable=True, index=True)
+    eval_id = Column(UUIDType(as_uuid=True), ForeignKey("evaluations.id"), nullable=False, index=True)
+    qa_record_id = Column(UUIDType(as_uuid=True), ForeignKey("qa_records.id"), nullable=False, index=True)
+    invocation_result_id = Column(UUIDType(as_uuid=True), ForeignKey("invocation_results.id"), nullable=True, index=True)
 
     # 评估时的检索结果快照
-    retrieved_chunks_snapshot = Column(JSONB, nullable=True)
+    retrieved_chunks_snapshot = Column(JSONType, nullable=True)
 
     # 各指标得分
-    scores = Column(JSONB, nullable=False)
+    scores = Column(JSONType, nullable=False)
 
     # 详细分析过程
-    details = Column(JSONB, nullable=True)
+    details = Column(JSONType, nullable=True)
 
     # 关系
     evaluation = relationship("Evaluation", back_populates="results")

@@ -7,7 +7,7 @@ from app.models import Model
 @pytest.mark.asyncio
 async def test_list_llm_models(client: AsyncClient, sample_llm_model: Model):
     """测试获取 LLM 模型列表"""
-    response = await client.get("/models?type=llm")
+    response = await client.get("/api/v1/models?type=llm")
     assert response.status_code == 200
     data = response.json()
     assert len(data) >= 1
@@ -17,7 +17,7 @@ async def test_list_llm_models(client: AsyncClient, sample_llm_model: Model):
 @pytest.mark.asyncio
 async def test_list_embedding_models(client: AsyncClient, sample_embedding_model: Model):
     """测试获取 Embedding 模型列表"""
-    response = await client.get("/models?type=embedding")
+    response = await client.get("/api/v1/models?type=embedding")
     assert response.status_code == 200
     data = response.json()
     assert len(data) >= 1
@@ -27,7 +27,7 @@ async def test_list_embedding_models(client: AsyncClient, sample_embedding_model
 @pytest.mark.asyncio
 async def test_create_model(client: AsyncClient):
     """测试创建模型"""
-    response = await client.post("/models", json={
+    response = await client.post("/api/v1/models", json={
         "name": "New LLM Model",
         "model_type": "llm",
         "provider": "anthropic",
@@ -47,7 +47,7 @@ async def test_create_model(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_get_model(client: AsyncClient, sample_llm_model: Model):
     """测试获取单个模型"""
-    response = await client.get(f"/models/{sample_llm_model.id}")
+    response = await client.get(f"/api/v1/models/{sample_llm_model.id}")
     assert response.status_code == 200
     data = response.json()
     assert data["id"] == str(sample_llm_model.id)
@@ -56,22 +56,28 @@ async def test_get_model(client: AsyncClient, sample_llm_model: Model):
 
 @pytest.mark.asyncio
 async def test_update_model(client: AsyncClient, sample_llm_model: Model):
-    """测试更新模型"""
-    response = await client.put(f"/models/{sample_llm_model.id}", json={
+    """测试更新模型（PUT 为整体替换，需完整请求体）"""
+    response = await client.put(f"/api/v1/models/{sample_llm_model.id}", json={
         "name": "Updated LLM",
-        "params": {"temperature": 0.9, "max_tokens": 500}
+        "model_type": "llm",
+        "provider": "openai",
+        "model_name": "gpt-4",
+        "endpoint": "https://api.openai.com",
+        "temperature": 0.9,
+        "max_tokens": 500
     })
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == "Updated LLM"
+    assert data["params"]["temperature"] == 0.9
 
 
 @pytest.mark.asyncio
 async def test_delete_model(client: AsyncClient, sample_llm_model: Model):
     """测试删除模型"""
-    response = await client.delete(f"/models/{sample_llm_model.id}")
+    response = await client.delete(f"/api/v1/models/{sample_llm_model.id}")
     assert response.status_code in [200, 204]
 
     # 验证已删除
-    response = await client.get(f"/models/{sample_llm_model.id}")
+    response = await client.get(f"/api/v1/models/{sample_llm_model.id}")
     assert response.status_code == 404

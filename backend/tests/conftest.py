@@ -80,7 +80,7 @@ async def sample_llm_model(db_session: AsyncSession) -> Model:
         provider="openai",
         model_name="gpt-4",
         endpoint="https://api.openai.com",
-        api_key="test-key",
+        api_key_encrypted="test-key",
         params={"temperature": 0.7, "max_tokens": 1000},
         is_default=True,
         status="active"
@@ -100,7 +100,7 @@ async def sample_embedding_model(db_session: AsyncSession) -> Model:
         provider="openai",
         model_name="text-embedding-ada-002",
         endpoint="https://api.openai.com",
-        api_key="test-key",
+        api_key_encrypted="test-key",
         dimension=1536,
         max_input_length=8191,
         is_default=True,

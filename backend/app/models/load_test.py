@@ -1,9 +1,8 @@
 # 压测任务模型
 import enum
 from sqlalchemy import Column, String, Text, Integer, Float, ForeignKey, DateTime
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
-
+from ..core.db_types import JSONType, UUIDType
 from .base import BaseModel
 
 
@@ -35,8 +34,8 @@ class LoadTest(BaseModel):
     description = Column(Text, nullable=True)
 
     # 压测对象：rag_system_id（RAG系统）或 target_model_id（直连大模型），二选一
-    rag_system_id = Column(UUID(as_uuid=True), ForeignKey("rag_systems.id"), nullable=True, index=True)
-    target_model_id = Column(UUID(as_uuid=True), ForeignKey("models.id"), nullable=True, index=True)  # 大模型直连压测
+    rag_system_id = Column(UUIDType(as_uuid=True), ForeignKey("rag_systems.id"), nullable=True, index=True)
+    target_model_id = Column(UUIDType(as_uuid=True), ForeignKey("models.id"), nullable=True, index=True)  # 大模型直连压测
 
     # 测试配置
     test_mode = Column(String(50), nullable=False, default=LoadTestMode.QPS_LIMIT.value)  # qps_limit / latency_dist
@@ -49,14 +48,14 @@ class LoadTest(BaseModel):
     max_concurrency = Column(Integer, nullable=True, default=100)  # 最大并发上限
 
     # 响应时间分布测试参数 (test_mode=latency_dist)
-    concurrency_levels = Column(JSONB, nullable=True)  # 并发级别数组，如 [1, 5, 10, 20, 50, 100]
+    concurrency_levels = Column(JSONType, nullable=True)  # 并发级别数组，如 [1, 5, 10, 20, 50, 100]
 
     # 兼容旧字段（单次测试模式）
     concurrency = Column(Integer, nullable=True, default=1)  # 单次测试并发数（已废弃）
 
     # 测试数据来源
-    dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id"), nullable=True, index=True)
-    questions = Column(JSONB, nullable=True)  # 用户输入的测试问题列表
+    dataset_id = Column(UUIDType(as_uuid=True), ForeignKey("datasets.id"), nullable=True, index=True)
+    questions = Column(JSONType, nullable=True)  # 用户输入的测试问题列表
 
     # 状态
     status = Column(String(50), default=LoadTestStatus.PENDING.value)
@@ -64,7 +63,7 @@ class LoadTest(BaseModel):
     error = Column(Text, nullable=True)
 
     # 结果
-    result = Column(JSONB, nullable=True)  # 存储QPS、延迟分布等结果
+    result = Column(JSONType, nullable=True)  # 存储QPS、延迟分布等结果
 
     # 时间
     started_at = Column(DateTime, nullable=True)

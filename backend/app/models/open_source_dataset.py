@@ -1,7 +1,6 @@
 # 开源数据集模型
 from sqlalchemy import Column, String, Text, Boolean
-from sqlalchemy.dialects.postgresql import JSONB
-
+from ..core.db_types import JSONType
 from .base import BaseModel
 
 
@@ -31,10 +30,10 @@ class OpenSourceDataset(BaseModel):
     is_public = Column(Boolean, default=True)
 
     # 标签（用于分类和搜索）
-    tags = Column(JSONB, default=list)
+    tags = Column(JSONType, default=list)
 
     # 元数据
-    osd_metadata = Column(JSONB, default=dict)
+    osd_metadata = Column(JSONType, default=dict)
 
     # 状态（active/archived）
     status = Column(String(50), default="active")

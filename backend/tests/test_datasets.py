@@ -7,7 +7,7 @@ from app.models import Model, Dataset
 @pytest.mark.asyncio
 async def test_list_datasets(client: AsyncClient, sample_dataset: Dataset):
     """测试获取数据集列表"""
-    response = await client.get("/datasets")
+    response = await client.get("/api/v1/datasets")
     assert response.status_code == 200
     data = response.json()
     assert len(data) >= 1
@@ -16,7 +16,7 @@ async def test_list_datasets(client: AsyncClient, sample_dataset: Dataset):
 @pytest.mark.asyncio
 async def test_get_dataset(client: AsyncClient, sample_dataset: Dataset):
     """测试获取数据集详情"""
-    response = await client.get(f"/datasets/{sample_dataset.id}")
+    response = await client.get(f"/api/v1/datasets/{sample_dataset.id}")
     assert response.status_code == 200
     data = response.json()
     assert data["id"] == str(sample_dataset.id)
@@ -26,7 +26,7 @@ async def test_get_dataset(client: AsyncClient, sample_dataset: Dataset):
 @pytest.mark.asyncio
 async def test_create_dataset(client: AsyncClient):
     """测试创建数据集"""
-    response = await client.post("/datasets", json={
+    response = await client.post("/api/v1/datasets", json={
         "name": "New Dataset",
         "description": "A new dataset"
     })
@@ -38,24 +38,24 @@ async def test_create_dataset(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_delete_dataset(client: AsyncClient, sample_dataset: Dataset):
     """测试删除数据集"""
-    response = await client.delete(f"/datasets/{sample_dataset.id}")
+    response = await client.delete(f"/api/v1/datasets/{sample_dataset.id}")
     assert response.status_code in [200, 204]
 
 
 @pytest.mark.asyncio
 async def test_generate_dataset_validation(client: AsyncClient, sample_dataset: Dataset):
-    """测试生成数据集请求验证 - 缺少必要参数"""
-    response = await client.post(f"/datasets/{sample_dataset.id}/generate", json={
+    """测试生成数据集请求验证 - 缺少必要参数（schema 校验失败为 422）"""
+    response = await client.post(f"/api/v1/datasets/{sample_dataset.id}/generate", json={
         "sources": [],
         "test_size": 10
     })
-    assert response.status_code == 400  # 应该返回验证错误
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio
 async def test_generate_dataset_with_invalid_model(client: AsyncClient, sample_dataset: Dataset):
     """测试生成数据集 - 使用无效的模型ID"""
-    response = await client.post(f"/datasets/{sample_dataset.id}/generate", json={
+    response = await client.post(f"/api/v1/datasets/{sample_dataset.id}/generate", json={
         "sources": [{"source_type": "text_input", "texts": ["test content"]}],
         "test_size": 10,
         "distributions": {"simple": 0.5, "reasoning": 0.3, "multi_context": 0.2},

@@ -1,8 +1,7 @@
 # 数据集和QA记录模型
-from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, ARRAY
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
-
+from ..core.db_types import ArrayType, JSONType, UUIDType
 from .base import BaseModel
 
 
@@ -26,7 +25,7 @@ class Dataset(BaseModel):
     generate_task_id = Column(String(100), nullable=True)
     generate_task_status = Column(String(50), nullable=True)  # PENDING/PROGRESS/SUCCESS/FAILURE
 
-    dataset_metadata = Column(JSONB, default=dict)
+    dataset_metadata = Column(JSONType, default=dict)
     # 关系
     qa_records = relationship("QARecord", back_populates="dataset", cascade="all, delete-orphan")
     evaluations = relationship("Evaluation", back_populates="dataset")
@@ -39,7 +38,7 @@ class QARecord(BaseModel):
     """QA评估记录表"""
     __tablename__ = "qa_records"
 
-    dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id"), nullable=False, index=True)
+    dataset_id = Column(UUIDType(as_uuid=True), ForeignKey("datasets.id"), nullable=False, index=True)
 
     # 问题与答案
     question = Column(Text, nullable=False)
@@ -47,16 +46,16 @@ class QARecord(BaseModel):
     ground_truth = Column(Text, nullable=True)
 
     # 关联原始分片（引用）
-    doc_ids = Column(ARRAY(UUID(as_uuid=True)), default=list)
-    target_chunk_ids = Column(ARRAY(UUID(as_uuid=True)), default=list)
+    doc_ids = Column(ArrayType(UUIDType(as_uuid=True)), default=list)
+    target_chunk_ids = Column(ArrayType(UUIDType(as_uuid=True)), default=list)
 
     # 快照（冻结历史数据）
-    snapshot = Column(JSONB, default=dict)
+    snapshot = Column(JSONType, default=dict)
 
     # 元信息
     question_type = Column(String(50), nullable=True)  # simple/complex/multi_hop
     difficulty = Column(String(20), nullable=True)  # easy/medium/hard
-    qa_metadata = Column(JSONB, default=dict)
+    qa_metadata = Column(JSONType, default=dict)
 
     # 关系
     dataset = relationship("Dataset", back_populates="qa_records")
@@ -69,8 +68,8 @@ class DatasetSnapshot(BaseModel):
     """数据集快照表"""
     __tablename__ = "dataset_snapshots"
 
-    dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id"), nullable=False, index=True)
-    snapshot_data = Column(JSONB, default=dict)
+    dataset_id = Column(UUIDType(as_uuid=True), ForeignKey("datasets.id"), nullable=False, index=True)
+    snapshot_data = Column(JSONType, default=dict)
     version = Column(Integer, default=1)
 
     # 关系
