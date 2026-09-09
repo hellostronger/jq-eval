@@ -263,8 +263,21 @@ celery -A app.core.celery_app beat --loglevel=info
 - **评估任务一直 pending**：Celery Worker 未启动，见第 5 步。
 - **端口占用**：后端默认 8000、前端默认 3000，可在启动命令或 `frontend/vite.config.ts` 中调整。
 
+## 测试
+
+```bash
+cd backend
+source venv/bin/activate   # Windows: .env\Scripts\Activate.ps1
+pytest                     # 51 个用例，SQLite 内存库，无需任何中间件，约 6s
+```
+
+测试体系说明：模型层通过 `app/core/db_types.py` 的跨方言类型（UUIDType/JSONType/ArrayType）
+在 PostgreSQL（生产）与 SQLite（测试）间共享同一套定义；回归测试覆盖路由注册顺序
+（静态路由防 `/{uuid}` 遮蔽）、任务派发状态机（running/回滚）、协作式取消、分页稳定性、
+数据导入健壮性与子资源归属校验。
+
 ## 开发
 
 - 设计文档：[需求说明.md](./需求说明.md)
-- API 接口文档：[docs/API.md](./docs/API.md)（核心接口；全部 224 个端点可启动后端后访问 http://localhost:8000/docs 查看交互式文档）
+- API 接口文档：[docs/API.md](./docs/API.md)（核心接口；全部 219 个端点可启动后端后访问 http://localhost:8000/docs 查看交互式文档）
 - 检索与分析思路：[检索分析.md](./检索分析.md)
