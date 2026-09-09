@@ -346,7 +346,8 @@ const InvocationDetail: React.FC = () => {
           pageSize: pageSize,
           total: total,
           onChange: (p, ps) => {
-            setPage(p)
+            // pageSize 变化时重置到第 1 页，避免落在已不存在的页
+            setPage(ps !== pageSize ? 1 : p)
             setPageSize(ps)
           },
           showSizeChanger: true,

@@ -407,7 +407,8 @@ const OpenSourceDatasets: React.FC = () => {
           showSizeChanger: true,
           showTotal: (t) => `共 ${t} 条`,
           onChange: (p, s) => {
-            setPage(p)
+            // pageSize 变化时重置到第 1 页
+            setPage(s !== size ? 1 : p)
             setSize(s)
           },
         }}

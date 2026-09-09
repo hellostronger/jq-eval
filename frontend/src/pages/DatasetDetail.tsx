@@ -515,7 +515,8 @@ const DatasetDetail: React.FC = () => {
               pageSize,
               total,
               onChange: (p, ps) => {
-                setPage(p)
+                // pageSize 变化时重置到第 1 页
+                setPage(ps !== pageSize ? 1 : p)
                 setPageSize(ps)
                 setSelectedRowKeys([]) // 切换页码时清空选择
               },
@@ -626,7 +627,8 @@ const DatasetDetail: React.FC = () => {
               pageSize: docPageSize,
               total: docTotal,
               onChange: (p, ps) => {
-                setDocPage(p)
+                // pageSize 变化时重置到第 1 页
+                setDocPage(ps !== docPageSize ? 1 : p)
                 setDocPageSize(ps)
               },
             }}
@@ -659,7 +661,8 @@ const DatasetDetail: React.FC = () => {
               pageSize: chunkPageSize,
               total: chunkTotal,
               onChange: (p, ps) => {
-                setChunkPage(p)
+                // pageSize 变化时重置到第 1 页
+                setChunkPage(ps !== chunkPageSize ? 1 : p)
                 setChunkPageSize(ps)
               },
             }}
