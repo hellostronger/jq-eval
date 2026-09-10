@@ -228,14 +228,11 @@ class RecallAtK(BaseMetric):
         # 只考虑前 K 个结果
         top_k_retrieval = retrieval_ids[:self.k]
 
-        # 计算召回的相关文档数
-        retrieved_relevant = 0
-        match_positions = []
-
-        for i, rid in enumerate(top_k_retrieval):
-            if str(rid) in target_set:
-                retrieved_relevant += 1
-                match_positions.append(i + 1)
+        # 计算召回的相关文档数（按去重集合计数：检索结果含重复文档时
+        # 逐个累加会重复计数，recall 可超 1 被 min() 掩盖成满分）
+        matched = {str(rid) for rid in top_k_retrieval if str(rid) in target_set}
+        match_positions = [i + 1 for i, rid in enumerate(top_k_retrieval) if str(rid) in target_set]
+        retrieved_relevant = len(matched)
 
         # Recall: 找到的相关文档 / 总相关文档
         recall = retrieved_relevant / total_relevant if total_relevant > 0 else 0.0
