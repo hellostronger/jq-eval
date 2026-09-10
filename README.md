@@ -269,13 +269,15 @@ celery -A app.core.celery_app beat --loglevel=info
 ```bash
 cd backend
 source venv/bin/activate   # Windows: .env\Scripts\Activate.ps1
-pytest                     # 69 个用例，SQLite 内存库，无需任何中间件，约 7s
+pytest                     # 84 个用例，SQLite 内存库，无需任何中间件，约 7s
 ```
 
 测试体系说明：模型层通过 `app/core/db_types.py` 的跨方言类型（UUIDType/JSONType/ArrayType）
 在 PostgreSQL（生产）与 SQLite（测试）间共享同一套定义；回归测试覆盖路由注册顺序
 （静态路由防 `/{uuid}` 遮蔽）、任务派发状态机（running/回滚）、协作式取消、分页稳定性、
-数据导入健壮性与子资源归属校验。
+数据导入健壮性、子资源归属校验、双协议代理端到端链路与自研指标数学正确性。
+
+CI：GitHub Actions（backend pytest + frontend tsc/build），push/PR 自动触发。
 
 ## 开发
 
