@@ -4,10 +4,11 @@ from celery.signals import worker_process_init, worker_process_shutdown
 from celery.schedules import crontab
 from app.core.config import settings
 
+# URL 单一来源为 settings（此前此处硬编码 /1 /2 与 config 的 /1 /1、.env.example 的 /0 三处打架）
 celery_app = Celery(
     "jq_eval",
-    broker=f"redis://:{settings.REDIS_PASSWORD}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/1",
-    backend=f"redis://:{settings.REDIS_PASSWORD}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/2",
+    broker=settings.CELERY_BROKER_URL,
+    backend=settings.CELERY_RESULT_BACKEND,
 )
 
 # Redis 连接池配置 - 提高连接稳定性（Windows 平台优化）
@@ -32,13 +33,17 @@ celery_app.conf.result_backend_transport_options = {
 # Broker 连接重试配置
 celery_app.conf.broker_connection_retry = True  # 启用连接重试
 celery_app.conf.broker_connection_max_retries = None  # 无限重试，避免长时间空闲后连接丢失
-celery_app.conf.broker_connection_retry_delay = 5  # 重试延迟(秒)，会指数增长
+# 注：曾有一行 broker_connection_retry_delay=5——非法键（不在 SETTING_KEYS），静默无效；
+# 真实重试节奏由 kombu transport 层控制，勿再臆造键名（test_celery_config.py 有自省兜底）
 celery_app.conf.broker_connection_retry_on_startup = True  # 启动时连接重试
 
 # 结果后端重试配置
-celery_app.conf.result_backend_connection_retry = True
-celery_app.conf.result_backend_connection_max_retries = None  # 无限重试
-celery_app.conf.result_backend_connection_retry_delay = 5
+# 注意：result_backend_connection_* 系列并非 Celery 合法键（5.6 实测不在 SETTING_KEYS，
+# 配置了也会被静默忽略、形同没配）。合法键为 result_backend_always_retry（重试至
+# result_backend_max_retries，None=无限）；连接超时层重试已由上方 transport options 的
+# retry_on_timeout 覆盖。键名有效性由 tests/test_celery_config.py 自省兜底。
+celery_app.conf.result_backend_always_retry = True
+celery_app.conf.result_backend_max_retries = None
 
 
 @worker_process_init.connect
@@ -93,10 +98,22 @@ celery_app.conf.update(
 )
 
 # Celery Beat定时任务配置
+# 任务名拼写错误在运行时只会静默不执行，故由 test_beat_schedule_tasks_registered 兜底
 celery_app.conf.beat_schedule = {
     # 每小时爬取所有活跃新闻源
     "crawl-hot-news-hourly": {
         "task": "crawl_all_active_sources",
         "schedule": crontab(minute=0),  # 每小时执行
+    },
+    # 每 15 分钟巡检中间件健康，组件降级时向 worker 日志输出 WARNING（监控预警）
+    "health-check-15min": {
+        "task": "health_check_task",
+        "schedule": crontab(minute="*/15"),
+    },
+    # 每日凌晨清理过期失败记录与 MinIO temp 对象
+    "cleanup-nightly": {
+        "task": "cleanup_task",
+        "schedule": crontab(hour=3, minute=17),
+        "kwargs": {"days": 30},
     },
 }

@@ -256,6 +256,7 @@ celery -A app.core.celery_app beat --loglevel=info
 | 后端 | http://localhost:8000/health | `{"status":"healthy"}` |
 | 前端 | http://localhost:3000 | 页面正常渲染 |
 | 前端代理 | http://localhost:3000/api/v1/health | 返回后端健康 JSON |
+| 就绪检查 | http://localhost:8000/api/v1/ready | 全依赖正常 200 ready；任一中间件失联 503 degraded（分项在 body） |
 
 ### 常见问题
 
@@ -269,13 +270,14 @@ celery -A app.core.celery_app beat --loglevel=info
 ```bash
 cd backend
 source venv/bin/activate   # Windows: .env\Scripts\Activate.ps1
-pytest                     # 84 个用例，SQLite 内存库，无需任何中间件，约 7s
+pytest                     # 94 个用例，SQLite 内存库，无需任何中间件，秒级完成
 ```
 
 测试体系说明：模型层通过 `app/core/db_types.py` 的跨方言类型（UUIDType/JSONType/ArrayType）
 在 PostgreSQL（生产）与 SQLite（测试）间共享同一套定义；回归测试覆盖路由注册顺序
 （静态路由防 `/{uuid}` 遮蔽）、任务派发状态机（running/回滚）、协作式取消、分页稳定性、
-数据导入健壮性、子资源归属校验、双协议代理端到端链路与自研指标数学正确性。
+数据导入健壮性、子资源归属校验、双协议代理端到端链路、自研指标数学正确性，
+以及 Celery 配置自省（非法键/Beat 任务名/URL 漂移）与 /ready 就绪探针降级语义。
 
 CI：GitHub Actions（backend pytest + frontend tsc/build），push/PR 自动触发。
 

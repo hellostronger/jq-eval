@@ -16,8 +16,13 @@ logger = logging.getLogger(__name__)
 
 @celery_app.task(name="health_check_task")
 def health_check_task() -> Dict[str, Any]:
-    """系统健康检查"""
-    return run_async(_run_health_check())
+    """系统健康检查（Beat 每 15 分钟调度；组件降级时输出 WARNING 到 worker 日志做预警）"""
+    result = run_async(_run_health_check())
+    if result.get("overall_status") != "healthy":
+        degraded = [k for k, v in result["components"].items()
+                    if v.get("status") != "healthy"]
+        logger.warning(f"定时健康检查发现降级组件: {degraded}")
+    return result
 
 
 async def _run_health_check() -> Dict[str, Any]:
@@ -175,69 +180,5 @@ async def _run_cleanup(days: int) -> Dict[str, Any]:
 
     return cleanup_stats
 
-
-@celery_app.task(name="daily_stats_task")
-def daily_stats_task() -> Dict[str, Any]:
-    """每日统计任务"""
-    return run_async(_run_daily_stats())
-
-
-async def _run_daily_stats() -> Dict[str, Any]:
-    """异步统计"""
-    stats = {
-        "date": datetime.utcnow().date().isoformat(),
-        "timestamp": datetime.utcnow().isoformat()
-    }
-
-    async with get_db_context() as db:
-        # 统计数据集
-        datasets_count = await db.execute(text("SELECT COUNT(*) as count FROM datasets"))
-        stats["total_datasets"] = datasets_count.fetchone()["count"]
-
-        # 统计QA记录
-        qa_count = await db.execute(text("SELECT COUNT(*) as count FROM qa_records"))
-        stats["total_qa_records"] = qa_count.fetchone()["count"]
-
-        # 统计评估任务
-        eval_stats = await db.execute(
-            text("""
-            SELECT
-                COUNT(*) as total,
-                COUNT(*) FILTER (WHERE status = 'completed') as completed,
-                COUNT(*) FILTER (WHERE status = 'running') as running,
-                COUNT(*) FILTER (WHERE status = 'pending') as pending,
-                COUNT(*) FILTER (WHERE status = 'failed') as failed
-            FROM evaluations
-            """)
-        )
-        row = eval_stats.fetchone()
-        stats["evaluations"] = {
-            "total": row["total"],
-            "completed": row["completed"],
-            "running": row["running"],
-            "pending": row["pending"],
-            "failed": row["failed"]
-        }
-
-        # 统计RAG系统
-        rag_count = await db.execute(text("SELECT COUNT(*) as count FROM rag_systems"))
-        stats["total_rag_systems"] = rag_count.fetchone()["count"]
-
-        # 统计模型配置
-        model_stats = await db.execute(
-            text("""
-            SELECT
-                COUNT(*) FILTER (WHERE model_type = 'llm') as llm,
-                COUNT(*) FILTER (WHERE model_type = 'embedding') as embedding,
-                COUNT(*) FILTER (WHERE model_type = 'reranker') as reranker
-            FROM model_configs
-            """)
-        )
-        row = model_stats.fetchone()
-        stats["models"] = {
-            "llm": row["llm"],
-            "embedding": row["embedding"],
-            "reranker": row["reranker"]
-        }
-
-    return stats
+# 注：曾有 daily_stats_task（无 Beat 调度、无调用方、返回值无人消费的纯死代码），
+# 每日统计由 /api/v1/evaluations/daily-stats 在线聚合提供，已删除

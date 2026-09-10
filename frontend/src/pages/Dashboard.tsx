@@ -7,8 +7,10 @@ import {
   ApiOutlined,
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
+import type { AxiosError } from 'axios'
 import { formatShortTime } from '@/utils/format'
 import { getSystemStats, getHealth, getEvaluations } from '@/api'
+import type { HealthStatus } from '@/api'
 import type { SystemStats, Evaluation } from '@/types'
 
 const Dashboard: React.FC = () => {
@@ -34,7 +36,14 @@ const Dashboard: React.FC = () => {
       // 组件卸载后丢弃响应，避免过期 setState
       if (cancelled) return
       if (statsData.status === 'fulfilled') setStats(statsData.value)
-      if (healthData.status === 'fulfilled') setHealth(healthData.value.components || {})
+      // /ready 降级时返回 503（reject），但响应体仍含分项状态——一并取出，
+      // 让降级如实渲染为个别红标，而非四项全红
+      if (healthData.status === 'fulfilled') {
+        setHealth(healthData.value.services || {})
+      } else {
+        const err = healthData.reason as AxiosError<HealthStatus>
+        setHealth(err?.response?.data?.services || {})
+      }
       if (evals.status === 'fulfilled') setRecentEvals(evals.value.slice(0, 5))
     }
     fetchData()

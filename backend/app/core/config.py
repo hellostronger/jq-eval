@@ -65,14 +65,16 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 1440  # 24小时
 
-    # Celery配置
+    # Celery配置（单一事实来源：celery_app 直接引用，勿在别处硬编码拼接 URL）
+    # broker 与 result backend 用不同 Redis DB——同库时清理结果键会波及队列消息，
+    # 运维 FLUSHDB 也可能一锅端
     @property
     def CELERY_BROKER_URL(self) -> str:
         return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/1"
 
     @property
     def CELERY_RESULT_BACKEND(self) -> str:
-        return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/1"
+        return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/2"
 
     # VibeAgent 配置
     SANDBOX_URL: str = ""  # 沙箱服务地址，空则使用本地子进程

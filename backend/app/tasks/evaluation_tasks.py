@@ -38,6 +38,13 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
         if not evaluation:
             return {"error": f"评估任务 {evaluation_id} 不存在"}
 
+        # acks_late 重投幂等：若结果 commit 成功但 worker 在 ack 前被杀，消息会重投递。
+        # 无此保护将全量重打 LLM（浪费 token）并二次插入结果（数据翻倍）
+        if evaluation.status == EvaluationStatus.COMPLETED:
+            logger.warning(f"评估 {evaluation_id} 已完成但收到重复投递，跳过（acks_late 重投保护）")
+            return {"evaluation_id": evaluation_id, "status": "already_completed",
+                    "summary": evaluation.summary}
+
         # 更新状态
         evaluation.status = EvaluationStatus.RUNNING
         evaluation.started_at = datetime.utcnow()

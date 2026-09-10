@@ -1,5 +1,13 @@
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
+import axios, { AxiosError, AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
 import { message } from 'antd'
+
+// 允许单个请求声明放弃全局错误弹窗：健康探测类接口在降级时按设计返回 503，
+// UI 用状态标签呈现，而不是每次刷新页面都弹"请求失败"
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    silent?: boolean
+  }
+}
 
 const service: AxiosInstance = axios.create({
   baseURL: '/api/v1',
@@ -25,9 +33,11 @@ service.interceptors.response.use(
   (response: AxiosResponse) => {
     return response.data
   },
-  (error) => {
+  (error: AxiosError<{ detail?: string }>) => {
     const errorMessage = error.response?.data?.detail || error.message || '请求失败'
-    message.error(errorMessage)
+    if (!error.config?.silent) {
+      message.error(errorMessage)
+    }
     return Promise.reject(error)
   }
 )

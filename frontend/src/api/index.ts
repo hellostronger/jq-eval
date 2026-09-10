@@ -390,8 +390,15 @@ export const getSystemStats = () => {
   return request.get<SystemStats>('/evaluations/daily-stats')
 }
 
+export interface HealthStatus {
+  status: 'ready' | 'degraded'
+  services: Record<string, { status: string; type?: string; error?: string }>
+}
+
+// 就绪检查：/api/v1/health 只是存活探针（无依赖明细），分项状态在 /ready；
+// 降级时后端按就绪探针语义返回 503，silent 跳过全局弹窗，由仪表盘标签呈现
 export const getHealth = () => {
-  return request.get<{ components: Record<string, { status: string }> }>('/health')
+  return request.get<HealthStatus>('/ready', { silent: true })
 }
 
 // 指标市场API
