@@ -434,9 +434,10 @@ async def export_training_data_eval_report(
             ])
         buf.seek(0)
         filename = f"training_eval_{eval_id}.csv"
+        # utf-8-sig（带 BOM）：Excel 打开无 BOM 的 UTF-8 CSV 会按 GBK 解码导致中文乱码
         return StreamingResponse(
-            iter([buf.getvalue()]),
-            media_type="text/csv",
+            iter([buf.getvalue().encode("utf-8-sig")]),
+            media_type="text/csv; charset=utf-8",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
     else:

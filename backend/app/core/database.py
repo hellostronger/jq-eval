@@ -50,7 +50,7 @@ async def init_db():
             document, dataset, evaluation, invocation, annotation_correction,
             model, model_log, model_mapping, rag_system, metric, sync,
             hot_news, load_test, prompt, vibe_agent, doc_parse,
-            training_data_eval, doc_explanation, open_source_dataset,
+            training_data_eval, open_source_dataset,
         )
 
         # 创建所有表

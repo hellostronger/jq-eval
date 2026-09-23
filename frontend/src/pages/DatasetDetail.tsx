@@ -3,7 +3,7 @@ import { Card, Table, Upload, Button, message, Tabs, Tag, Space, Divider, Popcon
 import { UploadOutlined, DownloadOutlined, DeleteOutlined, EyeOutlined, PlusOutlined, FileTextOutlined, EnvironmentOutlined } from '@ant-design/icons'
 import { useParams } from 'react-router-dom'
 import { formatShortTime } from '@/utils/format'
-import { getDataset, getQARecords, uploadDatasetFile, downloadTemplate, deleteQARecord, batchDeleteQARecords, getDatasetDocuments, getDatasetChunks, uploadGlobalDocument, createDocumentFromText, createDocumentsFromNews, getDocumentChunks, getHotArticles } from '@/api'
+import { getDataset, getQARecords, uploadDatasetFile, downloadTemplate, deleteQARecord, batchDeleteQARecords, getDatasetDocuments, getDatasetChunks, uploadDatasetDocument, createDocumentFromText, createDocumentsFromNews, getDocumentChunks, getHotArticles } from '@/api'
 import GeneratePanel from '@/components/GeneratePanel'
 import DatasetDocParse from '@/components/DatasetDocParse'
 import type { Dataset, QARecord, DocumentInfo, ChunkInfo, HotArticle } from '@/types'
@@ -155,7 +155,7 @@ const DatasetDetail: React.FC = () => {
     if (!id) return
     setCreatingDoc(true)
     try {
-      const result = await uploadGlobalDocument(file, id)
+      const result = await uploadDatasetDocument(id, file)
       void result
       message.success('文档上传成功（未分片；分片在数据集构建环节处理）')
       setCreateDocModalVisible(false)

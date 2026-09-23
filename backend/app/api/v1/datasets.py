@@ -863,9 +863,11 @@ async def download_template(format: str):
             ])
 
         content = output.getvalue()
-        # 使用纯 UTF-8 编码，通过 Content-Type 指定编码，Excel 可正确识别
+        # 必须用 utf-8-sig（带 BOM）：Windows Excel 打开 CSV 时不认 HTTP 头的 charset，
+        # 无 BOM 一律按本地 ANSI/GBK 解码，中文全部乱码。BOM 由 Content-Type 声明 +
+        # 导入侧 utf-8-sig 解码共同兜底，不会污染字段名
         return StreamingResponse(
-            io.BytesIO(content.encode('utf-8')),
+            io.BytesIO(content.encode('utf-8-sig')),
             media_type="text/csv; charset=utf-8",
             headers={
                 "Content-Disposition": "attachment; filename=dataset_template.csv",
@@ -1140,6 +1142,9 @@ async def get_chunk_detail(
         document_title=doc_title
     )
 
+
+# 注：文档上传/文本创建端点原与 /doc-explanations/documents/* 重复，
+# 文档解释功能下线（2026-09）后本模块成为文档 CRUD 唯一归属
 
 @router.post("/{dataset_id}/documents/upload")
 async def upload_document(

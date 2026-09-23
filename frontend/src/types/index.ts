@@ -333,51 +333,6 @@ export interface LatencyStats {
   p99: number
 }
 
-// 文档解析类型
-export interface DocExplanation {
-  id: string
-  doc_id: string
-  explanation: string
-  source: string
-  status: string
-  document_title?: string
-  document_content?: string
-  created_at?: string
-}
-
-// 文档解析评估任务类型
-export interface DocExplanationEvaluation {
-  id: string
-  name: string
-  description?: string
-  llm_model_id: string
-  dataset_id?: string
-  doc_ids?: string[]
-  metrics: string[]
-  batch_size: number
-  status: 'pending' | 'running' | 'completed' | 'failed'
-  progress: number
-  error?: string
-  summary?: Record<string, any>
-  started_at?: string
-  completed_at?: string
-  created_at?: string
-}
-
-// 文档解析评估结果类型
-export interface DocExplanationEvalResult {
-  id: string
-  eval_id: string
-  doc_id: string
-  explanation_id: string
-  document_title?: string
-  document_content?: string
-  explanation?: string
-  scores: Record<string, number | string>
-  details?: Record<string, any>
-  created_at?: string
-}
-
 // 开源数据集类型
 export interface OpenSourceDataset {
   id: string

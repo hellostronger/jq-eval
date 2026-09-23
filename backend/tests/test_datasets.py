@@ -44,6 +44,29 @@ async def test_import_unsupported_filename_returns_400(client: AsyncClient, samp
 
 
 @pytest.mark.asyncio
+async def test_download_csv_template_has_bom(client: AsyncClient):
+    """CSV 模板必须带 UTF-8 BOM（utf-8-sig）：Windows Excel 不读 HTTP charset 头，
+    无 BOM 会按 GBK 解码导致中文乱码"""
+    response = await client.get("/api/v1/datasets/templates/csv")
+    assert response.status_code == 200
+    raw = response.content
+    assert raw[:3] == b"\xef\xbb\xbf", "CSV 模板缺少 UTF-8 BOM"
+    # BOM 剥离后首字段名应干净（不带 ﻿ 前缀），保证下载→填写→导入闭环
+    text = raw.decode("utf-8-sig")
+    assert text.splitlines()[0].startswith("question,")
+
+
+@pytest.mark.asyncio
+async def test_import_bom_csv_roundtrip(client: AsyncClient, sample_dataset: Dataset):
+    """带 BOM 的 CSV（模板下载后直接回传）应正常导入，字段名不被 BOM 污染"""
+    bom_csv = "﻿question,answer,ground_truth\nQ1,A1,G1\n"
+    files = {"file": ("t.csv", io.BytesIO(bom_csv.encode("utf-8")), "text/csv")}
+    response = await client.post(f"/api/v1/datasets/{sample_dataset.id}/import", files=files)
+    assert response.status_code == 200, response.text
+    assert response.json()["imported_count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_has_ground_truth_marked_with_answer_only_records(client: AsyncClient, db_session, sample_dataset: Dataset):
     """只含 answer 的记录导入后 has_ground_truth 应置位（与保存回退逻辑同源）"""
     records = [{"question": "Q1", "answer": "A1"}]

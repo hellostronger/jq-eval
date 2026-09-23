@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Card, Form, Input, Button, Select, message, Progress, Space, InputNumber, Collapse, Table, Modal, Tag } from 'antd'
 import { PlusOutlined, DeleteOutlined, PlayCircleOutlined, FileAddOutlined } from '@ant-design/icons'
-import { generateDataset, getGenerateStatus, getCurrentGenerateTask, getModels, getDocuments } from '@/api'
+import { generateDataset, getGenerateStatus, getCurrentGenerateTask, getModels, getDatasetDocuments } from '@/api'
 import type { ModelConfig, GenerateRequest, DocumentInfo } from '@/types'
 
 // 文档来源标签（解析结果 = 文档解析页 minerU 解析产物）
@@ -140,7 +140,7 @@ const GeneratePanel: React.FC<GeneratePanelProps> = ({ datasetId, onGenerateSucc
     setDocSelectVisible(true)
     setDocsLoading(true)
     try {
-      const data = await getDocuments({ dataset_id: datasetId, size: 200 })
+      const data = await getDatasetDocuments(datasetId, { page: 1, size: 200 })
       setAllDocs(data.items)
     } catch (e) {
       // 错误已在拦截器处理

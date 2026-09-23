@@ -238,7 +238,9 @@ async def _run_import_task(
             elif file_type == "csv":
                 import csv
                 import io
-                reader = csv.DictReader(io.StringIO(file_data.decode("utf-8")))
+                # utf-8-sig：模板下载自带 BOM（供 Excel 识别），此处解码需剥离，
+                # 否则首个字段名会变成 "﻿question"
+                reader = csv.DictReader(io.StringIO(file_data.decode("utf-8-sig")))
                 records = list(reader)
 
             else:

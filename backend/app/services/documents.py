@@ -1,4 +1,4 @@
-# 文档共享服务：文档提取/创建/响应构建，供 datasets 与 doc_explanations 等路由复用
+# 文档共享服务：文档提取/创建/响应构建，供 datasets 等路由复用
 from typing import Optional
 from uuid import UUID
 

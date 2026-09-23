@@ -1,5 +1,5 @@
 import { request } from './request'
-import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, DataSource, ModelConfig, SystemStats, NewsSource, HotArticle, NewsStats, InvocationBatch, InvocationResult, LoadTest, DocExplanation, DocExplanationEvaluation, DocExplanationEvalResult, OpenSourceDataset, AnnotationCorrection } from '@/types'
+import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, DataSource, ModelConfig, SystemStats, NewsSource, HotArticle, NewsStats, InvocationBatch, InvocationResult, LoadTest, OpenSourceDataset, AnnotationCorrection } from '@/types'
 
 // 文档和分片API
 export interface DocumentInfo {
@@ -565,79 +565,14 @@ export const runLoadTest = (id: string) => {
   return request.post<{ message: string; load_test_id: string; task_id: string }>(`/load-tests/${id}/run`)
 }
 
-// 文档解析API
-export const getDocExplanations = (params?: { doc_id?: string; status?: string }) => {
-  return request.get<DocExplanation[]>('/doc-explanations', { params })
-}
+// 文档解析（minerU 等解析服务）API 见下方；文档 CRUD 统一在 /datasets 下
 
-export const createDocExplanation = (data: { doc_id: string; explanation: string; source?: string }) => {
-  return request.post<DocExplanation>('/doc-explanations', data)
-}
-
-export const updateDocExplanation = (id: string, data: { explanation?: string; source?: string; status?: string }) => {
-  return request.put<DocExplanation>(`/doc-explanations/${id}`, data)
-}
-
-export const deleteDocExplanation = (id: string) => {
-  return request.delete(`/doc-explanations/${id}`)
-}
-
-// 文档解析评估API
-export const getDocExplanationEvaluations = (params?: { status?: string }) => {
-  return request.get<DocExplanationEvaluation[]>('/doc-explanation-evaluations', { params })
-}
-
-export const getDocExplanationEvaluation = (id: string) => {
-  return request.get<DocExplanationEvaluation>(`/doc-explanation-evaluations/${id}`)
-}
-
-export const createDocExplanationEvaluation = (data: {
-  name: string
-  description?: string
-  llm_model_id: string
-  dataset_id?: string
-  doc_ids?: string[]
-  metrics?: string[]
-  batch_size?: number
-}) => {
-  return request.post<DocExplanationEvaluation>('/doc-explanation-evaluations', data)
-}
-
-export const runDocExplanationEvaluation = (id: string) => {
-  return request.post<{ message: string; eval_id: string; task_id: string }>(`/doc-explanation-evaluations/${id}/run`)
-}
-
-export const getDocExplanationEvalResults = (id: string) => {
-  return request.get<DocExplanationEvalResult[]>(`/doc-explanation-evaluations/${id}/results`)
-}
-
-// 获取所有文档（用于选择，不分数据集）
-export const getDocuments = (params?: { search?: string; dataset_id?: string; page?: number; size?: number }) => {
-  return request.get<{ items: DocumentInfo[]; total: number }>('/doc-explanations/documents', { params })
-}
-
-// 上传文档（仅保存原文，不自动分片/解析；datasetId 填写时归属该数据集）
-export const uploadGlobalDocument = (file: File, datasetId?: string) => {
+// 上传文档到数据集（仅保存原文，不自动分片/解析）
+export const uploadDatasetDocument = (datasetId: string, file: File) => {
   const formData = new FormData()
   formData.append('file', file)
-  return request.post<DocumentInfo>(datasetId
-    ? `/doc-explanations/documents/upload?dataset_id=${encodeURIComponent(datasetId)}`
-    : '/doc-explanations/documents/upload', formData)
-}
-
-// 获取文档详情（全文，用于预览）
-export const getDocumentDetail = (id: string) => {
-  return request.get<DocumentInfo>(`/doc-explanations/documents/${id}`)
-}
-
-// 删除文档（级联删除分片与文档解析）
-export const deleteDocument = (id: string) => {
-  return request.delete(`/doc-explanations/documents/${id}`)
-}
-
-// 从粘贴文本创建文档（不关联数据集，仅保存原文，不自动分片/解析）
-export const createGlobalDocumentFromText = (data: { title?: string; content: string; dataset_id?: string }) => {
-  return request.post<DocumentInfo>('/doc-explanations/documents/text', data)
+  return request.post<{ document_id: string; title: string; content_length: number; chunk_count: number }>(
+    `/datasets/${datasetId}/documents/upload`, formData)
 }
 
 // ---------- 文档解析（minerU 等解析服务） ----------

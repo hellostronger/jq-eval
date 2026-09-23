@@ -12,7 +12,6 @@ import {
   FireOutlined,
   ThunderboltOutlined,
   ExperimentOutlined,
-  FileTextOutlined,
   GlobalOutlined,
   EditOutlined,
   HistoryOutlined,
@@ -34,9 +33,6 @@ const Metrics = lazy(() => import('./pages/Metrics'))
 const DataSources = lazy(() => import('./pages/DataSources'))
 const HotNews = lazy(() => import('./pages/HotNews'))
 const LoadTests = lazy(() => import('./pages/LoadTests'))
-const DocExplanations = lazy(() => import('./pages/DocExplanations'))
-const DocExplanationEvaluations = lazy(() => import('./pages/DocExplanationEvaluations'))
-const DocExplanationEvalDetail = lazy(() => import('./pages/DocExplanationEvalDetail'))
 const OpenSourceDatasets = lazy(() => import('./pages/OpenSourceDatasets'))
 const TrainingDataEvals = lazy(() => import('./pages/TrainingDataEvals'))
 const Prompts = lazy(() => import('./pages/Prompts'))
@@ -55,8 +51,6 @@ const menuItems = [
   { key: '/load-tests', icon: <ExperimentOutlined />, label: '性能压测' },
   { key: '/evaluations', icon: <LineChartOutlined />, label: '评估任务' },
   { key: '/training-data-evaluations', icon: <ExperimentOutlined />, label: '训练数据评估' },
-  { key: '/doc-explanations', icon: <FileTextOutlined />, label: '文档解析' },
-  { key: '/doc-explanation-evaluations', icon: <BarChartOutlined />, label: '解释评估' },
   { key: '/metrics', icon: <BarChartOutlined />, label: '指标市场' },
   { key: '/data-sources', icon: <DatabaseOutlined />, label: '数据源' },
   { key: '/hot-news', icon: <FireOutlined />, label: '热点新闻' },
@@ -108,9 +102,6 @@ const App: React.FC = () => {
             <Route path="/evaluations/compare" element={<EvaluationCompare />} />
             <Route path="/evaluations/:id" element={<EvaluationDetail />} />
             <Route path="/training-data-evaluations" element={<TrainingDataEvals />} />
-            <Route path="/doc-explanations" element={<DocExplanations />} />
-            <Route path="/doc-explanation-evaluations" element={<DocExplanationEvaluations />} />
-            <Route path="/doc-explanation-evaluations/:id" element={<DocExplanationEvalDetail />} />
             <Route path="/metrics" element={<Metrics />} />
             <Route path="/data-sources" element={<DataSources />} />
             <Route path="/hot-news" element={<HotNews />} />
