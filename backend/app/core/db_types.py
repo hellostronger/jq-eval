@@ -88,6 +88,8 @@ class ArrayType(TypeDecorator):
     def process_result_value(self, value: Any, dialect) -> Optional[Any]:
         if value is None:
             return None
-        if isinstance(value, list):
-            return value
+        # PG 下 as_tuple=1 时空数组 {} 会以空元组 () 返回；
+        # list/tuple 统一转 list，避免 str(()) 生成 ['()'] 这类伪元素
+        if isinstance(value, (list, tuple)):
+            return list(value)
         return [item for item in str(value).split(",") if item != ""]

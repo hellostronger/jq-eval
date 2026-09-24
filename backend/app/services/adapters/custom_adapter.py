@@ -106,7 +106,7 @@ class CustomAdapter(BaseRAGAdapter):
 
             headers = self._get_headers()
 
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=self.LLM_TIMEOUT) as client:
                 if self.request_method == "POST":
                     response = await client.post(
                         self.api_url,
@@ -165,7 +165,7 @@ class CustomAdapter(BaseRAGAdapter):
 
             headers = self._get_headers()
 
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=self.LLM_TIMEOUT) as client:
                 if self.request_method == "POST":
                     async with client.stream("POST", self.api_url, headers=headers, json=payload) as response:
                         response.raise_for_status()

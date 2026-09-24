@@ -29,6 +29,10 @@ class BaseRAGAdapter(ABC):
     system_type: str
     display_name: str
 
+    # LLM 生成类请求的统一超时（秒）：推理型模型/慢网关一次补全可达 60s+，
+    # 取 300 覆盖最坏情况；健康检查仍用各自的短超时。
+    LLM_TIMEOUT = 300.0
+
     def __init__(self, config: Dict[str, Any]):
         self.config = config
 

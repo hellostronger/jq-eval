@@ -81,7 +81,7 @@ class DirectLLMAdapter(BaseRAGAdapter):
                 **self.extra_params,
             }
 
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=self.LLM_TIMEOUT) as client:
                 response = await client.post(
                     self._get_chat_url(),
                     headers=self._get_headers(),
@@ -157,7 +157,7 @@ class DirectLLMAdapter(BaseRAGAdapter):
 
             answer_chunks = []
 
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=self.LLM_TIMEOUT) as client:
                 async with client.stream(
                     "POST",
                     self._get_chat_url(),

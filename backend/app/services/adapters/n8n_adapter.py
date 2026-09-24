@@ -60,7 +60,7 @@ class N8nAdapter(BaseRAGAdapter):
                 **kwargs
             }
 
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=self.LLM_TIMEOUT) as client:
                 response = await client.post(
                     self.webhook_url,
                     headers=headers,
@@ -113,7 +113,7 @@ class N8nAdapter(BaseRAGAdapter):
                 **kwargs
             }
 
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=self.LLM_TIMEOUT) as client:
                 async with client.stream("POST", self.webhook_url, headers=headers, json=payload) as response:
                     response.raise_for_status()
                     answer_chunks = []
