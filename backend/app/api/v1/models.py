@@ -229,7 +229,8 @@ async def test_model(
             }
 
         logger.info(f"发送请求到 {request_data['url']}...")
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        # trust_env=True：遵循 HTTP(S)_PROXY/系统代理（国内环境访问 mineru.net 通常需要代理）
+        async with httpx.AsyncClient(timeout=300.0, trust_env=True) as client:
             if request_data.get("method") == "GET":
                 response = await client.get(request_data["url"], headers=request_data["headers"])
                 logger.info(f"收到响应: status={response.status_code}")
@@ -240,6 +241,47 @@ async def test_model(
                         "error": f"API返回错误: {response.status_code} - {response.text[:200]}",
                         "model_id": str(model_id)
                     }
+            elif model.model_type == "doc_parser":
+                # MinerU 官方API：POST 空批量请求验证 Token。
+                # 401/403 => Token 无效；200 且返回 JSON（code 或 msg 字段）=> 认证链路通了
+                response = await client.post(
+                    request_data["url"],
+                    headers=request_data["headers"],
+                    json=request_data["body"],
+                )
+                logger.info(f"收到响应: status={response.status_code}")
+                if response.status_code in (401, 403):
+                    return {
+                        "success": False,
+                        "error": "MinerU Token 无效或已过期，请在 mineru.net API 管理页重新创建",
+                        "model_id": str(model_id)
+                    }
+                if response.status_code != 200:
+                    return {
+                        "success": False,
+                        "error": f"API返回错误: {response.status_code} - {response.text[:200]}",
+                        "model_id": str(model_id)
+                    }
+                try:
+                    body = response.json()
+                except ValueError:
+                    return {
+                        "success": False,
+                        "error": f"响应不是有效JSON: {response.text[:200]}",
+                        "model_id": str(model_id)
+                    }
+                # code=0 或业务层校验错误（如 files 为空）都说明网络与认证链路正常
+                if isinstance(body, dict) and ("code" in body or "msg" in body):
+                    return {
+                        "success": True,
+                        "message": "MinerU 官方 API Token 验证通过",
+                        "model_id": str(model_id)
+                    }
+                return {
+                    "success": False,
+                    "error": f"MinerU API 响应异常: {str(body)[:200]}",
+                    "model_id": str(model_id)
+                }
             elif model.model_type == "embedding":
                 # Embedding 接口返回普通 JSON，不是 SSE 流
                 response = await client.post(
@@ -460,12 +502,19 @@ def _build_doc_parser_test_request(provider: str, model) -> dict:
 
     if provider in ("mineru", "mineru_self"):  # MinerU 自部署（FastAPI /file_parse）
         return {"url": f"{endpoint}/docs", "headers": {}, "method": "GET"}
-    elif provider == "mineru_api":  # MinerU 官方API
+    elif provider == "mineru_api":  # MinerU 官方API：无健康检查端点，用空批量请求验证 Token
         api_key = model.api_key_encrypted
+        if not api_key:
+            return {"url": "", "headers": {}, "method": "GET"}
         return {
-            "url": "https://mineru.net/api/v4/extract/task/batch",
-            "headers": {"Authorization": f"Bearer {api_key}"} if api_key else {},
-            "method": "GET",
+            "url": "https://mineru.net/api/v4/file-urls/batch",
+            "headers": {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "Accept": "*/*",
+            },
+            "method": "POST",
+            "body": {"files": [], "model_version": "vlm"},
         }
     else:
         # 通用：探活 endpoint 根路径

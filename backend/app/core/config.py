@@ -92,6 +92,8 @@ class Settings(BaseSettings):
         env_file = str(_ROOT / ".env")
         env_file_encoding = "utf-8"
         case_sensitive = True
+        # .env 中存在历史遗留的 OPENAI_*/CELERY_* 等未声明变量，忽略之避免启动崩溃
+        extra = "ignore"
 
 
 @lru_cache()
