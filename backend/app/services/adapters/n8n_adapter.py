@@ -5,7 +5,6 @@ import base64
 import json
 from typing import Optional, List, Dict, Any
 from .base import BaseRAGAdapter, RAGResponse
-from app.core.exceptions import format_error
 
 
 class N8nAdapter(BaseRAGAdapter):
@@ -61,7 +60,7 @@ class N8nAdapter(BaseRAGAdapter):
                 **kwargs
             }
 
-            async with httpx.AsyncClient(timeout=self.LLM_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=self.llm_timeout) as client:
                 response = await client.post(
                     self.webhook_url,
                     headers=headers,
@@ -89,7 +88,7 @@ class N8nAdapter(BaseRAGAdapter):
             return RAGResponse(
                 answer="",
                 response_time=response_time,
-                error=format_error(e),
+                error=self.error_message(e),
                 success=False
             )
 
@@ -114,7 +113,7 @@ class N8nAdapter(BaseRAGAdapter):
                 **kwargs
             }
 
-            async with httpx.AsyncClient(timeout=self.LLM_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=self.llm_timeout) as client:
                 async with client.stream("POST", self.webhook_url, headers=headers, json=payload) as response:
                     response.raise_for_status()
                     answer_chunks = []
@@ -150,7 +149,7 @@ class N8nAdapter(BaseRAGAdapter):
                 answer="",
                 response_time=response_time,
                 first_token_latency=first_token_time,
-                error=format_error(e),
+                error=self.error_message(e),
                 success=False
             )
 

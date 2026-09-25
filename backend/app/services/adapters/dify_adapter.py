@@ -4,7 +4,6 @@ import time
 import json
 from typing import Optional, List, Dict, Any
 from .base import BaseRAGAdapter, RAGResponse
-from app.core.exceptions import format_error
 
 
 class DifyAdapter(BaseRAGAdapter):
@@ -49,7 +48,7 @@ class DifyAdapter(BaseRAGAdapter):
             if conversation_id:
                 payload["conversation_id"] = conversation_id
 
-            async with httpx.AsyncClient(timeout=self.LLM_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=self.llm_timeout) as client:
                 response = await client.post(
                     endpoint,
                     headers=headers,
@@ -86,7 +85,7 @@ class DifyAdapter(BaseRAGAdapter):
             return RAGResponse(
                 answer="",
                 response_time=response_time,
-                error=format_error(e),
+                error=self.error_message(e),
                 success=False
             )
 
@@ -119,7 +118,7 @@ class DifyAdapter(BaseRAGAdapter):
             if conversation_id:
                 payload["conversation_id"] = conversation_id
 
-            async with httpx.AsyncClient(timeout=self.LLM_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=self.llm_timeout) as client:
                 async with client.stream("POST", endpoint, headers=headers, json=payload) as response:
                     response.raise_for_status()
                     answer_chunks = []
@@ -171,7 +170,7 @@ class DifyAdapter(BaseRAGAdapter):
                 answer="",
                 response_time=response_time,
                 first_token_latency=first_token_time,
-                error=format_error(e),
+                error=self.error_message(e),
                 success=False
             )
 

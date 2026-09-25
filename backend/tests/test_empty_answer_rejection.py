@@ -27,6 +27,32 @@ def _adapter() -> DirectLLMAdapter:
     })
 
 
+def test_llm_timeout_defaults_to_base_constant():
+    """未配置时沿用默认常量，不改变既有行为"""
+    assert _adapter().llm_timeout == DirectLLMAdapter.LLM_TIMEOUT == 300.0
+
+
+def test_llm_timeout_is_configurable_per_rag_system():
+    """思考型模型 max_tokens 大时可显式放宽超时，不必改全局常量"""
+    adapter = DirectLLMAdapter({
+        "api_key": "test-key",
+        "api_endpoint": "http://llm.test/v1",
+        "model_name": "thinking-model",
+        "provider": "openai",
+        "llm_timeout": 900,
+    })
+    assert adapter.llm_timeout == 900.0
+    # 错误文案里回显实际生效的超时值，便于用户对账
+    assert "900" in adapter.timeout_error_message()
+
+
+def test_invalid_llm_timeout_falls_back_to_default():
+    """非法值必须回落默认，不能把请求变成立即超时"""
+    for bad in [0, -5, "abc", None, ""]:
+        adapter = DirectLLMAdapter({"api_key": "k", "llm_timeout": bad})
+        assert adapter.llm_timeout == DirectLLMAdapter.LLM_TIMEOUT, f"非法值 {bad!r} 未回落"
+
+
 def _thinking_truncated_response() -> dict:
     """思考型模型把 max_tokens 耗尽：content=None，只有 reasoning_content"""
     return {
@@ -116,12 +142,12 @@ async def test_empty_string_content_also_rejected(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_timeout_with_empty_message_still_reports_reason(monkeypatch):
-    """超时的 str(e) 可能为空——失败原因不能因此丢失
+async def test_timeout_reports_actionable_message(monkeypatch):
+    """超时的 str(e) 可能为空，但必须报出"超时"和可操作建议
 
-    线上表现：思考型模型跑满 300s LLM_TIMEOUT 后，httpx 抛出的超时异常
+    线上表现：思考型模型跑满 LLM_TIMEOUT 后，httpx 抛出的 ReadTimeout
     消息为空，适配器把 error 落成空串，调用任务再兜底成无信息量的
-    "RAG 调用失败"，用户完全看不出是超时。这里钉死：空消息也必须有原因。
+    "RAG 调用失败"——用户既看不出是超时，也看不出该怎么调。
     """
     adapter = _adapter()
 
@@ -141,12 +167,13 @@ async def test_timeout_with_empty_message_still_reports_reason(monkeypatch):
 
     assert resp.success is False
     assert resp.error, "超时失败必须带原因，不能是空串"
-    assert resp.error == "ReadTimeout"
+    assert "超时" in resp.error
+    assert "llm_timeout" in resp.error, "应告诉用户怎么调"
 
 
 @pytest.mark.asyncio
-async def test_connect_timeout_with_empty_message_still_reports_reason(monkeypatch):
-    """连接超时同理：str() 为空时兜底为异常类名"""
+async def test_connect_timeout_also_reports_timeout(monkeypatch):
+    """连接超时同属 httpx.TimeoutException，走同一条可读文案"""
     adapter = _adapter()
 
     def _handler(request: httpx.Request) -> httpx.Response:
@@ -164,4 +191,27 @@ async def test_connect_timeout_with_empty_message_still_reports_reason(monkeypat
     resp = await adapter.query("任意问题")
 
     assert resp.success is False
-    assert resp.error == "ConnectTimeout"
+    assert "超时" in resp.error
+
+
+@pytest.mark.asyncio
+async def test_non_timeout_error_keeps_original_message(monkeypatch):
+    """非超时异常不能被超时文案吞掉，仍应保留原始错误信息"""
+    adapter = _adapter()
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    transport = httpx.MockTransport(_handler)
+    orig_client = httpx.AsyncClient
+
+    def _patched(*args, **kwargs):
+        kwargs["transport"] = transport
+        return orig_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _patched)
+
+    resp = await adapter.query("任意问题")
+
+    assert resp.success is False
+    assert resp.error == "connection refused"

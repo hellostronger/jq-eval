@@ -4,7 +4,6 @@ import time
 import json
 from typing import Optional, List, Dict, Any
 from .base import BaseRAGAdapter, RAGResponse
-from app.core.exceptions import format_error
 
 
 class DirectLLMAdapter(BaseRAGAdapter):
@@ -82,7 +81,7 @@ class DirectLLMAdapter(BaseRAGAdapter):
                 **self.extra_params,
             }
 
-            async with httpx.AsyncClient(timeout=self.LLM_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=self.llm_timeout) as client:
                 response = await client.post(
                     self._get_chat_url(),
                     headers=self._get_headers(),
@@ -140,7 +139,7 @@ class DirectLLMAdapter(BaseRAGAdapter):
             return RAGResponse(
                 answer="",
                 response_time=response_time,
-                error=format_error(e),
+                error=self.error_message(e),
                 success=False
             )
 
@@ -177,7 +176,7 @@ class DirectLLMAdapter(BaseRAGAdapter):
 
             answer_chunks = []
 
-            async with httpx.AsyncClient(timeout=self.LLM_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=self.llm_timeout) as client:
                 async with client.stream(
                     "POST",
                     self._get_chat_url(),
@@ -231,7 +230,7 @@ class DirectLLMAdapter(BaseRAGAdapter):
                 answer="",
                 response_time=response_time,
                 first_token_latency=first_token_time,
-                error=format_error(e),
+                error=self.error_message(e),
                 success=False
             )
 

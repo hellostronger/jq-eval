@@ -5,6 +5,8 @@ from pydantic import BaseModel
 
 import httpx
 
+from app.core.exceptions import format_error
+
 
 class RAGResponse(BaseModel):
     """RAG系统统一响应"""
@@ -29,12 +31,37 @@ class BaseRAGAdapter(ABC):
     system_type: str
     display_name: str
 
-    # LLM 生成类请求的统一超时（秒）：推理型模型/慢网关一次补全可达 60s+，
+    # LLM 生成类请求的默认超时（秒）：推理型模型/慢网关一次补全可达 60s+，
     # 取 300 覆盖最坏情况；健康检查仍用各自的短超时。
+    #
+    # 这只是默认值。思考型模型把 max_tokens 拉到 4096 时，300s 会被真实
+    # 跑满（表现为 ReadTimeout），此时应通过连接配置里的 llm_timeout 放宽，
+    # 而不是把这里的常量无限调大——不同 RAG 系统的时延差异极大。
     LLM_TIMEOUT = 300.0
 
     def __init__(self, config: Dict[str, Any]):
         self.config = config
+        # 实例级超时：连接配置可覆盖默认常量。
+        # 非法值（0/负数/非数字）一律回落默认，避免把请求变成立即超时。
+        try:
+            override = float(config.get("llm_timeout") or 0)
+        except (TypeError, ValueError):
+            override = 0.0
+        self.llm_timeout = override if override > 0 else self.LLM_TIMEOUT
+
+    def timeout_error_message(self) -> str:
+        """超时的可读错误文案——超时是最常见的失败原因，不该只报一个类名"""
+        return (
+            f"请求 RAG 系统超时（{self.llm_timeout:.0f}s）。"
+            "若模型为思考型且 max_tokens 较大，请在 RAG 系统连接配置中"
+            "调大 llm_timeout，或改用非思考模型。"
+        )
+
+    def error_message(self, exc: BaseException) -> str:
+        """把异常转成可读错误文案：超时单独识别，其余交给 format_error 兜底"""
+        if isinstance(exc, httpx.TimeoutException):
+            return self.timeout_error_message()
+        return format_error(exc)
 
     @abstractmethod
     async def query(

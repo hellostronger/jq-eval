@@ -4,7 +4,6 @@ import time
 import json
 from typing import Optional, List, Dict, Any
 from .base import BaseRAGAdapter, RAGResponse
-from app.core.exceptions import format_error
 
 
 class CustomAdapter(BaseRAGAdapter):
@@ -107,7 +106,7 @@ class CustomAdapter(BaseRAGAdapter):
 
             headers = self._get_headers()
 
-            async with httpx.AsyncClient(timeout=self.LLM_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=self.llm_timeout) as client:
                 if self.request_method == "POST":
                     response = await client.post(
                         self.api_url,
@@ -141,7 +140,7 @@ class CustomAdapter(BaseRAGAdapter):
             return RAGResponse(
                 answer="",
                 response_time=response_time,
-                error=format_error(e),
+                error=self.error_message(e),
                 success=False
             )
 
@@ -166,7 +165,7 @@ class CustomAdapter(BaseRAGAdapter):
 
             headers = self._get_headers()
 
-            async with httpx.AsyncClient(timeout=self.LLM_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=self.llm_timeout) as client:
                 if self.request_method == "POST":
                     async with client.stream("POST", self.api_url, headers=headers, json=payload) as response:
                         response.raise_for_status()
@@ -207,7 +206,7 @@ class CustomAdapter(BaseRAGAdapter):
                 answer="",
                 response_time=response_time,
                 first_token_latency=first_token_time,
-                error=format_error(e),
+                error=self.error_message(e),
                 success=False
             )
 

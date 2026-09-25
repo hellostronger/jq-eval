@@ -5,7 +5,6 @@ import json
 import logging
 from typing import Optional, List, Dict, Any
 from .base import BaseRAGAdapter, RAGResponse
-from app.core.exceptions import format_error
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +54,7 @@ class FastGPTAdapter(BaseRAGAdapter):
                 ]
             }
 
-            async with httpx.AsyncClient(timeout=self.LLM_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=self.llm_timeout) as client:
                 response = await client.post(
                     f"{self.api_url}/chat/completions",
                     headers=headers,
@@ -102,7 +101,7 @@ class FastGPTAdapter(BaseRAGAdapter):
             return RAGResponse(
                 answer="",
                 response_time=response_time,
-                error=format_error(e),
+                error=self.error_message(e),
                 success=False
             )
 
@@ -135,7 +134,7 @@ class FastGPTAdapter(BaseRAGAdapter):
                 ]
             }
 
-            async with httpx.AsyncClient(timeout=self.LLM_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=self.llm_timeout) as client:
                 async with client.stream("POST", f"{self.api_url}/chat/completions", headers=headers, json=payload) as response:
                     response.raise_for_status()
                     answer_chunks = []
@@ -187,7 +186,7 @@ class FastGPTAdapter(BaseRAGAdapter):
                 answer="",
                 response_time=response_time,
                 first_token_latency=first_token_time,
-                error=format_error(e),
+                error=self.error_message(e),
                 success=False
             )
 
