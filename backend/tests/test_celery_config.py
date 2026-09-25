@@ -57,6 +57,10 @@ def test_imports_list_modules_all_register_tasks():
 
 def test_result_backend_retry_effectively_configured():
     assert celery_app.conf.result_backend_always_retry is True
+    # None 会让 store_result 重试路径执行 `retries < None` 抛 TypeError，
+    # 把 Redis 瞬时抖动升级成任务失败；必须为有限值
+    assert isinstance(celery_app.conf.result_backend_max_retries, int)
+    assert celery_app.conf.result_backend_max_retries > 0
 
 
 def test_celery_urls_single_source_and_db_split():

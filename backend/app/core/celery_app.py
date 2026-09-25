@@ -42,8 +42,14 @@ celery_app.conf.broker_connection_retry_on_startup = True  # 启动时连接重�
 # 配置了也会被静默忽略、形同没配）。合法键为 result_backend_always_retry（重试至
 # result_backend_max_retries，None=无限）；连接超时层重试已由上方 transport options 的
 # retry_on_timeout 覆盖。键名有效性由 tests/test_celery_config.py 自省兜底。
+#
+# result_backend_max_retries 不能设 None：celery.backends.base.store_result 在重试路径
+# 执行 `retries < self.max_retries`，None 会抛 TypeError("'<' not supported between
+# instances of 'int' and 'NoneType'")，把一次普通的 Redis 抖动升级成任务级失败
+# （本次评估任务反复 "评估失败: '<' not supported..." 的根因）。设有限值（5 次），
+# 失败路径保持可比较类型；仍配合 always_retry 兜底瞬时断连。
 celery_app.conf.result_backend_always_retry = True
-celery_app.conf.result_backend_max_retries = None
+celery_app.conf.result_backend_max_retries = 5
 
 
 @worker_process_init.connect
