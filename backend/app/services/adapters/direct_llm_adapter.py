@@ -95,9 +95,28 @@ class DirectLLMAdapter(BaseRAGAdapter):
             # 解析响应
             answer = ""
             token_usage = None
+            finish_reason = None
 
             if "choices" in data and len(data["choices"]) > 0:
-                answer = data["choices"][0].get("message", {}).get("content", "")
+                choice = data["choices"][0]
+                finish_reason = choice.get("finish_reason")
+                # 思考型模型（reasoning_content）会把 max_tokens 全部耗在思考上，
+                # 此时 finish_reason='length' 且 content 为 None——并非真实答案。
+                # 若照单全收就返回空答案 success=True，污染调用结果与评估数据。
+                answer = choice.get("message", {}).get("content") or ""
+
+            if not answer.strip():
+                return RAGResponse(
+                    answer="",
+                    contexts=contexts or [],
+                    response_time=response_time,
+                    error=(
+                        f"模型未返回答案内容（finish_reason={finish_reason}）。"
+                        "思考型模型的 reasoning_content 可能耗尽了 max_tokens，"
+                        "请调大 max_tokens 或改用非思考模型。"
+                    ),
+                    success=False,
+                )
 
             if "usage" in data:
                 token_usage = {
@@ -185,6 +204,16 @@ class DirectLLMAdapter(BaseRAGAdapter):
 
             response_time = time.time() - start_time
             answer = "".join(answer_chunks)
+
+            if not answer.strip():
+                return RAGResponse(
+                    answer="",
+                    contexts=contexts or [],
+                    response_time=response_time,
+                    first_token_latency=first_token_time,
+                    error="流式响应未产出任何答案内容，思考型模型可能耗尽了 max_tokens。",
+                    success=False,
+                )
 
             return RAGResponse(
                 answer=answer,

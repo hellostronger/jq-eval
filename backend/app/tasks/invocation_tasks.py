@@ -6,7 +6,7 @@ import time
 from uuid import UUID
 
 from app.core.celery_app import celery_app
-from app.tasks._common import run_async
+from app.tasks._common import run_async, format_error
 from app.core.database import get_db_context
 from app.models.invocation import InvocationBatch, InvocationResult
 from app.models.dataset import Dataset, QARecord
@@ -136,7 +136,7 @@ async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, 
                     contexts = response.contexts or []
                     retrieval_ids = response.retrieval_ids or []
 
-                    # 创建新结果
+                    # 创建新结果。尊重 adapter 的 success 标志（同主流程）
                     new_result = InvocationResult(
                         batch_id=batch_id,
                         qa_record_id=qa_record.id,
@@ -146,10 +146,14 @@ async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, 
                         contexts=contexts,
                         retrieval_ids=retrieval_ids,
                         latency=latency,
-                        status="success"
+                        status="success" if response.success else "failed",
+                        error=None if response.success else (response.error or "RAG 调用失败")
                     )
                     db.add(new_result)
-                    success_count += 1
+                    if response.success:
+                        success_count += 1
+                    else:
+                        fail_count += 1
 
                 except Exception as e:
                     logger.error(f"重试调用 {inv_result.id} 失败: {e}")
@@ -160,7 +164,7 @@ async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, 
                         rag_system_id=rag_system.id,
                         question=inv_result.question,
                         status="failed",
-                        error=str(e)
+                        error=format_error(e)
                     )
                     db.add(new_result)
                     fail_count += 1
@@ -262,7 +266,9 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
                     contexts = response.contexts or []
                     retrieval_ids = response.retrieval_ids or []
 
-                    # 存储结果
+                    # 存储结果。adapter 已用 success=False 表达"调用失败"
+                    # （如空答案/超限截断）；此处必须尊重该标志，否则失败会被
+                    # 记成 success，污染评估输入并让批次统计虚高。
                     result = InvocationResult(
                         batch_id=batch_id,
                         qa_record_id=qa["id"],
@@ -272,10 +278,14 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
                         contexts=contexts,
                         retrieval_ids=retrieval_ids,
                         latency=latency,
-                        status="success"
+                        status="success" if response.success else "failed",
+                        error=None if response.success else (response.error or "RAG 调用失败")
                     )
                     db.add(result)
-                    completed += 1
+                    if response.success:
+                        completed += 1
+                    else:
+                        failed += 1
 
                 except Exception as e:
                     logger.error(f"调用 QA {qa['id']} 失败: {e}")
@@ -286,7 +296,7 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
                         rag_system_id=rag_system.id,
                         question=qa["question"],
                         status="failed",
-                        error=str(e)
+                        error=format_error(e)
                     )
                     db.add(result)
                     failed += 1
