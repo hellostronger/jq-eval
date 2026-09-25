@@ -89,6 +89,9 @@ const RAGSystems: React.FC = () => {
       model_name: config.model_name || '',
       provider: config.provider || 'openai',
       is_active: config.is_active ?? true,
+      // 思考型模型的单次生成可能远超默认 300s，编辑时必须回填，
+      // 否则 saveSystem 重建 connection_config 会把它悄悄丢掉
+      ...(config.llm_timeout ? { llm_timeout: config.llm_timeout } : {}),
     })
     setModalVisible(true)
   }
@@ -115,6 +118,8 @@ const RAGSystems: React.FC = () => {
             is_active: values.is_active,
             temperature: values.temperature ?? 0.7,
             max_tokens: values.max_tokens ?? 2048,
+            // 仅在填写时写入，避免把 null/undefined 存进 JSON 配置
+            ...(values.llm_timeout ? { llm_timeout: Number(values.llm_timeout) } : {}),
           }
         }
       } else {
@@ -124,6 +129,7 @@ const RAGSystems: React.FC = () => {
           api_key: values.api_key,
           display_name: values.display_name,
           is_active: values.is_active,
+          ...(values.llm_timeout ? { llm_timeout: Number(values.llm_timeout) } : {}),
         }
       }
 
@@ -338,6 +344,13 @@ const RAGSystems: React.FC = () => {
               </Form.Item>
               <Form.Item name="max_tokens" label="Max Tokens">
                 <Input type="number" placeholder="2048" min={1} />
+              </Form.Item>
+              <Form.Item
+                name="llm_timeout"
+                label="请求超时（秒）"
+                tooltip="思考型模型单次生成可能超过默认的 300 秒，此处可放宽。留空使用默认值。注意：若报错为「上游服务返回 504」，说明是网关自身超时，调大这里无效。"
+              >
+                <Input type="number" placeholder="300" min={1} />
               </Form.Item>
             </>
           )}
