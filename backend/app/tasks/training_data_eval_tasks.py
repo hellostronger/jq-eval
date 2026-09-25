@@ -15,7 +15,7 @@ from app.models.training_data_eval import (
     TrainingDataMetricConfig,
     TrainingDataEvalStatus
 )
-from app.models.dataset import Dataset
+from app.models.dataset import Dataset, QARecord
 from app.models.model import Model
 from app.services.llm import create_llm_from_config, create_embeddings_from_config
 from app.services.training_data.engine import (
@@ -72,16 +72,20 @@ async def _run_training_data_eval(task, eval_id: UUID) -> Dict[str, Any]:
             if not dataset:
                 raise ValueError(f"数据集 {evaluation.dataset_id} 不存在")
 
-            # 获取QA记录
-            qa_records = await db.execute(
-                text("""
-                SELECT id, question, answer, ground_truth, snapshot, qa_metadata FROM qa_records
-                WHERE dataset_id = :dataset_id
-                ORDER BY created_at
-                """),
-                {"dataset_id": dataset.id}
+            # 获取QA记录（ORM 查询，理由同 evaluation_tasks：text() 不做类型转换）
+            qa_result = await db.execute(
+                select(
+                    QARecord.id,
+                    QARecord.question,
+                    QARecord.answer,
+                    QARecord.ground_truth,
+                    QARecord.snapshot,
+                    QARecord.qa_metadata,
+                )
+                .where(QARecord.dataset_id == dataset.id)
+                .order_by(QARecord.created_at)
             )
-            qa_list = [dict(r._mapping) for r in qa_records.fetchall()]
+            qa_list = [dict(r._mapping) for r in qa_result.all()]
 
             if not qa_list:
                 raise ValueError(f"数据集 {dataset.name} 中没有可评估的样本")

@@ -12,6 +12,7 @@ from app.tasks._common import run_async, mark_task_failed, format_error
 from app.core.database import get_db_context
 from app.models import LoadTest, LoadTestStatus, LoadTestMode, RAGSystem
 from app.models.model import Model
+from app.models.dataset import QARecord
 from app.services.adapters import AdapterFactory, RAGResponse
 from sqlalchemy import text, select
 
@@ -117,12 +118,13 @@ async def _run_load_test(task, load_test_id: UUID) -> Dict[str, Any]:
             # 获取测试问题
             questions = load_test.questions or []
             if not questions and load_test.dataset_id:
-                # 从数据集获取问题
+                # 从数据集获取问题（ORM 查询：text() 绑 UUID 在 SQLite 上会失败）
                 qa_records = await db.execute(
-                    text("SELECT question FROM qa_records WHERE dataset_id = :dataset_id"),
-                    {"dataset_id": load_test.dataset_id}
+                    select(QARecord.question).where(
+                        QARecord.dataset_id == load_test.dataset_id
+                    )
                 )
-                questions = [r._mapping["question"] for r in qa_records.fetchall()]
+                questions = [r.question for r in qa_records.scalars().all()]
 
             if not questions:
                 raise ValueError("没有可用的测试问题")

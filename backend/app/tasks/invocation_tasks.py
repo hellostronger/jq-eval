@@ -228,17 +228,15 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
             if not rag_system:
                 raise ValueError(f"RAG系统 {batch.rag_system_id} 不存在")
 
-            # 获取QA记录
-            from sqlalchemy import text
-            qa_records = await db.execute(
-                text("""
-                SELECT id, question FROM qa_records
-                WHERE dataset_id = :dataset_id
-                ORDER BY created_at
-                """),
-                {"dataset_id": dataset.id}
+            # 获取QA记录。用 ORM 查询而非 text() 裸 SQL：text() 不走类型
+            # 转换，PostgreSQL 能隐式接受 UUID 字符串，SQLite 却不认，
+            # 会直接抛 "Error binding parameter 0 - probably unsupported type"。
+            qa_result = await db.execute(
+                select(QARecord.id, QARecord.question)
+                .where(QARecord.dataset_id == dataset.id)
+                .order_by(QARecord.created_at)
             )
-            qa_list = [dict(r._mapping) for r in qa_records.fetchall()]
+            qa_list = [{"id": r.id, "question": r.question} for r in qa_result.all()]
             batch.total_count = len(qa_list)
             await db.commit()
 

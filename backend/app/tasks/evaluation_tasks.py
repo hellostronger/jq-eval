@@ -11,7 +11,7 @@ from app.core.exceptions import TaskCancelled
 from app.tasks._common import run_async, make_progress_callback, mark_task_failed, format_error
 from app.core.database import get_db_context
 from app.models.evaluation import Evaluation, EvaluationStatus, EvalResult
-from app.models.dataset import Dataset
+from app.models.dataset import Dataset, QARecord
 from app.models.model import Model
 from app.models.invocation import InvocationResult
 from app.services.metrics import MetricEngine, get_metric_engine, METRIC_REGISTRY
@@ -56,16 +56,22 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
             if not dataset:
                 raise ValueError(f"数据集 {evaluation.dataset_id} 不存在")
 
-            # 获取QA记录
-            qa_records = await db.execute(
-                text("""
-                SELECT id, question, answer, ground_truth, target_chunk_ids, snapshot FROM qa_records
-                WHERE dataset_id = :dataset_id
-                ORDER BY created_at
-                """),
-                {"dataset_id": dataset.id}
+            # 获取QA记录。用 ORM 查询而非 text() 裸 SQL：text() 不做类型转换，
+            # PostgreSQL 能隐式接受 UUID，SQLite 会抛
+            # "Error binding parameter 0 - probably unsupported type"。
+            qa_result = await db.execute(
+                select(
+                    QARecord.id,
+                    QARecord.question,
+                    QARecord.answer,
+                    QARecord.ground_truth,
+                    QARecord.target_chunk_ids,
+                    QARecord.snapshot,
+                )
+                .where(QARecord.dataset_id == dataset.id)
+                .order_by(QARecord.created_at)
             )
-            qa_list = [dict(r._mapping) for r in qa_records.fetchall()]
+            qa_list = [dict(r._mapping) for r in qa_result.all()]
 
             # 获取调用结果（如果指定了 invocation_batch_id）
             invocation_results_map = {}

@@ -4,7 +4,7 @@ from datetime import datetime
 from uuid import UUID
 import logging
 import json
-from sqlalchemy import text
+from sqlalchemy import text, select, func
 
 from app.core.celery_app import celery_app
 from app.tasks._common import run_async, mark_task_failed, format_error
@@ -264,15 +264,13 @@ async def _run_data_import(task, dataset_id: int, file_path: str, import_type: s
         await db.commit()
 
         try:
-            # 创建新快照
+            # 创建新快照（ORM 聚合，理由同 evaluation_tasks：text() 不做类型转换）
             latest_snapshot = await db.execute(
-                text("""
-                SELECT MAX(version) as max_version
-                FROM dataset_snapshots WHERE dataset_id = :dataset_id
-                """),
-                {"dataset_id": dataset_id}
+                select(func.max(DatasetSnapshot.version)).where(
+                    DatasetSnapshot.dataset_id == dataset_id
+                )
             )
-            max_version = latest_snapshot.fetchone()["max_version"] or 0
+            max_version = latest_snapshot.scalar() or 0
 
             snapshot = DatasetSnapshot(
                 dataset_id=dataset_id,
