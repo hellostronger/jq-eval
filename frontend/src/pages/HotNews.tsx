@@ -249,7 +249,7 @@ const HotNews: React.FC = () => {
   }
 
   const sourceColumns = [
-    { title: '名称', dataIndex: 'name', key: 'name' },
+    { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
     {
       title: '领域',
       dataIndex: 'domain',
@@ -265,7 +265,9 @@ const HotNews: React.FC = () => {
       key: 'source_type',
       render: (type: string) => <Tag color="green">{type.toUpperCase()}</Tag>,
     },
-    { title: 'RSS地址', dataIndex: 'source_url', key: 'source_url', ellipsis: true },
+    // 必须给宽度：ellipsis 只有在列宽受约束时才截断，
+    // 不给宽度的话 RSS 地址会按内容撑开，把右侧「操作」列顶出可视区
+    { title: 'RSS地址', dataIndex: 'source_url', key: 'source_url', ellipsis: true, width: 200 },
     {
       title: '状态',
       dataIndex: 'is_active',
@@ -286,8 +288,11 @@ const HotNews: React.FC = () => {
       render: (date?: string) => formatShortTime(date),
     },
     {
+      // 宽度要放得下「测试/爬取/编辑/删除」四个按钮（约 258px），
+      // 否则按钮组会溢出单元格被裁掉，删除按钮点不到
       title: '操作',
       key: 'action',
+      width: 260,
       render: (_: unknown, record: NewsSource) => (
         <Space>
           <Button type="link" size="small" onClick={() => handleTest(record)}>测试</Button>
