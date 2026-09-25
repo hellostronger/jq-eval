@@ -251,7 +251,18 @@ def _create_celery_engine():
             settings.DATABASE_URL,
             echo=settings.APP_DEBUG,
             pool_pre_ping=True,
-            poolclass=NullPool
+            poolclass=NullPool,
+            # NullPool 每次借出新建连接；评估任务单条可达 10min+（思考型模型
+            # 多轮 LLM 调用），若连接在任务中途被服务端/防火墙掐断，
+            # 收尾落库全部失败、状态卡 running。tcp 保活 + 语句超时兜底：
+            # keepalives 让空闲连接可被尽早检出，statement 超时避免无界等待。
+            connect_args={
+                "timeout": 10,  # 建连超时（秒）
+                "command_timeout": None,  # 语句执行不额外限时（长事务由任务层控制）
+                "server_settings": {
+                    "application_name": "jq_eval_celery",
+                },
+            },
         )
         CeleryAsyncSessionLocal = async_sessionmaker(
             bind=celery_async_engine,
