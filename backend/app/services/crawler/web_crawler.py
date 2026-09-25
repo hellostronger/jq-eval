@@ -4,6 +4,7 @@ from datetime import datetime
 import logging
 
 from .base import BaseCrawler, CrawledArticle, CrawlResult
+from app.core.exceptions import format_error
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ class WebCrawler(BaseCrawler):
                         if article:
                             articles.append(article)
                     except Exception as e:
-                        errors.append({"error": str(e)})
+                        errors.append({"error": format_error(e)})
 
                 await browser.close()
 
@@ -67,7 +68,7 @@ class WebCrawler(BaseCrawler):
             return CrawlResult(errors=[{"error": "Playwright未安装"}])
         except Exception as e:
             logger.error(f"网页爬取失败: {e}")
-            return CrawlResult(errors=[{"error": str(e)}])
+            return CrawlResult(errors=[{"error": format_error(e)}])
 
     async def _parse_article(
         self,
@@ -208,4 +209,4 @@ class WebCrawler(BaseCrawler):
         except ImportError:
             return {"success": False, "error": "Playwright未安装"}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": format_error(e)}

@@ -10,6 +10,7 @@ from minio.error import S3Error
 from minio.deleteobjects import DeleteObject
 
 from app.core.config import settings
+from app.core.exceptions import format_error
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +98,7 @@ class MinIOService:
 
         except S3Error as e:
             logger.error(f"Upload failed: {e}")
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": format_error(e)}
 
     async def download_file(
         self,
@@ -123,7 +124,7 @@ class MinIOService:
 
         except S3Error as e:
             logger.error(f"Download failed: {e}")
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": format_error(e)}
 
     def get_presigned_url(
         self,
@@ -172,7 +173,7 @@ class MinIOService:
             return {"success": True, "bucket": bucket, "object_name": object_name}
         except S3Error as e:
             logger.error(f"Delete failed: {e}")
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": format_error(e)}
 
     async def delete_files(
         self,
@@ -196,7 +197,7 @@ class MinIOService:
 
         except S3Error as e:
             logger.error(f"Batch delete failed: {e}")
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": format_error(e)}
 
     async def list_files(
         self,
@@ -244,7 +245,7 @@ class MinIOService:
 
         except S3Error as e:
             logger.error(f"Get file info failed: {e}")
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": format_error(e)}
 
     async def copy_file(
         self,
@@ -271,7 +272,7 @@ class MinIOService:
 
         except S3Error as e:
             logger.error(f"Copy failed: {e}")
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": format_error(e)}
 
     async def get_bucket_stats(self, bucket: str) -> Dict[str, Any]:
         """获取bucket统计信息"""
@@ -293,7 +294,7 @@ class MinIOService:
 
         except S3Error as e:
             logger.error(f"Get bucket stats failed: {e}")
-            return {"error": str(e)}
+            return {"error": format_error(e)}
 
     async def list_buckets(self) -> List[str]:
         """列出所有bucket"""

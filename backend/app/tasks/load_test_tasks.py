@@ -162,7 +162,7 @@ async def _run_load_test(task, load_test_id: UUID) -> Dict[str, Any]:
 
         except Exception as e:
             await mark_task_failed(db, LoadTest, load_test_id, format_error(e), logger)
-            return {"error": str(e)}
+            return {"error": format_error(e)}
 
 
 async def _execute_qps_limit_test(
@@ -457,7 +457,7 @@ async def _execute_single_test(
                     "success": False,
                     "latency": 0,
                     "full_latency": 0,
-                    "error": str(e),
+                    "error": format_error(e),
                     "first_token_latency": None,
                 }
 

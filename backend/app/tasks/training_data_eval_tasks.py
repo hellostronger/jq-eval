@@ -281,7 +281,7 @@ async def _run_training_data_eval(task, eval_id: UUID) -> Dict[str, Any]:
 
         except Exception as e:
             await mark_task_failed(db, TrainingDataEval, eval_id, format_error(e), logger)
-            return {"error": str(e)}
+            return {"error": format_error(e)}
 
 
 def _get_default_metrics(data_type: str) -> List[Dict[str, Any]]:

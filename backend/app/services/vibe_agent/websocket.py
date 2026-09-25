@@ -2,6 +2,7 @@
 from fastapi import WebSocket, WebSocketDisconnect
 from typing import Dict, Any
 from datetime import datetime
+from app.core.exceptions import format_error
 
 
 class ConnectionManager:
@@ -145,7 +146,7 @@ class WebSocketHandler:
         except WebSocketDisconnect:
             self.manager.disconnect(session_id)
         except Exception as e:
-            await self.manager.send_error(session_id, str(e))
+            await self.manager.send_error(session_id, format_error(e))
             self.manager.disconnect(session_id)
 
     async def handle_message(self, session_id: str, data: Dict[str, Any]):
@@ -214,7 +215,7 @@ class WebSocketHandler:
                 await self.manager.send_error(session_id, f"未知消息类型: {message_type}")
 
         except Exception as e:
-            await self.manager.send_error(session_id, f"处理消息时出错: {str(e)}")
+            await self.manager.send_error(session_id, f"处理消息时出错: {format_error(e)}")
 
 
 # 全局连接管理器实例

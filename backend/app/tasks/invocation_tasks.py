@@ -331,7 +331,7 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
             batch = await db.get(InvocationBatch, batch_id)
             if batch:
                 batch.status = "failed"
-                batch.error = str(e)
+                batch.error = format_error(e)
                 batch.completed_at = datetime.utcnow()
                 await db.commit()
-            return {"error": str(e)}
+            return {"error": format_error(e)}

@@ -4,6 +4,7 @@ import json
 import re
 import logging
 from typing import Dict, List, Any, AsyncIterator
+from app.core.exceptions import format_error
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,7 @@ class DifySyncAdapter(BaseSyncAdapter):
                 "tables_found": [t for t in dify_tables if t in tables]
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": format_error(e)}
 
     async def get_schema(self) -> List[SchemaInfo]:
         schemas = []
@@ -189,7 +190,7 @@ class FastGPTSyncAdapter(BaseSyncAdapter):
             await self.disconnect()
             return {"success": True, "is_fastgpt_database": is_fastgpt}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": format_error(e)}
 
     async def get_schema(self) -> List[SchemaInfo]:
         schemas = []
@@ -253,7 +254,7 @@ class N8nSyncAdapter(BaseSyncAdapter):
             await self.disconnect()
             return {"success": True, "is_n8n_database": is_n8n}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": format_error(e)}
 
     async def get_schema(self) -> List[SchemaInfo]:
         schema = await self._get_table_schema("execution_entity")
@@ -318,7 +319,7 @@ class CustomDBSyncAdapter(BaseSyncAdapter):
             await self.disconnect()
             return {"success": True, "tables": tables[:20]}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": format_error(e)}
 
     async def get_schema(self) -> List[SchemaInfo]:
         tables = self.connection_config.get("tables", []) or await self.get_tables()

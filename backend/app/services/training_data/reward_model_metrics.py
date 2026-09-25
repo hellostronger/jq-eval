@@ -1,6 +1,7 @@
 # 奖励模型训练数据评估指标
 from typing import Optional, List, Dict
 from .base import BaseTrainingDataMetric, TrainingDataMetricResult
+from app.core.exceptions import format_error
 
 
 class RewardModelPairQualityMetric(BaseTrainingDataMetric):
@@ -87,7 +88,7 @@ class RewardModelPairQualityMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
     def _basic_quality_check(self, chosen: str, rejected: str) -> float:
@@ -239,7 +240,7 @@ class RewardModelPreferenceDistributionMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -325,7 +326,7 @@ class RewardModelResponseRelevanceMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -400,7 +401,7 @@ class RewardModelAnnotatedRankingsConsistencyMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 

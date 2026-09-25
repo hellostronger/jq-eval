@@ -10,6 +10,7 @@ from app.core.database import get_db_context
 from app.core.config import settings
 from app.models.evaluation import EvaluationStatus
 from app.models.sync import SyncTaskStatus
+from app.core.exceptions import format_error
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ async def _run_health_check() -> Dict[str, Any]:
             await db.execute(text("SELECT 1"))
             results["components"]["database"] = {"status": "healthy", "type": "postgresql"}
     except Exception as e:
-        results["components"]["database"] = {"status": "unhealthy", "error": str(e)}
+        results["components"]["database"] = {"status": "unhealthy", "error": format_error(e)}
 
     # 检查Redis
     try:
@@ -53,7 +54,7 @@ async def _run_health_check() -> Dict[str, Any]:
         await client.close()
         results["components"]["redis"] = {"status": "healthy"}
     except Exception as e:
-        results["components"]["redis"] = {"status": "unhealthy", "error": str(e)}
+        results["components"]["redis"] = {"status": "unhealthy", "error": format_error(e)}
 
     # 检查Milvus
     try:
@@ -63,7 +64,7 @@ async def _run_health_check() -> Dict[str, Any]:
         collections = client.list_collections()
         results["components"]["milvus"] = {"status": "healthy", "collections": len(collections)}
     except Exception as e:
-        results["components"]["milvus"] = {"status": "unhealthy", "error": str(e)}
+        results["components"]["milvus"] = {"status": "unhealthy", "error": format_error(e)}
 
     # 检查MinIO
     try:
@@ -77,7 +78,7 @@ async def _run_health_check() -> Dict[str, Any]:
         buckets = client.list_buckets()
         results["components"]["minio"] = {"status": "healthy", "buckets": len(buckets)}
     except Exception as e:
-        results["components"]["minio"] = {"status": "unhealthy", "error": str(e)}
+        results["components"]["minio"] = {"status": "unhealthy", "error": format_error(e)}
 
     # 统计运行中的任务
     async with get_db_context() as db:
@@ -171,7 +172,7 @@ async def _run_cleanup(days: int) -> Dict[str, Any]:
                 cleanup_stats["deleted_temp_files"] = 0
 
         except Exception as e:
-            cleanup_stats["minio_cleanup_error"] = str(e)
+            cleanup_stats["minio_cleanup_error"] = format_error(e)
 
         await db.commit()
 

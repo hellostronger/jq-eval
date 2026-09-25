@@ -5,6 +5,7 @@ import asyncio
 import sys
 import os
 import tempfile
+from app.core.exceptions import format_error
 
 # 尝试导入 agent-sandbox
 try:
@@ -96,7 +97,7 @@ class WorkflowExecutor:
             execution_time = asyncio.get_event_loop().time() - start_time
             return {
                 "status": "error",
-                "error": str(e),
+                "error": format_error(e),
                 "error_type": type(e).__name__,
                 "execution_time": execution_time,
                 "execution_mode": self.execution_mode,
@@ -135,7 +136,7 @@ class WorkflowExecutor:
             # 上抛给 execute() 统一记 timeout 状态，不能被下方 Exception 吞掉
             raise
         except Exception as e:
-            return {"status": "error", "error": f"Remote sandbox error: {str(e)}"}
+            return {"status": "error", "error": f"Remote sandbox error: {format_error(e)}"}
 
     async def _execute_subprocess(
         self,
@@ -239,7 +240,7 @@ try:
 
     print(json.dumps({{'status': "success", 'result': _result}}, ensure_ascii=False))
 except Exception as e:
-    print(json.dumps({{'status': "error", 'error': str(e)}}, ensure_ascii=False))
+    print(json.dumps({{'status': "error", 'error': format_error(e)}}, ensure_ascii=False))
 '''
 
         return memory_prelude + env_setup + "\n" + python_code + "\n" + execution_wrapper

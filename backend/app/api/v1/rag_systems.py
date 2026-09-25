@@ -12,6 +12,7 @@ from ...core.database import get_db
 from ...core.utc_datetime import UTCDatetime
 from ...models import RAGSystem, RAGSystemType, Model
 from ._common import commit_delete
+from app.core.exceptions import format_error
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -251,7 +252,7 @@ async def query_rag_system(
         raise
     except Exception as e:
         logger.error(f"查询RAG系统 {system_id} 失败: {type(e).__name__}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=format_error(e))
 
 
 @router.post("/{system_id}/health")
@@ -294,4 +295,4 @@ async def health_check(
         rag_system.health_status = "unhealthy"
         await db.commit()
         logger.error(f"RAG系统 {system_id} 健康检查异常: {type(e).__name__}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=format_error(e))

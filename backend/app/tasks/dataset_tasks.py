@@ -172,7 +172,7 @@ async def _run_generate_task(task, dataset_id: UUID, config: Dict[str, Any]) -> 
                 dataset.generate_task_status = None
                 await db.commit()
 
-            return {"error": str(e), "dataset_id": str(dataset_id)}
+            return {"error": format_error(e), "dataset_id": str(dataset_id)}
 
 
 @celery_app.task(bind=True, name="import_dataset_task")
@@ -298,4 +298,4 @@ async def _run_import_task(
         except Exception as e:
             # 回滚失败的事务，再标记 failed（mark_task_failed 内部处理 rollback+refetch）
             await mark_task_failed(db, Dataset, dataset_id, format_error(e), logger)
-            return {"error": str(e), "dataset_id": str(dataset_id)}
+            return {"error": format_error(e), "dataset_id": str(dataset_id)}

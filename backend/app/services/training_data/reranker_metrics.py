@@ -3,6 +3,7 @@ from typing import Optional, List
 import asyncio
 import numpy as np
 from .base import BaseTrainingDataMetric, TrainingDataMetricResult
+from app.core.exceptions import format_error
 
 
 # 向量相似度辅助函数（供 embedding 相关指标使用）
@@ -134,7 +135,7 @@ class RerankerPairQualityMetric(_EmbedMixin, BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -214,7 +215,7 @@ class RerankerLabelConsistencyMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -298,7 +299,7 @@ class RerankerHardNegativeQualityMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -373,7 +374,7 @@ class RerankerDatasetDiversityMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -447,7 +448,7 @@ class RerankerDocumentLengthBalanceMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 

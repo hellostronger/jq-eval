@@ -4,6 +4,7 @@ import logging
 import numpy as np
 from .base import BaseTrainingDataMetric, TrainingDataMetricResult
 from .reranker_metrics import _EmbedMixin
+from app.core.exceptions import format_error
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ class EmbeddingQualityMetric(_EmbedMixin, BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 

@@ -17,6 +17,7 @@ from .prompts import (
     format_evidence_verification_prompt,
     format_doubt_judgment_prompt,
 )
+from app.core.exceptions import format_error
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,7 @@ class AnnotationCorrectionService:
         except Exception as e:
             logger.error(f"矫正分析失败: {e}")
             correction.status = "failed"
-            correction.error = str(e)
+            correction.error = format_error(e)
             correction.analysis_duration = f"{time.time() - start_time:.2f}s"
             await self.db.commit()
             return correction

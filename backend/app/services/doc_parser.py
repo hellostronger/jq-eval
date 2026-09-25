@@ -5,6 +5,7 @@ import logging
 from typing import Optional, List, Dict, Any, Callable, Awaitable
 
 import httpx
+from app.core.exceptions import format_error
 
 logger = logging.getLogger(__name__)
 
@@ -311,7 +312,7 @@ async def parse_batch_mineru_official(
                     parsed = await client.fetch_result_zip(http, zip_url)
                     results.append({"name": name, "status": "success", **parsed})
                 except DocParseError as e:
-                    results.append({"name": name, "status": "failed", "error": str(e)})
+                    results.append({"name": name, "status": "failed", "error": format_error(e)})
             else:
                 results.append({"name": name, "status": "failed",
                                 "error": item.get("err_msg") or "解析失败"})

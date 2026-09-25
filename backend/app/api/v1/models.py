@@ -15,6 +15,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 from ._common import mask_api_key, get_or_404, commit_delete
+from app.core.exceptions import format_error
 
 # Pydantic Schemas
 class ModelCreate(BaseModel):
@@ -370,10 +371,10 @@ async def test_model(
             }
 
     except httpx.ConnectError as e:
-        logger.error(f"无法连接到API地址: {str(e)}")
+        logger.error(f"无法连接到API地址: {format_error(e)}")
         return {
             "success": False,
-            "error": f"无法连接到API地址: {str(e)}",
+            "error": f"无法连接到API地址: {format_error(e)}",
             "model_id": str(model_id)
         }
     except httpx.TimeoutException:
@@ -384,10 +385,10 @@ async def test_model(
             "model_id": str(model_id)
         }
     except Exception as e:
-        logger.error(f"测试模型 {model_id} 异常: {type(e).__name__}: {str(e)}")
+        logger.error(f"测试模型 {model_id} 异常: {type(e).__name__}: {format_error(e)}")
         return {
             "success": False,
-            "error": str(e),
+            "error": format_error(e),
             "model_id": str(model_id)
         }
 

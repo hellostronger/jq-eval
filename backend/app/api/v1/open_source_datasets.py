@@ -11,6 +11,7 @@ import re
 from ...core.database import get_db
 from ...core.utc_datetime import UTCDatetime
 from ...models import OpenSourceDataset
+from app.core.exceptions import format_error
 
 router = APIRouter()
 
@@ -135,7 +136,7 @@ async def search_hf_datasets(
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=500, detail=f"HuggingFace API 错误: {e.response.status_code}")
     except httpx.RequestError as e:
-        raise HTTPException(status_code=500, detail=f"请求 HuggingFace API 失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"请求 HuggingFace API 失败: {format_error(e)}")
 
     results = []
     for ds in datasets:
@@ -195,7 +196,7 @@ async def import_hf_dataset(
             raise HTTPException(status_code=404, detail=f"HuggingFace 数据集 '{hf_dataset_id}' 不存在")
         raise HTTPException(status_code=500, detail=f"HuggingFace API 错误: {e.response.status_code}")
     except httpx.RequestError as e:
-        raise HTTPException(status_code=500, detail=f"请求 HuggingFace API 失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"请求 HuggingFace API 失败: {format_error(e)}")
 
     ds_id = ds.get("id", hf_dataset_id)
     description = ds.get("description") or ""

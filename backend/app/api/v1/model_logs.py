@@ -13,6 +13,7 @@ from ._common import get_or_404, delete_or_404
 from ...core.utc_datetime import UTCDatetime
 from ...models import Model, ModelRequestLog, ModelMapping
 from ...services.llm.llm_client import create_llm_from_config
+from app.core.exceptions import format_error
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -406,7 +407,7 @@ async def replay_log(
         latency_ms = int((time.time() - start_time) * 1000)
         response_content = None
         status = "failed"
-        error = str(e)
+        error = format_error(e)
 
     return {
         "log_id": log_id,

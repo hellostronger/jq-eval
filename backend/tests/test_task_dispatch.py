@@ -96,3 +96,55 @@ def test_format_error_never_returns_blank_for_empty_exception():
     from app.tasks._common import format_error
     assert format_error(Exception()).strip()
     assert format_error(Exception("   ")).strip()
+
+
+def test_format_error_is_reexported_from_core_for_all_layers():
+    """tasks._common 只是重导出，各层（services/api）都从 core 取同一个实现"""
+    from app.core.exceptions import format_error as core_fe
+    from app.tasks._common import format_error as task_fe
+    assert task_fe is core_fe
+
+
+def test_format_error_equivalent_to_str_when_message_present():
+    """机械替换的安全前提：消息非空时与 str(e) 完全等价
+
+    全量把 str(e) 换成 format_error(e) 就是靠这条性质——
+    只会把空串变成异常类名，不会改变任何已有的正常错误文案。
+    """
+    from app.tasks._common import format_error
+    for msg in ["数据集不存在", "timeout after 300s", "500 Internal Server Error"]:
+        exc = ValueError(msg)
+        assert format_error(exc) == str(exc) == msg
+
+
+def test_no_raw_str_exception_in_source():
+    """源码里不应再有把异常 str() 化后落库/展示的裸写法
+
+    空 str() 的网络异常（httpx.ConnectError 等）会让"失败"没有原因，
+    这正是 format_error 要消灭的。ast 层面检查，避免正则误伤 str(uuid)。
+    """
+    import ast
+    import pathlib
+
+    app_dir = pathlib.Path(__file__).resolve().parents[1] / "app"
+    offenders = []
+    for path in app_dir.rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        if "def format_error" in source:  # 兜底实现自身
+            continue
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:  # pragma: no cover
+            continue
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "str"
+                and len(node.args) == 1
+                and isinstance(node.args[0], ast.Name)
+                and node.args[0].id in ("e", "exc")
+            ):
+                offenders.append(f"{path.relative_to(app_dir)}:{node.lineno}")
+
+    assert not offenders, "这些地方仍用裸 str(e)/str(exc)，空异常消息会导致错误信息为空：" + str(offenders)

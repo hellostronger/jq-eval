@@ -25,6 +25,7 @@ from .prompts import (
     format_system_prompt,
     format_user_prompt,
 )
+from app.core.exceptions import format_error
 
 
 class LightRAGGraphBuilder(BaseGraphBuilder):
@@ -106,7 +107,7 @@ class LightRAGGraphBuilder(BaseGraphBuilder):
 
         except Exception as e:
             response_time = time.time() - start_time
-            raise RuntimeError(f"LLM API call failed: {str(e)}")
+            raise RuntimeError(f"LLM API call failed: {format_error(e)}")
 
     def _chunk_text(
         self,
@@ -340,7 +341,7 @@ class LightRAGGraphBuilder(BaseGraphBuilder):
             processing_time = time.time() - start_time
             return GraphBuildResult(
                 success=False,
-                error=str(e),
+                error=format_error(e),
                 processing_time=processing_time,
             )
 
@@ -382,7 +383,7 @@ class LightRAGGraphBuilder(BaseGraphBuilder):
             processing_time = time.time() - start_time
             return GraphBuildResult(
                 success=False,
-                error=str(e),
+                error=format_error(e),
                 processing_time=processing_time,
             )
 
@@ -423,7 +424,7 @@ class LightRAGGraphBuilder(BaseGraphBuilder):
             processing_time = time.time() - start_time
             return EntityExtractResult(
                 success=False,
-                error=str(e),
+                error=format_error(e),
                 processing_time=processing_time,
             )
 
@@ -482,7 +483,7 @@ class LightRAGGraphBuilder(BaseGraphBuilder):
             processing_time = time.time() - start_time
             return RelationExtractResult(
                 success=False,
-                error=str(e),
+                error=format_error(e),
                 processing_time=processing_time,
             )
 

@@ -4,6 +4,7 @@ import time
 import json
 from typing import Optional, List, Dict, Any
 from .base import BaseRAGAdapter, RAGResponse
+from app.core.exceptions import format_error
 
 
 class DifyAdapter(BaseRAGAdapter):
@@ -85,7 +86,7 @@ class DifyAdapter(BaseRAGAdapter):
             return RAGResponse(
                 answer="",
                 response_time=response_time,
-                error=str(e),
+                error=format_error(e),
                 success=False
             )
 
@@ -170,7 +171,7 @@ class DifyAdapter(BaseRAGAdapter):
                 answer="",
                 response_time=response_time,
                 first_token_latency=first_token_time,
-                error=str(e),
+                error=format_error(e),
                 success=False
             )
 

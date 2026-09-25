@@ -233,7 +233,7 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
 
         except Exception as e:
             await mark_task_failed(db, Evaluation, evaluation_id, format_error(e), logger)
-            return {"error": str(e)}
+            return {"error": format_error(e)}
 
 
 @celery_app.task(bind=True, name="batch_evaluation_task")

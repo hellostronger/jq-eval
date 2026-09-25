@@ -10,6 +10,7 @@ from redis import asyncio as aioredis
 
 from ...core.database import async_engine
 from ...core.config import settings
+from app.core.exceptions import format_error
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -68,7 +69,7 @@ async def readiness_check():
             await conn.execute(text("SELECT 1"))
         services["database"] = {"status": "healthy", "type": "PostgreSQL"}
     except Exception as e:
-        services["database"] = {"status": "unhealthy", "error": str(e)}
+        services["database"] = {"status": "unhealthy", "error": format_error(e)}
 
     # 检查Redis（短超时防止探针拖慢整个检查；finally 保证失败路径也关闭连接）
     redis = None
@@ -79,7 +80,7 @@ async def readiness_check():
         await redis.ping()
         services["redis"] = {"status": "healthy"}
     except Exception as e:
-        services["redis"] = {"status": "unhealthy", "error": str(e)}
+        services["redis"] = {"status": "unhealthy", "error": format_error(e)}
     finally:
         if redis is not None:
             try:
@@ -98,7 +99,7 @@ async def readiness_check():
         except asyncio.TimeoutError:
             services[name] = {"status": "unhealthy", "error": f"探针超时（>{PROBE_TIMEOUT}s）"}
         except Exception as e:
-            services[name] = {"status": "unhealthy", "error": str(e)}
+            services[name] = {"status": "unhealthy", "error": format_error(e)}
 
     all_healthy = all(s.get("status") == "healthy" for s in services.values())
     body = {"status": "ready" if all_healthy else "degraded", "services": services}

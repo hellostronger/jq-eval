@@ -18,6 +18,7 @@ from ...services.graph import (
 from ...models.model import Model
 from ...core.database import AsyncSessionLocal
 from ._common import validate_upload_size
+from app.core.exceptions import format_error
 
 router = APIRouter(prefix="/graph", tags=["Graph Building"])
 
@@ -310,5 +311,5 @@ async def builder_health_check(builder_type: str):
         return {
             "builder_type": builder_type,
             "status": "unhealthy",
-            "error": str(e),
+            "error": format_error(e),
         }

@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from app.models.model import Model
 from app.models.model_log import ModelRequestLog
+from app.core.exceptions import format_error
 
 logger = logging.getLogger(__name__)
 
@@ -320,7 +321,7 @@ class LLMCallLogger:
                 response=None,
                 metadata=None,
                 status="failed",
-                error_message=str(e),
+                error_message=format_error(e),
                 latency_ms=latency_ms,
             )
             raise

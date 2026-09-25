@@ -10,6 +10,7 @@ from .reranker_metrics import RERANKER_METRICS
 from .vlm_vla_metrics import VLM_VLA_METRICS
 from .dpo_metrics import DPO_METRICS
 from .reward_model_metrics import REWARD_MODEL_METRICS
+from app.core.exceptions import format_error
 
 
 # 训练数据评估指标注册表
@@ -101,7 +102,7 @@ class TrainingDataMetricEngine:
                 results[metric_name] = TrainingDataMetricResult(
                     score=0.0,
                     passed=False,
-                    error=f"计算失败: {str(e)}"
+                    error=f"计算失败: {format_error(e)}"
                 )
 
         return results

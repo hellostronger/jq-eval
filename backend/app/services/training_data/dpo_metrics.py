@@ -1,6 +1,7 @@
 # DPO训练数据评估指标
 from typing import Optional, List
 from .base import BaseTrainingDataMetric, TrainingDataMetricResult
+from app.core.exceptions import format_error
 
 
 class DPOPairQualityMetric(BaseTrainingDataMetric):
@@ -84,7 +85,7 @@ class DPOPairQualityMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -171,7 +172,7 @@ class DPOPreferenceStrengthMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -261,7 +262,7 @@ class DPOInstructionFollowingMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -354,7 +355,7 @@ class DPOHelpfulnessMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -444,7 +445,7 @@ class DPOSafetyMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 

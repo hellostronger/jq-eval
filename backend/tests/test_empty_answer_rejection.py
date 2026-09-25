@@ -113,3 +113,55 @@ async def test_empty_string_content_also_rejected(monkeypatch):
 
     assert resp.success is False
     assert resp.answer == ""
+
+
+@pytest.mark.asyncio
+async def test_timeout_with_empty_message_still_reports_reason(monkeypatch):
+    """超时的 str(e) 可能为空——失败原因不能因此丢失
+
+    线上表现：思考型模型跑满 300s LLM_TIMEOUT 后，httpx 抛出的超时异常
+    消息为空，适配器把 error 落成空串，调用任务再兜底成无信息量的
+    "RAG 调用失败"，用户完全看不出是超时。这里钉死：空消息也必须有原因。
+    """
+    adapter = _adapter()
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("")
+
+    transport = httpx.MockTransport(_handler)
+    orig_client = httpx.AsyncClient
+
+    def _patched(*args, **kwargs):
+        kwargs["transport"] = transport
+        return orig_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _patched)
+
+    resp = await adapter.query("任意问题")
+
+    assert resp.success is False
+    assert resp.error, "超时失败必须带原因，不能是空串"
+    assert resp.error == "ReadTimeout"
+
+
+@pytest.mark.asyncio
+async def test_connect_timeout_with_empty_message_still_reports_reason(monkeypatch):
+    """连接超时同理：str() 为空时兜底为异常类名"""
+    adapter = _adapter()
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("")
+
+    transport = httpx.MockTransport(_handler)
+    orig_client = httpx.AsyncClient
+
+    def _patched(*args, **kwargs):
+        kwargs["transport"] = transport
+        return orig_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _patched)
+
+    resp = await adapter.query("任意问题")
+
+    assert resp.success is False
+    assert resp.error == "ConnectTimeout"

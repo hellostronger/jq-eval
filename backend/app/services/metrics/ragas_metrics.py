@@ -4,6 +4,7 @@ import asyncio
 import logging
 
 from .base import BaseMetric, MetricResult
+from app.core.exceptions import format_error
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ class RagasFaithfulness(BaseMetric):
             # ragas库未安装，使用简化计算
             return await self._compute_simple(question, answer, contexts)
         except Exception as e:
-            return MetricResult(score=0.0, error=str(e))
+            return MetricResult(score=0.0, error=format_error(e))
 
     async def _compute_simple(
         self,
@@ -163,7 +164,7 @@ class RagasContextPrecision(BaseMetric):
         except ImportError:
             return await self._compute_simple(question, contexts or [])
         except Exception as e:
-            return MetricResult(score=0.0, error=str(e))
+            return MetricResult(score=0.0, error=format_error(e))
 
     async def _compute_simple(
         self,
@@ -237,7 +238,7 @@ class RagasContextRecall(BaseMetric):
         except ImportError:
             return await self._compute_simple(ground_truth, contexts)
         except Exception as e:
-            return MetricResult(score=0.0, error=str(e))
+            return MetricResult(score=0.0, error=format_error(e))
 
     async def _compute_simple(
         self,
@@ -314,7 +315,7 @@ class RagasAnswerRelevance(BaseMetric):
         except ImportError:
             return await self._compute_simple(question, answer)
         except Exception as e:
-            return MetricResult(score=0.0, error=str(e))
+            return MetricResult(score=0.0, error=format_error(e))
 
     async def _compute_simple(
         self,
@@ -396,7 +397,7 @@ class RagasAnswerCorrectness(BaseMetric):
             return await self._compute_simple(answer, ground_truth)
         except Exception as e:
             logger.error(f"[answer_correctness] 计算失败: {e}")
-            return MetricResult(score=0.0, error=str(e))
+            return MetricResult(score=0.0, error=format_error(e))
 
     async def _compute_simple(
         self,

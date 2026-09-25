@@ -1,6 +1,7 @@
 # 大模型训练数据评估指标
 from typing import Optional, List
 from .base import BaseTrainingDataMetric, TrainingDataMetricResult
+from app.core.exceptions import format_error
 
 
 class LLMResponseQualityMetric(BaseTrainingDataMetric):
@@ -62,7 +63,7 @@ class LLMResponseQualityMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -122,7 +123,7 @@ class LLMCoherenceMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -189,7 +190,7 @@ class LLMHelpfulnessMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -328,7 +329,7 @@ class LLMHallucinationMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -392,7 +393,7 @@ class LLMInstructionFollowingMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 

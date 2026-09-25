@@ -17,6 +17,7 @@ except ImportError:
 
 from .base import BaseCrawler, CrawledArticle, CrawlResult
 from .image_transfer import transfer_article_images
+from app.core.exceptions import format_error
 
 logger = logging.getLogger(__name__)
 
@@ -221,7 +222,7 @@ class RSSCrawler(BaseCrawler):
                 except Exception as e:
                     errors.append({
                         "title": entry.get("title", "未知"),
-                        "error": str(e)
+                        "error": format_error(e)
                     })
 
             # 如果配置了获取完整内容，并行获取
@@ -279,7 +280,7 @@ class RSSCrawler(BaseCrawler):
 
         except Exception as e:
             logger.error(f"RSS爬取失败: {e}")
-            return CrawlResult(errors=[{"error": str(e)}])
+            return CrawlResult(errors=[{"error": format_error(e)}])
 
     def _parse_entry(self, entry: Any, since: Optional[datetime] = None) -> Optional[CrawledArticle]:
         """解析RSS条目"""
@@ -359,4 +360,4 @@ class RSSCrawler(BaseCrawler):
                 "last_updated": feed.feed.get("updated", "")
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": format_error(e)}

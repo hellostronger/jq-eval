@@ -4,6 +4,7 @@ from typing import Optional, List, Dict, Any
 from collections import Counter
 
 from .base import BaseMetric, MetricResult
+from app.core.exceptions import format_error
 
 
 class EvalScopeBLEU(BaseMetric):
@@ -50,7 +51,7 @@ class EvalScopeBLEU(BaseMetric):
                 return self._compute_bleu(answer, ground_truth)
 
         except Exception as e:
-            return MetricResult(score=0.0, error=str(e))
+            return MetricResult(score=0.0, error=format_error(e))
 
     def _compute_bleu(self, prediction: Optional[str], reference: Optional[str]) -> MetricResult:
         """简化版BLEU计算"""
@@ -127,7 +128,7 @@ class EvalScopeROUGE(BaseMetric):
                 return self._compute_rouge_l(answer, ground_truth)
 
         except Exception as e:
-            return MetricResult(score=0.0, error=str(e))
+            return MetricResult(score=0.0, error=format_error(e))
 
     def _compute_rouge_l(self, prediction: Optional[str], reference: Optional[str]) -> MetricResult:
         """简化版ROUGE-L计算（基于最长公共子序列）"""
@@ -223,7 +224,7 @@ class SemanticSimilarity(BaseMetric):
             )
 
         except Exception as e:
-            return MetricResult(score=0.0, error=str(e))
+            return MetricResult(score=0.0, error=format_error(e))
 
     async def _get_embedding(self, text: Optional[str]) -> Optional[List[float]]:
         """获取文本Embedding（LangChain Embeddings 接口：优先 aembed_query，降级同步 embed_query）"""

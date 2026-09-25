@@ -19,6 +19,7 @@ from ...services.llm.outbound_client import OutboundError
 from ...services.llm.protocol_converter import (
     InternalRequest, anthropic_request_to_internal, internal_to_anthropic_response, internal_to_openai_response, openai_request_to_internal, merge_usage, sse_format, usage_to_openai,
 )
+from app.core.exceptions import format_error
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -126,7 +127,7 @@ async def _execute_mapping(mapping: ModelMapping, target: Model,
             return protocol_error(e.status_code if e.status_code >= 400 else 502, e.message, inbound)
         except Exception as e:
             if log_id:
-                await finish_log(log_id, None, status="failed", error=str(e),
+                await finish_log(log_id, None, status="failed", error=format_error(e),
                                  latency_ms=int((time.time() - start_time) * 1000),
                                  mapping_id=mapping.id)
             return protocol_error(502, f"上游调用失败: {e}", inbound)
@@ -302,14 +303,14 @@ def _inbound_sse_generator(mapping: ModelMapping, target: Model,
             error_message = error_message or "client disconnected"
             raise
         except Exception as e:
-            error_message = str(e)
+            error_message = format_error(e)
             logger.warning(f"映射流式转发异常: {e}")
             try:
                 if inbound == "openai":
                     yield "data: [DONE]\n\n"
                 else:
                     yield sse_format("error", {"type": "error",
-                                               "error": {"type": "api_error", "message": str(e)}})
+                                               "error": {"type": "api_error", "message": format_error(e)}})
             except Exception:
                 pass
         finally:

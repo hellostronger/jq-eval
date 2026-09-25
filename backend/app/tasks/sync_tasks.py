@@ -240,10 +240,10 @@ async def _run_data_sync(task, sync_task_id: UUID) -> Dict[str, Any]:
             sync_task = await db.get(SyncTask, sync_task_id)
             if sync_task:
                 sync_task.status = SyncTaskStatus.FAILED
-                sync_task.log = {"error": str(e), **(sync_task.log or {})}
+                sync_task.log = {"error": format_error(e), **(sync_task.log or {})}
                 sync_task.completed_at = datetime.utcnow()
                 await db.commit()
-            return {"error": str(e)}
+            return {"error": format_error(e)}
 
 
 @celery_app.task(bind=True, name="data_import_task",
@@ -336,7 +336,7 @@ async def _run_data_import(task, dataset_id: int, file_path: str, import_type: s
 
         except Exception as e:
             await mark_task_failed(db, Dataset, dataset_id, format_error(e), logger)
-            return {"error": str(e)}
+            return {"error": format_error(e)}
 
 
 def _get_source_table(system_type: str, data_type: str) -> str:

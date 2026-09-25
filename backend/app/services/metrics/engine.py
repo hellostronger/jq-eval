@@ -7,6 +7,7 @@ from .ragas_metrics import RAGAS_METRICS
 from .evalscope_metrics import EVALSCOPE_METRICS
 from .retrieval_metrics import RETRIEVAL_METRICS
 from .benchmark_metrics import BENCHMARK_METRICS
+from app.core.exceptions import format_error
 
 
 # 指标注册表
@@ -83,7 +84,7 @@ class MetricEngine:
             except Exception as e:
                 results[metric_name] = MetricResult(
                     score=0.0,
-                    error=f"计算失败: {str(e)}"
+                    error=f"计算失败: {format_error(e)}"
                 )
 
         return results

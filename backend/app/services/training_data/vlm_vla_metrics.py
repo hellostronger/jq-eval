@@ -1,6 +1,7 @@
 # VLM/VLA训练数据评估指标
 from typing import Optional, List
 from .base import BaseTrainingDataMetric, TrainingDataMetricResult
+from app.core.exceptions import format_error
 
 
 class VLMImageTextAlignmentMetric(BaseTrainingDataMetric):
@@ -75,7 +76,7 @@ class VLMImageTextAlignmentMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -157,7 +158,7 @@ class VLMQuestionRelevanceMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -233,7 +234,7 @@ class VLMAnswerCompletenessMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -303,7 +304,7 @@ class VLMHallucinationMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -374,7 +375,7 @@ class VLAActionReasoningMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -457,7 +458,7 @@ class VLAInstructionClarityMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 
@@ -525,7 +526,7 @@ class VLADatasetBalanceMetric(BaseTrainingDataMetric):
             return TrainingDataMetricResult(
                 score=0.0,
                 passed=False,
-                error=str(e)
+                error=format_error(e)
             )
 
 

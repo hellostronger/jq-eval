@@ -19,6 +19,7 @@ from ...models.vibe_agent import (
 )
 from ...core.database import AsyncSessionLocal
 from sqlalchemy import select
+from app.core.exceptions import format_error
 
 router = APIRouter(prefix="/vibe-agent", tags=["VibeAgent"])
 
@@ -393,7 +394,7 @@ async def execute_workflow(workflow_id: str, request: ExecuteWorkflowRequest):
             saved_exec = exec_result.scalar_one_or_none()
             if saved_exec:
                 saved_exec.status = "failed"
-                saved_exec.error_message = str(e)
+                saved_exec.error_message = format_error(e)
 
             wf_result = await db.execute(
                 select(VibeAgentWorkflow).where(VibeAgentWorkflow.id == workflow_id)
@@ -403,7 +404,7 @@ async def execute_workflow(workflow_id: str, request: ExecuteWorkflowRequest):
                 saved_wf.status = "error"
             await db.commit()
 
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=format_error(e))
 
 
 @router.post("/workflows/{workflow_id}/tune", response_model=Dict[str, Any])
