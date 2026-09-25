@@ -587,7 +587,9 @@ const TrainingDataEvals: React.FC = () => {
                           ? <span style={{ color: '#cf1322' }}>{v}</span>
                           : '-' },
                       { title: '通过率', dataIndex: 'pass_rate', key: 'pass_rate',
-                        render: (v: number) => v ? `${(v * 100).toFixed(1)}%` : '-' }
+                        // 不能用 `v ? ... : '-'`：通过率 0 是"全军覆没"这个
+                        // 重要结论，判成假值会显示成"没数据"，两者必须区分开
+                        render: (v: number) => typeof v === 'number' ? `${(v * 100).toFixed(1)}%` : '-' }
                     ]}
                     pagination={false}
                   />
