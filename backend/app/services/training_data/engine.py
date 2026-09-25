@@ -167,10 +167,19 @@ class TrainingDataMetricEngine:
         for r in results:
             metric_names.update(r.keys())
 
+        # 指标计算失败的记录：此前静默剔除，"全部失败"与"没配这个指标"
+        # 在报告上无法区分。与 RAG 评估侧 (metrics/engine.py) 保持同一口径。
+        failures: Dict[str, List[str]] = {}
+
         # 计算每个指标的统计
         for metric_name in metric_names:
             scores = []
             passed_count = 0
+            errors = [
+                r[metric_name].error
+                for r in results
+                if metric_name in r and r[metric_name].error is not None
+            ]
 
             for r in results:
                 if metric_name in r and r[metric_name].error is None:
@@ -179,6 +188,14 @@ class TrainingDataMetricEngine:
                         scores.append(score)
                         if r[metric_name].passed:
                             passed_count += 1
+
+            if errors:
+                seen, uniq = set(), []
+                for e in errors:
+                    if e not in seen:
+                        seen.add(e)
+                        uniq.append(e)
+                failures[metric_name] = uniq[:5]
 
             if scores:
                 summary["metrics_summary"][metric_name] = {
@@ -191,8 +208,19 @@ class TrainingDataMetricEngine:
                     "p75": float(np.percentile(scores, 75)),
                     "count": len(scores),
                     "passed": passed_count,
-                    "pass_rate": passed_count / len(scores)
+                    "pass_rate": passed_count / len(scores),
+                    "failed_count": len(errors),
                 }
+
+        if failures:
+            summary["metric_errors"] = failures
+
+        # 全部指标都算失败的样本既不进均值也不计入通过率
+        # （overall_score 返回 None 时已被过滤），这里显式记一笔，
+        # 免得"样本数对不上"只体现在 total_samples 与分项 count 的差额上。
+        unscored = sum(1 for r in results if self.overall_score(r) is None)
+        if unscored:
+            summary["unscored_samples"] = unscored
 
         # 计算整体质量分布（按指标配置的 weight 加权平均；weight 均为默认 1.0 时等价于简单平均）
         overall_scores = [self.overall_score(r) for r in results]
