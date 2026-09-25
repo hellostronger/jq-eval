@@ -19,7 +19,13 @@ async def _ragas_evaluate_single(metric_obj, metric_key: str, data_dict: dict, l
     ragas.evaluate 是同步函数，放到线程中执行；ragas 未安装时由调用方走简化计算。
     """
     from ragas import evaluate
+    from ragas.run_config import RunConfig
     from datasets import Dataset
+
+    # 默认 RunConfig.timeout=180s：单条生成含多轮 LLM 调用，思考型模型
+    # （一次补全 60s+）必然超时，且超时被 ragas 吞掉后分数变 NaN。
+    # 放宽到 600s 与平台 300s 出站超时（含重试）量级匹配。
+    run_config = RunConfig(timeout=600, max_retries=2)
 
     if llm:
         metric_obj.llm = llm
@@ -29,7 +35,7 @@ async def _ragas_evaluate_single(metric_obj, metric_key: str, data_dict: dict, l
         metric_obj.embeddings = embedding_model
 
     data = Dataset.from_dict(data_dict)
-    result = await _run_sync(evaluate, data, metrics=[metric_obj])
+    result = await _run_sync(evaluate, data, metrics=[metric_obj], run_config=run_config)
     return MetricResult(score=float(result[metric_key][0]))
 
 
