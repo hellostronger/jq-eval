@@ -309,14 +309,17 @@ async def create_qa_record(
     if data.contexts:
         qa_record.snapshot = {"contexts": data.contexts}
 
+    # 必须先 add 再统计：record_count 按表内实际行数重算，
+    # 未 add 就统计会把这条新记录漏掉
+    db.add(qa_record)
+
     # 更新数据集统计
     await refresh_dataset_stats(
-        db, dataset_id, added=1,
+        db, dataset_id,
         mark_ground_truth=bool(data.ground_truth),
         mark_contexts=bool(data.contexts or data.target_chunk_ids),
     )
 
-    db.add(qa_record)
     await db.commit()
     await db.refresh(qa_record)
 
@@ -346,7 +349,7 @@ async def delete_qa_record(
     await db.delete(qa_record)
 
     # 更新数据集统计
-    await refresh_dataset_stats(db, dataset_id, removed=1)
+    await refresh_dataset_stats(db, dataset_id)
 
     await commit_delete(db, "该 QA 记录已被评估结果或调用结果引用，无法删除")
 
@@ -380,7 +383,7 @@ async def batch_delete_qa_records(
         await db.delete(record)
 
     # 更新数据集统计（仅在实际删除成功时生效，见 commit_delete 失败即回滚）
-    await refresh_dataset_stats(db, dataset_id, removed=deleted_count)
+    await refresh_dataset_stats(db, dataset_id)
 
     await commit_delete(db, "部分 QA 记录已被评估结果或调用结果引用，无法删除")
 
@@ -565,7 +568,7 @@ async def import_data(
 
     # 更新统计
     await refresh_dataset_stats(
-        db, dataset_id, added=saved_count,
+        db, dataset_id,
         # 与保存逻辑同源：存储时 ground_truth 会回退用 answer/gold_answer
         # （见上方 ground_truth_value），标记条件必须一致，否则只含 answer 的
         # CRAG 类文件导入后每条都有标准答案、has_ground_truth 却是 False

@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.dataset import Dataset
+from app.models.dataset import Dataset, QARecord
 from app.models.document import Document, Chunk
 
 
@@ -64,19 +64,32 @@ async def chunk_counts_for(db: AsyncSession, doc_ids: list) -> dict:
     return {row[0]: row[1] for row in rows.all()}
 
 
-async def refresh_dataset_stats(db: AsyncSession, dataset_id, added: int = 0, removed: int = 0,
+async def refresh_dataset_stats(db: AsyncSession, dataset_id,
                                 mark_ground_truth: Optional[bool] = None,
                                 mark_contexts: Optional[bool] = None) -> None:
     """更新数据集统计（record_count 与 has_ground_truth/has_contexts 标记）
 
-    added/removed: 本次增删的记录数，直接累加到 record_count。
+    record_count 按 qa_records 表实际行数重算，而不是让每个写入点自己累加：
+    手工累加只要有一条路径漏调、或任务重跑/部分失败，就会和真实条数永久对不上
+    （列表页显示 12、详情页实际 14 条），而且没有任何自愈手段。
+
+    开头先 flush，把本事务里已 add 但未提交的记录变成对 COUNT 可见，
+    因此调用点在 db.add 之前还是之后都一样正确。
+
     mark_ground_truth/mark_contexts: True 表示本批记录确认含标准答案/上下文，
-        只置位不清除；None 表示不修改。
+        只置位不清除（删掉部分带答案的记录不应把整个数据集标记为"不含标准答案"）；
+        None 表示不修改。
     """
+    await db.flush()
+
     dataset = await db.get(Dataset, dataset_id)
     if not dataset:
         return
-    dataset.record_count = (dataset.record_count or 0) + added - removed
+
+    total = await db.scalar(
+        select(func.count(QARecord.id)).where(QARecord.dataset_id == dataset_id)
+    )
+    dataset.record_count = int(total or 0)
     if mark_ground_truth:
         dataset.has_ground_truth = True
     if mark_contexts:

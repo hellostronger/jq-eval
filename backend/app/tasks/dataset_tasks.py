@@ -17,6 +17,7 @@ from app.services.llm import (
     create_llm_from_config,
     create_embeddings_from_config,
 )
+from app.services.documents import refresh_dataset_stats
 
 logger = logging.getLogger(__name__)
 
@@ -144,10 +145,10 @@ async def _run_generate_task(task, dataset_id: UUID, config: Dict[str, Any]) -> 
                         }
                     )
 
-            # 8. 更新数据集统计
-            dataset.record_count += len(qa_records)
-            dataset.has_ground_truth = True
-            dataset.has_contexts = True
+            # 8. 更新数据集统计（record_count 按实际行数重算，不手工累加）
+            await refresh_dataset_stats(
+                db, dataset_id, mark_ground_truth=True, mark_contexts=True
+            )
             dataset.status = "ready"
             dataset.generate_task_id = None  # 清除任务ID
             dataset.generate_task_status = None
@@ -280,10 +281,14 @@ async def _run_import_task(
                         }
                     )
 
-            # 更新统计
-            dataset.record_count += len(records)
-            dataset.has_ground_truth = any(r.get("ground_truth") for r in records)
-            dataset.has_contexts = any(r.get("contexts") for r in records)
+            # 更新统计（record_count 按实际行数重算；has_* 只置位不清除，
+            # 导入一批不含标准答案的文件不应把整个数据集标记为"没有标准答案"）
+            await refresh_dataset_stats(
+                db,
+                dataset_id,
+                mark_ground_truth=any(r.get("ground_truth") for r in records),
+                mark_contexts=any(r.get("contexts") for r in records),
+            )
             dataset.status = "ready"
 
             await db.commit()

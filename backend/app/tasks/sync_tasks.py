@@ -14,6 +14,7 @@ from app.models.dataset import Dataset, DatasetSnapshot, QARecord
 from app.models.document import Document, Chunk
 from app.services.sync import SyncAdapterFactory
 from app.services.sync.base import SyncConfig
+from app.services.documents import refresh_dataset_stats
 
 logger = logging.getLogger(__name__)
 
@@ -200,9 +201,9 @@ async def _run_data_sync(task, sync_task_id: UUID) -> Dict[str, Any]:
                     )
                 total_synced += count
 
-            # 更新数据集记录数
-            dataset.record_count = total_synced
+            # 更新数据集统计（record_count 按实际行数重算）
             if total_synced:
+                await refresh_dataset_stats(db, dataset.id)
                 dataset.status = "ready"
 
             # 断开连接
@@ -318,12 +319,16 @@ async def _run_data_import(task, dataset_id: int, file_path: str, import_type: s
 
             await db.commit()
 
-            # 更新数据集记录数
-            dataset.record_count = (dataset.record_count or 0) + count
+            # 更新数据集统计（record_count 按实际行数重算；has_* 只置位不清除，
+            # 导入一个不含某列的文件不应把整个数据集标记为"没有该字段"）
             if count:
+                await refresh_dataset_stats(
+                    db,
+                    dataset_id,
+                    mark_contexts=bool(df.columns.str.contains("contexts").any()),
+                    mark_ground_truth=bool(df.columns.str.contains("ground_truth").any()),
+                )
                 dataset.status = "ready"
-                dataset.has_contexts = bool(df.columns.str.contains("contexts").any())
-                dataset.has_ground_truth = bool(df.columns.str.contains("ground_truth").any())
             await db.commit()
 
             return {

@@ -80,6 +80,74 @@ async def test_has_ground_truth_marked_with_answer_only_records(client: AsyncCli
 
 
 @pytest.mark.asyncio
+async def test_record_count_matches_actual_rows_after_manual_drift(
+    client: AsyncClient, db_session, sample_dataset: Dataset
+):
+    """record_count 应按表内实际行数自愈，而不是沿用手工累加的旧值
+
+    回归背景：record_count 曾由各写入点自己 +N/-1，漏调一次或任务重跑就永久偏移
+    （列表页显示 12、详情页实际 14 条），且没有任何自愈手段。
+    """
+    from app.models.dataset import QARecord
+
+    # 模拟历史遗留的漂移：库里 2 条，计数器却写着 99
+    first = QARecord(dataset_id=sample_dataset.id, question="Q1", answer="A1")
+    db_session.add_all([
+        first,
+        QARecord(dataset_id=sample_dataset.id, question="Q2", answer="A2"),
+    ])
+    sample_dataset.record_count = 99
+    await db_session.commit()
+
+    # 删除接口内部会刷新统计，触发一次自愈
+    response = await client.delete(
+        f"/api/v1/datasets/{sample_dataset.id}/qa-records/{first.id}"
+    )
+    assert response.status_code == 200, response.text
+
+    await db_session.refresh(sample_dataset)
+    assert sample_dataset.record_count == 1, "record_count 未按实际行数纠正"
+
+
+@pytest.mark.asyncio
+async def test_record_count_counts_new_record_created_via_api(
+    client: AsyncClient, db_session, sample_dataset: Dataset
+):
+    """新增记录后 record_count 必须包含这条新记录（统计需在 add 之后进行）"""
+    response = await client.post(
+        f"/api/v1/datasets/{sample_dataset.id}/records",
+        json={"question": "新问题", "answer": "新答案"},
+    )
+    assert response.status_code == 200, response.text
+
+    await db_session.refresh(sample_dataset)
+    assert sample_dataset.record_count == 1
+
+
+@pytest.mark.asyncio
+async def test_import_without_ground_truth_does_not_clear_existing_flag(
+    client: AsyncClient, db_session, sample_dataset: Dataset
+):
+    """导入一批不含标准答案的数据，不应把数据集已有的 has_ground_truth 抹成 False
+
+    回归背景：导入任务曾用 `has_ground_truth = any(...)` 覆盖式赋值，
+    一条纯 answer 的文件就能让整个数据集被判定为"没有标准答案"。
+    """
+    sample_dataset.has_ground_truth = True
+    await db_session.commit()
+
+    records = [{"question": "Q1", "answer": "A1"}]
+    files = {"file": ("d.json", io.BytesIO(json.dumps(records).encode()), "application/json")}
+    response = await client.post(
+        f"/api/v1/datasets/{sample_dataset.id}/import", files=files
+    )
+    assert response.status_code == 200, response.text
+
+    await db_session.refresh(sample_dataset)
+    assert sample_dataset.has_ground_truth is True, "已有标准答案的数据集被误标为不含标准答案"
+
+
+@pytest.mark.asyncio
 async def test_get_dataset(client: AsyncClient, sample_dataset: Dataset):
     """测试获取数据集详情"""
     response = await client.get(f"/api/v1/datasets/{sample_dataset.id}")
