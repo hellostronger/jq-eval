@@ -36,7 +36,13 @@ async def _ragas_evaluate_single(metric_obj, metric_key: str, data_dict: dict, l
 
     data = Dataset.from_dict(data_dict)
     result = await _run_sync(evaluate, data, metrics=[metric_obj], run_config=run_config)
-    return MetricResult(score=float(result[metric_key][0]))
+    raw_score = result[metric_key][0]
+    # ragas 吞掉执行异常后给出 NaN（如 LLM 输出带 ```json 围栏解析失败、内部超时）。
+    # 返回 NaN 会让该记录在汇总中被静默丢弃；显式报错让上层知道这条没算出来。
+    import math
+    if raw_score is None or (isinstance(raw_score, float) and math.isnan(raw_score)):
+        raise RuntimeError("ragas 指标计算返回 NaN（LLM 输出解析失败或内部超时）")
+    return MetricResult(score=float(raw_score))
 
 
 class RagasFaithfulness(BaseMetric):
