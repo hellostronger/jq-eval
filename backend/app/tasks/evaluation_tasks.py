@@ -144,14 +144,17 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
             for qa in qa_list:
                 qa_id = str(qa["id"])
                 # 如果有调用结果且 reuse_invocation=True，使用调用结果
-                qa_snapshot = qa.get("snapshot") or {}
                 if evaluation.reuse_invocation and qa_id in invocation_results_map:
                     ir = invocation_results_map[qa_id]
+                    # 不能用 `ir.answer or qa.get("answer")` 兜底：调用失败时
+                    # ir.answer 为空，回落到 QARecord 的静态答案，等于拿
+                    # "标准答案"当成 RAG 的输出来打分——失败会被记成满分。
+                    # 复用调用结果时，答案只能来自调用结果本身。
                     eval_item = {
                         "id": qa["id"],
                         "question": qa["question"],
-                        "answer": ir.answer or qa.get("answer"),
-                        "contexts": ir.contexts or qa_snapshot.get("contexts"),
+                        "answer": ir.answer or "",
+                        "contexts": ir.contexts or [],
                         "ground_truth": qa.get("ground_truth"),
                         "retrieval_ids": ir.retrieval_ids or [],
                         "target_chunk_ids": qa.get("target_chunk_ids") or [],
