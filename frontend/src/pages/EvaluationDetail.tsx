@@ -25,6 +25,10 @@ interface Summary {
   // 计算失败的指标及其原因（去重后的样本）。此前这些失败被静默丢弃，
   // 指标会直接从汇总里消失，用户看不出是系统出了问题还是没配这个指标。
   metric_errors?: Record<string, string[]>
+  // RAG 调用本身失败的样本数与原因。与"指标算不出来"是两回事：
+  // 分数低/算不出可能只是 RAG 挂了，不该读成模型质量问题。
+  invocation_failed_count?: number
+  invocation_errors?: string[]
 }
 
 const EvaluationDetail: React.FC = () => {
@@ -235,6 +239,25 @@ const EvaluationDetail: React.FC = () => {
               </Row>
             </Card>
           )}
+          {summary && summary.invocation_failed_count ? (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginTop: 16 }}
+              message={`${summary.invocation_failed_count} 条样本的 RAG 调用失败`}
+              description={
+                <div>
+                  {(summary.invocation_errors || []).map((e, i) => (
+                    <div key={i} style={{ marginTop: 4 }}>{e}</div>
+                  ))}
+                  <div style={{ marginTop: 8, color: '#666' }}>
+                    这些样本没有 RAG 输出，其得分与指标失败均由调用失败引起，
+                    不应解读为 RAG 系统回答质量差。
+                  </div>
+                </div>
+              }
+            />
+          ) : null}
           {summary && summary.metric_errors && Object.keys(summary.metric_errors).length > 0 && (
             <Alert
               type="warning"

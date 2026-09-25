@@ -159,6 +159,10 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
                         "retrieval_ids": ir.retrieval_ids or [],
                         "target_chunk_ids": qa.get("target_chunk_ids") or [],
                         "invocation_result_id": ir.id,
+                        # RAG 调用本身的失败原因。丢掉它的话，报告里只会看到
+                        # "答案为空"这类下游报错，用户根本看不出是 RAG 挂了
+                        # 还是评估算错了，排查方向完全被带偏。
+                        "invocation_error": ir.error,
                     }
                 else:
                     # 使用 QARecord 的原始数据（contexts 存于 snapshot 字段）
@@ -172,6 +176,7 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
                         "retrieval_ids": [],
                         "target_chunk_ids": qa.get("target_chunk_ids") or [],
                         "invocation_result_id": None,
+                        "invocation_error": None,
                     }
                 eval_data.append(eval_item)
 
@@ -209,11 +214,30 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
                     qa_record_id=eval_item["id"],
                     invocation_result_id=eval_item.get("invocation_result_id"),
                     scores=scores_dict,
+                    # 把上游调用失败原因留在明细里，评估详情页可据此归因
+                    details=(
+                        {"invocation_error": eval_item["invocation_error"]}
+                        if eval_item.get("invocation_error")
+                        else None
+                    ),
                 )
                 db.add(eval_result)
 
             # 计算汇总
             summary = MetricEngine.compute_summary(results)
+            # RAG 调用失败的样本单独记账：不记的话，"低分"和"压根没调用成功"
+            # 在报告里长得一样，指标算不出来时还会被误读成模型质量问题
+            invocation_errors = [
+                e["invocation_error"] for e in eval_data if e.get("invocation_error")
+            ]
+            if invocation_errors:
+                summary["invocation_failed_count"] = len(invocation_errors)
+                seen, uniq = set(), []
+                for e in invocation_errors:
+                    if e not in seen:
+                        seen.add(e)
+                        uniq.append(e)
+                summary["invocation_errors"] = uniq[:5]
             evaluation.summary = summary
             evaluation.status = EvaluationStatus.COMPLETED
             evaluation.completed_at = datetime.utcnow()
