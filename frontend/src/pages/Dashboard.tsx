@@ -66,7 +66,12 @@ const Dashboard: React.FC = () => {
     series: [
       {
         type: 'pie',
-        radius: ['40%', '70%'],
+        // 抬高圆心并收小半径：否则底部扇区的标签引线会压到底部图例上，
+        // 「运行中」和图例里的「待执行」叠在一起，两个字都看不清
+        center: ['50%', '42%'],
+        radius: ['34%', '58%'],
+        avoidLabelOverlap: true,
+        labelLine: { length: 8, length2: 8 },
         data: [
           { value: stats.evaluations.completed, name: '已完成', itemStyle: { color: '#52c41a' } },
           { value: stats.evaluations.running, name: '运行中', itemStyle: { color: '#fa8c16' } },
