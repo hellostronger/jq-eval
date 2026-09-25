@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Descriptions, Table, Tag, Tabs, Row, Col, Statistic, Button, message, Space, Modal, Switch } from 'antd'
+import { Card, Descriptions, Table, Tag, Tabs, Row, Col, Statistic, Button, message, Space, Modal, Switch, Alert } from 'antd'
 import { useParams } from 'react-router-dom'
 import { ReloadOutlined, StopOutlined } from '@ant-design/icons'
 import { formatShortTime, formatTime } from '@/utils/format'
@@ -21,7 +21,10 @@ interface EvalResult {
 
 interface Summary {
   overall_score: number
-  metrics: Record<string, { mean: number; std: number; min: number; max: number }>
+  metrics: Record<string, { mean: number; std: number; min: number; max: number; count?: number; failed_count?: number }>
+  // 计算失败的指标及其原因（去重后的样本）。此前这些失败被静默丢弃，
+  // 指标会直接从汇总里消失，用户看不出是系统出了问题还是没配这个指标。
+  metric_errors?: Record<string, string[]>
 }
 
 const EvaluationDetail: React.FC = () => {
@@ -219,11 +222,38 @@ const EvaluationDetail: React.FC = () => {
                       <Statistic title="标准差" value={stats.std} precision={4} />
                       <Statistic title="最小值" value={stats.min} precision={4} />
                       <Statistic title="最大值" value={stats.max} precision={4} />
+                      {stats.failed_count ? (
+                        <Statistic
+                          title="计算失败"
+                          value={stats.failed_count}
+                          valueStyle={{ color: '#cf1322' }}
+                        />
+                      ) : null}
                     </Card>
                   </Col>
                 ))}
               </Row>
             </Card>
+          )}
+          {summary && summary.metric_errors && Object.keys(summary.metric_errors).length > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginTop: 16 }}
+              message="部分指标未能计算完成"
+              description={
+                <div>
+                  {Object.entries(summary.metric_errors).map(([metric, errs]) => (
+                    <div key={metric} style={{ marginTop: 4 }}>
+                      <strong>{metric}</strong>：{errs.join('；')}
+                    </div>
+                  ))}
+                  <div style={{ marginTop: 8, color: '#666' }}>
+                    这些指标的有效分数已从统计中剔除，报告里的均值仅基于成功计算的记录。
+                  </div>
+                </div>
+              }
+            />
           )}
         </>
       ),

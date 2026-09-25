@@ -175,12 +175,32 @@ class MetricEngine:
         for r in results:
             metric_names.update(r.keys())
 
+        # 指标计算失败的记录。此前这类结果只被静默剔除，于是"全部失败"
+        # 和"一个都没算"在报告上长得一模一样：指标直接从汇总里消失，
+        # 用户只看到少了几项，看不出是系统出了问题还是本来就没配。
+        failures: Dict[str, List[str]] = {}
+
         for metric in metric_names:
             scores = [
                 r[metric].score
                 for r in results
                 if metric in r and r[metric].error is None
             ]
+
+            # 该指标在多少条记录上算失败了（成功但没算的不算）
+            errors = [
+                r[metric].error
+                for r in results
+                if metric in r and r[metric].error is not None
+            ]
+            if errors:
+                # 同一原因会重复出现，去重后只留样本，避免 summary 膨胀
+                seen, uniq = set(), []
+                for e in errors:
+                    if e not in seen:
+                        seen.add(e)
+                        uniq.append(e)
+                failures[metric] = uniq[:5]
 
             # 过滤掉 NaN、None 和非数值（LLM 解析异常时可能产出字符串）
             valid_scores = [s for s in scores if isinstance(s, (int, float)) and not (isinstance(s, float) and np.isnan(s))]
@@ -194,8 +214,13 @@ class MetricEngine:
                     "median": float(np.median(valid_scores)),
                     "p25": float(np.percentile(valid_scores, 25)),
                     "p75": float(np.percentile(valid_scores, 75)),
-                    "count": len(valid_scores)
+                    "count": len(valid_scores),
+                    # 分数来自有效计算的条数，failed_count 说明差额去哪了
+                    "failed_count": len(errors),
                 }
+
+        if failures:
+            summary["metric_errors"] = failures
 
         # 前端契约字段：metrics 为 metrics_summary 的别名；overall_score 为各指标均值的均值
         summary["metrics"] = summary["metrics_summary"]
