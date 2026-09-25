@@ -14,6 +14,9 @@ export interface ModelConfig {
   params: {
     temperature?: number
     max_tokens?: number
+    // 出站超时（秒）与重试次数：留空由 llm_client 取默认值 300 / 2
+    timeout?: number
+    max_retries?: number
     // 额外请求参数，顶层透传给LLM API（如关闭思考）
     extra_params?: Record<string, any>
     // 文档解析服务配置（doc_parser 类型）

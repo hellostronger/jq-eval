@@ -70,6 +70,10 @@ const Models: React.FC = () => {
       api_key: '',
       temperature: model.params?.temperature || 0.7,
       max_tokens: model.params?.max_tokens || 2048,
+      // 出站超时/重试：编辑时必须回填，否则 saveModel 重建 params 会
+      // 把库里已有的值悄悄抹掉（后端按整体重建 params 处理）
+      timeout: model.params?.timeout,
+      max_retries: model.params?.max_retries,
       dimension: model.dimension || 1536,
       max_input_length: model.max_input_length,
       output_format: model.params?.output_format || 'markdown',
@@ -138,6 +142,11 @@ const Models: React.FC = () => {
         api_key: values.api_key,
         temperature: values.temperature,
         max_tokens: values.max_tokens,
+        // 留空表示"用默认值"，不能传 0/null 下去把库里的配置覆盖掉
+        ...(values.timeout ? { timeout: values.timeout } : {}),
+        ...(values.max_retries !== undefined && values.max_retries !== null
+          ? { max_retries: values.max_retries }
+          : {}),
         dimension: values.dimension,
         max_input_length: values.max_input_length,
         is_vlm: values.is_vlm || false,
@@ -221,7 +230,14 @@ const Models: React.FC = () => {
     {
       title: 'Temperature',
       key: 'temperature',
-      render: (_: unknown, record: ModelConfig) => record.params?.temperature || '-',
+      render: (_: unknown, record: ModelConfig) => record.params?.temperature ?? '-',
+    },
+    {
+      title: '超时',
+      key: 'timeout',
+      // 没配就是走默认 300s，显式展示免得以为"没超时限制"
+      render: (_: unknown, record: ModelConfig) =>
+        record.params?.timeout ? `${record.params.timeout}s` : '默认 300s',
     },
     {
       title: '操作',
@@ -385,6 +401,20 @@ const Models: React.FC = () => {
                     </Form.Item>
                     <Form.Item name="max_tokens" label="Max Tokens">
                       <InputNumber min={100} max={32000} />
+                    </Form.Item>
+                    <Form.Item
+                      name="timeout"
+                      label="请求超时(秒)"
+                      tooltip="出站请求超时。留空用默认 300s。思考型模型（如 glm / o 系列）单次生成常远超 300s，需要在此调大"
+                    >
+                      <InputNumber min={1} max={3600} placeholder="默认 300" />
+                    </Form.Item>
+                    <Form.Item
+                      name="max_retries"
+                      label="最大重试次数"
+                      tooltip="失败后自动重试的次数。留空用默认 2"
+                    >
+                      <InputNumber min={0} max={10} placeholder="默认 2" />
                     </Form.Item>
                     <Form.Item
                       name="is_vlm"

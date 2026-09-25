@@ -18,6 +18,11 @@ from ._common import mask_api_key, get_or_404, commit_delete
 from app.core.exceptions import format_error
 
 # Pydantic Schemas
+# 本接口负责管理的 params 键：更新时这几个由提交值覆盖，
+# 其余键（timeout/max_retries 等）原样保留，避免静默丢失。
+_MANAGED_PARAM_KEYS = {"temperature", "max_tokens", "extra_params"}
+
+
 class ModelCreate(BaseModel):
     name: str = Field(..., max_length=200)
     model_type: str  # llm/embedding/reranker/doc_parser
@@ -33,6 +38,10 @@ class ModelCreate(BaseModel):
     save_logs: bool = False  # 是否保存请求响应日志
     is_vlm: bool = False  # 是否为视觉语言模型（支持识别图片）
     extra_params: Optional[dict] = None  # 额外请求参数，顶层透传给LLM API，如 {"thinking": {"type": "disabled"}}
+    # 出站超时与重试：思考型模型单次生成可能远超默认 300s，此前只能改数据库，
+    # 且下一次从界面编辑模型会被整体重建的 params 悄悄抹掉
+    timeout: Optional[int] = None
+    max_retries: Optional[int] = None
     # 文档解析服务配置（doc_parser 类型）
     parse_config: Optional[dict] = None  # 如 {"output_format": "markdown", "language": "ch", "backend_url": "pipeline"}
 
@@ -91,6 +100,11 @@ async def create_model(
         "temperature": data.temperature,
         "max_tokens": data.max_tokens
     }
+    # 出站超时/重试：仅在显式给出时写入，留空则由 llm_client 用默认值
+    if data.timeout is not None:
+        params["timeout"] = data.timeout
+    if data.max_retries is not None:
+        params["max_retries"] = data.max_retries
     # 额外请求参数（顶层透传给LLM API）
     if data.extra_params:
         params["extra_params"] = data.extra_params
@@ -158,12 +172,25 @@ async def update_model(
     # 只有传入了新的 api_key 才更新
     if data.api_key:
         model.api_key_encrypted = data.api_key
-    model.params = {
+    # params 不能整体重建：接口没暴露的键（如 timeout/max_retries，
+    # 只能直接改数据库设的）会被无声抹掉，出站超时悄悄回落到默认值。
+    # 与 api_key 同一口径——只有显式提交了才覆盖。
+    new_params = {
         "temperature": data.temperature,
         "max_tokens": data.max_tokens,
-        **({"extra_params": data.extra_params} if data.extra_params else {}),
-        **(data.parse_config or {}),
+        **{k: v for k, v in (model.params or {}).items()
+           if k not in _MANAGED_PARAM_KEYS},
     }
+    if data.timeout is not None:
+        new_params["timeout"] = data.timeout
+    if data.max_retries is not None:
+        new_params["max_retries"] = data.max_retries
+    if data.extra_params:
+        new_params["extra_params"] = data.extra_params
+    else:
+        new_params.pop("extra_params", None)
+    new_params.update(data.parse_config or {})
+    model.params = new_params
     model.is_default = data.is_default
     model.dimension = data.dimension
     model.max_input_length = data.max_input_length
