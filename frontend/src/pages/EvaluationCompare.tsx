@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Tag, Tabs, Row, Col, Statistic, Button, Space, message } from 'antd'
+import { Card, Table, Tag, Tabs, Row, Col, Statistic, Button, Space, message, Alert } from 'antd'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
@@ -98,6 +98,17 @@ const EvaluationCompare: React.FC = () => {
     })),
   ]
 
+  // 汇总里没有的指标 = 没算出来（可能全样本失败，也可能没配）。
+  // 不能用 `?? 0`：那会让"没算"和"得了 0 分"在图上一模一样，
+  // 等于凭空造一个从没测过的测量值出来。null 让 ECharts 留空档。
+  const missingMetrics = evalNames.flatMap(name =>
+    uniqueMetrics
+      .filter(metric => data?.summary?.[name]?.metrics?.[metric] === undefined)
+      .map(metric => `${name} / ${metric}`)
+  )
+  const meanOf = (name: string, metric: string): number | null =>
+    data?.summary?.[name]?.metrics?.[metric]?.mean ?? null
+
   // 构建汇总对比图表
   const barOption = {
     tooltip: { trigger: 'axis' },
@@ -110,11 +121,7 @@ const EvaluationCompare: React.FC = () => {
     series: evalNames.map(name => ({
       name,
       type: 'bar',
-      data: uniqueMetrics.map(metric => {
-        const summary = data?.summary?.[name]
-        const metricStats = summary?.metrics?.[metric]
-        return metricStats?.mean ?? 0
-      }),
+      data: uniqueMetrics.map(metric => meanOf(name, metric)),
     })),
   }
 
@@ -129,11 +136,7 @@ const EvaluationCompare: React.FC = () => {
       type: 'radar',
       data: evalNames.map(name => ({
         name,
-        value: uniqueMetrics.map(metric => {
-          const summary = data?.summary?.[name]
-          const metricStats = summary?.metrics?.[metric]
-          return metricStats?.mean ?? 0
-        }),
+        value: uniqueMetrics.map(metric => meanOf(name, metric)),
       })),
     }],
   }
@@ -170,6 +173,20 @@ const EvaluationCompare: React.FC = () => {
               </Card>
             </Col>
           </Row>
+          {missingMetrics.length > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginTop: 16 }}
+              message="部分指标没有可比数据"
+              description={
+                <div>
+                  下列指标在对应评估里没有有效分数，图中已留空（不是 0 分）：
+                  {missingMetrics.join('、')}
+                </div>
+              }
+            />
+          )}
         </>
       ),
     },
