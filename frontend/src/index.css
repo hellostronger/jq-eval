@@ -20,7 +20,10 @@ html, body, #root {
   font-size: 12px;
 }
 
-.ant-layout-sider {
+/* 只作用于深色主题的 Sider：之前写成 .ant-layout-sider 会把页面上所有 Sider
+   （含 VibeAgent 那个本该是白底的侧栏）一起压成深色，
+   白底侧栏里的空状态文字就成了深色压深色，几乎看不见 */
+.ant-layout-sider-dark {
   background: #001529 !important;
 }
 

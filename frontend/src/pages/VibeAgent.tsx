@@ -282,7 +282,10 @@ const VibeAgent: React.FC = () => {
 
   return (
     <Layout style={{ height: 'calc(100vh - 100px)', background: '#f0f2f5' }}>
-      <Sider width={250} style={{ background: '#fff', padding: 16 }}>
+      {/* 必须显式 theme="light"：Sider 默认是 dark 主题，会挂上 ant-layout-sider-dark
+          把背景压成深色（行内 background 覆盖不生效），导致空状态文字变成深色压深色，
+          「暂无数据」几乎看不见 */}
+      <Sider width={250} theme="light" style={{ background: '#fff', padding: 16 }}>
         <Title level={5}>已保存的工作流</Title>
         <List
           dataSource={workflows}
