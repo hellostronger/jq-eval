@@ -138,6 +138,68 @@ async def test_summary_reports_invocation_failures_separately(eval_env):
     )
 
 
+async def test_failed_invocations_are_excluded_from_metric_means(eval_env):
+    """调用失败的样本绝不能进指标均值——纯 Python 指标会把空答案安静算成 0 分
+
+    这是实测踩到的：14 条里 4 条上游 504，rouge_l 给出 count=14、
+    mean=0.01，报告读起来像"RAG 质量极差"，真相是 4 条压根没输出。
+    """
+    db = eval_env
+    _dataset, batch, qa = await _seed(db)
+
+    # 再加一条成功的调用结果，让"该被排除的"和"该被统计的"同时存在
+    ok_qa = QARecord(dataset_id=batch.dataset_id, question="问题2", answer="答案2",
+                     ground_truth="参考答案2")
+    db.add(ok_qa)
+    await db.flush()
+    db.add(
+        InvocationResult(
+            batch_id=batch.id,
+            qa_record_id=ok_qa.id,
+            rag_system_id=batch.rag_system_id,
+            question="问题2",
+            answer="参考答案2",
+            contexts=None,
+            status="success",
+            error=None,
+        )
+    )
+    await db.commit()
+
+    evaluation, rows = await _run(db, batch)
+    summary = evaluation.summary or {}
+
+    # 两条 QA、只有一条拿到了 RAG 输出
+    assert summary["total_records"] == 2, "总数是 QA 数，不是成功数"
+    assert summary["scored_records"] == 1, "只有成功的调用参与统计"
+    assert summary["invocation_failed_count"] == 1
+    # 失败那条的 rouge_l 是 0.0（空答案），若混入统计会把 mean 拉成 0.5
+    m = summary["metrics_summary"]["rouge_l"]
+    assert m["count"] == 1, "失败样本混进了指标统计"
+    assert m["mean"] == 1.0, "空答案的 0 分污染了均值"
+    # 结果行仍要保留，便于追溯
+    assert len(rows) == 2, "明细要留着，剔除只发生在统计口径上"
+
+
+async def test_successful_invocations_still_enter_the_mean(eval_env):
+    """对照组：排除逻辑不能误伤真正成功的样本"""
+    db = eval_env
+    _dataset, batch, qa = await _seed(db)
+    row = (await db.execute(
+        select(InvocationResult).where(InvocationResult.qa_record_id == qa.id)
+    )).scalar_one()
+    row.status = "success"
+    row.error = None
+    row.answer = "参考答案"
+    await db.commit()
+
+    evaluation, _rows = await _run(db, batch)
+    summary = evaluation.summary or {}
+    assert summary["scored_records"] == 1
+    assert "rouge_l" in summary["metrics_summary"]
+    assert summary["metrics_summary"]["rouge_l"]["count"] == 1
+
+
 async def test_successful_invocation_adds_no_failure_fields(eval_env):
     """调用成功时不凭空多出失败字段"""
     db = eval_env

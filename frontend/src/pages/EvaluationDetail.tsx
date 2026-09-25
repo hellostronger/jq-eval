@@ -29,6 +29,10 @@ interface Summary {
   // 分数低/算不出可能只是 RAG 挂了，不该读成模型质量问题。
   invocation_failed_count?: number
   invocation_errors?: string[]
+  // 分母口径：total_records 是 QA 总数，scored_records 才是真正参与统计的
+  // 条数（调用失败的被剔除），两者之差必须能被用户看到
+  scored_records?: number
+  total_records?: number
 }
 
 const EvaluationDetail: React.FC = () => {
@@ -251,7 +255,8 @@ const EvaluationDetail: React.FC = () => {
                     <div key={i} style={{ marginTop: 4 }}>{e}</div>
                   ))}
                   <div style={{ marginTop: 8, color: '#666' }}>
-                    这些样本没有 RAG 输出，其得分与指标失败均由调用失败引起，
+                    这些样本没有 RAG 输出，已从所有指标统计中剔除
+                    （{summary.scored_records ?? '-'} / {summary.total_records ?? '-'} 条参与计算），
                     不应解读为 RAG 系统回答质量差。
                   </div>
                 </div>

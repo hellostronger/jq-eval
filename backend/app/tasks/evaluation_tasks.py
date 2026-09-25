@@ -223,13 +223,22 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
                 )
                 db.add(eval_result)
 
-            # 计算汇总
-            summary = MetricEngine.compute_summary(results)
-            # RAG 调用失败的样本单独记账：不记的话，"低分"和"压根没调用成功"
-            # 在报告里长得一样，指标算不出来时还会被误读成模型质量问题
+            # 计算汇总。
+            # RAG 调用失败的记录必须排除在统计之外：rouge_l/exact_match 这类
+            # 纯 Python 指标拿到空答案不报错，只会安静地算个 0 分，于是"压根没
+            # 调用成功"被当成"答得极差"计入均值——把 4 条没输出的样本算进分母，
+            # 报告就会说 RAG 质量很差，而真相是根本没答。
+            scored_idx = [
+                i for i, e in enumerate(eval_data) if not e.get("invocation_error")
+            ]
+            summary = MetricEngine.compute_summary([results[i] for i in scored_idx])
             invocation_errors = [
                 e["invocation_error"] for e in eval_data if e.get("invocation_error")
             ]
+            # total_records 保持"本次评估的 QA 总数"，另给 scored_records，
+            # 两者之差就是没拿到 RAG 输出的样本数，分母才解释得通
+            summary["total_records"] = len(eval_data)
+            summary["scored_records"] = len(scored_idx)
             if invocation_errors:
                 summary["invocation_failed_count"] = len(invocation_errors)
                 seen, uniq = set(), []
