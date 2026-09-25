@@ -6,7 +6,7 @@ from uuid import UUID
 import logging
 
 from app.core.celery_app import celery_app
-from app.tasks._common import run_async
+from app.tasks._common import run_async, format_error
 from app.core.database import get_db_context
 from app.models import DocParseBatch, DocParseResult, Document, Model
 from app.services.doc_parser import (
@@ -98,7 +98,7 @@ async def _run_doc_parse_task(task, batch_id: UUID) -> Dict[str, Any]:
                         content = await _load_file(minio, r.object_name)
                     except Exception as e:
                         r.status = "failed"
-                        r.error = str(e)
+                        r.error = format_error(e)
                         continue
                     files.append({"name": r.file_name, "content": content})
                     file_map[r.file_name] = r
@@ -150,8 +150,8 @@ async def _run_doc_parse_task(task, batch_id: UUID) -> Dict[str, Any]:
                         r.duration = round(time.monotonic() - start, 2)
                     except Exception as e:
                         r.status = "failed"
-                        r.error = str(e)
-                        logger.error(f"解析文件 {r.file_name} 失败: {e}")
+                        r.error = format_error(e)
+                        logger.error(f"解析文件 {r.file_name} 失败: {format_error(e)}")
                     batch.progress = int((idx + 1) / len(results) * 90)
                     await db.commit()
 
@@ -181,12 +181,12 @@ async def _run_doc_parse_task(task, batch_id: UUID) -> Dict[str, Any]:
             }
 
         except Exception as e:
-            logger.error(f"文档解析批次 {batch_id} 失败: {e}")
+            logger.error(f"文档解析批次 {batch_id} 失败: {format_error(e)}")
             await db.rollback()
             batch = await db.get(DocParseBatch, batch_id)
             if batch:
                 batch.status = "failed"
-                batch.error = str(e)
+                batch.error = format_error(e)
                 batch.completed_at = datetime.utcnow()
                 await db.commit()
-            return {"error": str(e)}
+            return {"error": format_error(e)}

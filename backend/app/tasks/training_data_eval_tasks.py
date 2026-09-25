@@ -7,7 +7,7 @@ from sqlalchemy import select, text
 from uuid import UUID
 
 from app.core.celery_app import celery_app
-from app.tasks._common import run_async, make_progress_callback, mark_task_failed
+from app.tasks._common import run_async, make_progress_callback, mark_task_failed, format_error
 from app.core.database import get_db_context
 from app.models.training_data_eval import (
     TrainingDataEval,
@@ -280,7 +280,7 @@ async def _run_training_data_eval(task, eval_id: UUID) -> Dict[str, Any]:
             }
 
         except Exception as e:
-            await mark_task_failed(db, TrainingDataEval, eval_id, str(e), logger)
+            await mark_task_failed(db, TrainingDataEval, eval_id, format_error(e), logger)
             return {"error": str(e)}
 
 

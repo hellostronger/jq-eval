@@ -6,6 +6,17 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
+def format_error(exc: BaseException) -> str:
+    """把异常格式化成可落库/展示的错误文本，保证非空。
+
+    网络类异常（httpx.ConnectError 等）的 str() 往往为空字符串，
+    直接 str(e) 会让任务"失败但没有任何原因"，用户只看到一个空的
+    error 字段、无从排查。此处兜底为异常类名，保证错误信息始终可见。
+    """
+    text = str(exc).strip()
+    return text if text else type(exc).__name__
+
+
 def run_async(coro):
     """在同步环境（Celery worker）中运行异步函数"""
     loop = asyncio.new_event_loop()

@@ -5,7 +5,7 @@ from uuid import UUID
 import logging
 
 from app.core.celery_app import celery_app
-from app.tasks._common import run_async, mark_task_failed
+from app.tasks._common import run_async, mark_task_failed, format_error
 from app.core.database import get_db_context
 from app.models.dataset import Dataset, QARecord
 from app.models.model import Model
@@ -297,5 +297,5 @@ async def _run_import_task(
 
         except Exception as e:
             # 回滚失败的事务，再标记 failed（mark_task_failed 内部处理 rollback+refetch）
-            await mark_task_failed(db, Dataset, dataset_id, str(e), logger)
+            await mark_task_failed(db, Dataset, dataset_id, format_error(e), logger)
             return {"error": str(e), "dataset_id": str(dataset_id)}

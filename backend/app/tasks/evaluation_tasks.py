@@ -8,7 +8,7 @@ from uuid import UUID
 
 from app.core.celery_app import celery_app
 from app.core.exceptions import TaskCancelled
-from app.tasks._common import run_async, make_progress_callback, mark_task_failed
+from app.tasks._common import run_async, make_progress_callback, mark_task_failed, format_error
 from app.core.database import get_db_context
 from app.models.evaluation import Evaluation, EvaluationStatus, EvalResult
 from app.models.dataset import Dataset
@@ -232,7 +232,7 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
             return {"evaluation_id": evaluation_id, "status": "cancelled"}
 
         except Exception as e:
-            await mark_task_failed(db, Evaluation, evaluation_id, str(e), logger)
+            await mark_task_failed(db, Evaluation, evaluation_id, format_error(e), logger)
             return {"error": str(e)}
 
 

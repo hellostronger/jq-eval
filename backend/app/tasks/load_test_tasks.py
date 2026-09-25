@@ -8,7 +8,7 @@ import statistics
 from uuid import UUID
 
 from app.core.celery_app import celery_app
-from app.tasks._common import run_async, mark_task_failed
+from app.tasks._common import run_async, mark_task_failed, format_error
 from app.core.database import get_db_context
 from app.models import LoadTest, LoadTestStatus, LoadTestMode, RAGSystem
 from app.models.model import Model
@@ -161,7 +161,7 @@ async def _run_load_test(task, load_test_id: UUID) -> Dict[str, Any]:
             }
 
         except Exception as e:
-            await mark_task_failed(db, LoadTest, load_test_id, str(e), logger)
+            await mark_task_failed(db, LoadTest, load_test_id, format_error(e), logger)
             return {"error": str(e)}
 
 

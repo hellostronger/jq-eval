@@ -68,3 +68,31 @@ async def test_start_task_custom_fallback(db_session: AsyncSession, sample_llm_m
 
     await db_session.refresh(obj)
     assert obj.status == "pending"
+
+
+# ---------- format_error：异常信息不能为空 ----------
+# 历史教训：网络类异常（httpx.ConnectError）的 str() 为空，
+# 直接落库会让任务"失败但无任何原因"，用户无从排查。
+# format_error 兜底为异常类名，保证错误信息始终可见。
+
+def test_format_error_keeps_normal_message():
+    from app.tasks._common import format_error
+    assert format_error(ValueError("数据集不存在")) == "数据集不存在"
+
+
+def test_format_error_falls_back_to_type_name_when_message_empty():
+    """httpx.ConnectError 等网络异常的 str() 为空字符串"""
+    import httpx
+    from app.tasks._common import format_error
+    exc = httpx.ConnectError("")  # 空消息
+    assert str(exc) == ""  # 前置确认：原始 str 确实为空
+    result = format_error(exc)
+    assert result == "ConnectError", "空消息异常必须回退为类名，不能落库为空"
+    assert result.strip(), "format_error 永不返回空串"
+
+
+def test_format_error_never_returns_blank_for_empty_exception():
+    """兜底也覆盖普通空消息异常"""
+    from app.tasks._common import format_error
+    assert format_error(Exception()).strip()
+    assert format_error(Exception("   ")).strip()
