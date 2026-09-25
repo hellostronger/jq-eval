@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import {
   Card, Table, Button, Tag, Modal, Form, Input, InputNumber, Select, message, Space,
-  Progress, Descriptions, Tabs, Tooltip, Divider, Row, Col, Statistic
+  Progress, Descriptions, Tabs, Tooltip, Divider, Row, Col, Statistic, Alert
 } from 'antd'
 import {
   PlusOutlined, PlayCircleOutlined, DeleteOutlined, EyeOutlined,
@@ -547,31 +547,76 @@ const TrainingDataEvals: React.FC = () => {
                       />
                     </Col>
                   </Row>
+                  {/* 所有指标都算失败的样本既不进均值也不计入通过率，
+                      若不单独提示，"总样本"与各指标"样本数"对不上会无从解释 */}
+                  {selectedEval.summary.unscored_samples > 0 && (
+                    <Row gutter={16} style={{ marginTop: 16 }}>
+                      <Col span={6}>
+                        <Statistic
+                          title="未计分样本"
+                          value={selectedEval.summary.unscored_samples}
+                          suffix="个"
+                          valueStyle={{ color: '#cf1322' }}
+                        />
+                      </Col>
+                    </Row>
+                  )}
                 </>
               )}
             </TabPane>
 
             <TabPane tab="指标详情" key="metrics">
               {selectedEval.summary?.metrics_summary && (
-                <Table
-                  dataSource={Object.entries(selectedEval.summary.metrics_summary).map(
-                    ([name, data]: [string, any]) => ({
-                      name,
-                      ...data
-                    })
+                <>
+                  <Table
+                    dataSource={Object.entries(selectedEval.summary.metrics_summary).map(
+                      ([name, data]: [string, any]) => ({
+                        name,
+                        ...data
+                      })
+                    )}
+                    columns={[
+                      { title: '指标', dataIndex: 'name', key: 'name' },
+                      { title: '平均分', dataIndex: 'mean', key: 'mean', render: (v: number) => v?.toFixed(3) },
+                      { title: '标准差', dataIndex: 'std', key: 'std', render: (v: number) => v?.toFixed(3) },
+                      { title: '最小值', dataIndex: 'min', key: 'min', render: (v: number) => v?.toFixed(3) },
+                      { title: '最大值', dataIndex: 'max', key: 'max', render: (v: number) => v?.toFixed(3) },
+                      { title: '样本数', dataIndex: 'count', key: 'count' },
+                      { title: '计算失败', dataIndex: 'failed_count', key: 'failed_count',
+                        render: (v: number) => v
+                          ? <span style={{ color: '#cf1322' }}>{v}</span>
+                          : '-' },
+                      { title: '通过率', dataIndex: 'pass_rate', key: 'pass_rate',
+                        render: (v: number) => v ? `${(v * 100).toFixed(1)}%` : '-' }
+                    ]}
+                    pagination={false}
+                  />
+                  {/* 失败原因此前在训练数据评估页完全不可见：全失败的指标会
+                      直接从 metrics_summary 消失，和"没配这个指标"无法区分 */}
+                  {selectedEval.summary.metric_errors &&
+                    Object.keys(selectedEval.summary.metric_errors).length > 0 && (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      style={{ marginTop: 16 }}
+                      message="部分指标未能计算完成"
+                      description={
+                        <div>
+                          {Object.entries(
+                            selectedEval.summary.metric_errors as Record<string, string[]>
+                          ).map(([metric, errs]) => (
+                            <div key={metric} style={{ marginTop: 4 }}>
+                              <strong>{metric}</strong>：{errs.join('；')}
+                            </div>
+                          ))}
+                          <div style={{ marginTop: 8, color: '#666' }}>
+                            这些指标的有效分数已从统计中剔除，汇总中的均值仅基于成功计算的记录。
+                          </div>
+                        </div>
+                      }
+                    />
                   )}
-                  columns={[
-                    { title: '指标', dataIndex: 'name', key: 'name' },
-                    { title: '平均分', dataIndex: 'mean', key: 'mean', render: (v: number) => v?.toFixed(3) },
-                    { title: '标准差', dataIndex: 'std', key: 'std', render: (v: number) => v?.toFixed(3) },
-                    { title: '最小值', dataIndex: 'min', key: 'min', render: (v: number) => v?.toFixed(3) },
-                    { title: '最大值', dataIndex: 'max', key: 'max', render: (v: number) => v?.toFixed(3) },
-                    { title: '样本数', dataIndex: 'count', key: 'count' },
-                    { title: '通过率', dataIndex: 'pass_rate', key: 'pass_rate',
-                      render: (v: number) => v ? `${(v * 100).toFixed(1)}%` : '-' }
-                  ]}
-                  pagination={false}
-                />
+                </>
               )}
             </TabPane>
 
