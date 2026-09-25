@@ -4,8 +4,8 @@ import { PlusOutlined, PlayCircleOutlined, SwitcherOutlined } from '@ant-design/
 import { useNavigate } from 'react-router-dom'
 import { formatTime } from '@/utils/format'
 import { usePollingWhenRunning } from '@/hooks/usePollingWhenRunning'
-import { getEvaluations, createEvaluation, startEvaluation, getDatasets, getModels, getInvocationBatches } from '@/api'
-import type { Evaluation, Dataset, ModelConfig, InvocationBatch } from '@/types'
+import { getEvaluations, createEvaluation, startEvaluation, getDatasets, getModels, getInvocationBatches, getMetrics } from '@/api'
+import type { Evaluation, Dataset, ModelConfig, InvocationBatch, MetricDefinition } from '@/types'
 
 const Evaluations: React.FC = () => {
   const navigate = useNavigate()
@@ -14,6 +14,7 @@ const Evaluations: React.FC = () => {
   const [llmModels, setLLMModels] = useState<ModelConfig[]>([])
   const [embeddingModels, setEmbeddingModels] = useState<ModelConfig[]>([])
   const [invocationBatches, setInvocationBatches] = useState<InvocationBatch[]>([])
+  const [metricDefs, setMetricDefs] = useState<MetricDefinition[]>([])
   const [loading, setLoading] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -24,18 +25,20 @@ const Evaluations: React.FC = () => {
     setLoading(true)
     try {
       // 独立请求，避免某个失败导致整体失败
-      const [evalData, datasetData, llmData, embData, batchData] = await Promise.all([
+      const [evalData, datasetData, llmData, embData, batchData, metricData] = await Promise.all([
         getEvaluations().catch((e) => { console.error('getEvaluations failed:', e); return [] }),
         getDatasets().catch((e) => { console.error('getDatasets failed:', e); return [] }),
         getModels('llm').catch((e) => { console.error('getModels llm failed:', e); return [] }),
         getModels('embedding').catch((e) => { console.error('getModels embedding failed:', e); return [] }),
         getInvocationBatches({ status: 'completed' }).catch((e) => { console.error('getInvocationBatches failed:', e); return [] }),
+        getMetrics().catch((e) => { console.error('getMetrics failed:', e); return [] }),
       ])
       setEvaluations(evalData)
       setDatasets(datasetData)
       setLLMModels(llmData)
       setEmbeddingModels(embData)
       setInvocationBatches(batchData)
+      setMetricDefs(metricData)
     } catch (e) {
       console.error('加载数据失败:', e)
     } finally {
@@ -63,15 +66,51 @@ const Evaluations: React.FC = () => {
     setModalVisible(true)
   }
 
+  // 指标下拉按后端指标定义分组，而不是在前端另抄一份名单：
+  // 之前两边各写一份，名字已经开始打架（前端「上下文精确率」vs 指标市场「上下文精确度」），
+  // 而且 BLEU / ROUGE-L / 语义相似度这些后端支持的指标在前端根本选不到。
+  // 分组以 requires_llm 为准：context_precision/context_recall 虽然属于检索阶段，
+  // 但要用 LLM 裁判打分，不能被归进「无需 LLM」那一组。
+  const metricOptionGroups = React.useMemo(() => {
+    if (metricDefs.length === 0) return []
+    const toOption = (m: MetricDefinition) => ({
+      value: m.name,
+      label: `${m.display_name}（${m.name}）`,
+    })
+    return [
+      {
+        label: '检索阶段指标（无需 LLM）',
+        options: metricDefs.filter((m) => m.category === 'retrieval' && !m.requires_llm).map(toOption),
+      },
+      {
+        label: '生成阶段指标（确定性，无需 LLM）',
+        options: metricDefs.filter((m) => m.category !== 'retrieval' && !m.requires_llm).map(toOption),
+      },
+      {
+        label: '需要 LLM/Embedding 判定',
+        options: metricDefs.filter((m) => m.requires_llm).map(toOption),
+      },
+    ].filter((g) => g.options.length > 0)
+  }, [metricDefs])
+
+  // 是否必须配 LLM：直接读后端声明的 requires_llm，不再维护一份硬编码名单
+  const llmFreeMetricNames = React.useMemo(
+    () => new Set(metricDefs.filter((m) => !m.requires_llm).map((m) => m.name)),
+    [metricDefs]
+  )
+
+  // 指标名单还没加载出来时返回 false，宁可多要求一次 LLM 也不要放过校验
+  const needsLLM = (metrics: string[]) =>
+    llmFreeMetricNames.size === 0 || metrics.some((m) => !llmFreeMetricNames.has(m))
+
   const saveEvaluation = async () => {
     try {
       const values = await form.validateFields()
       setSaving(true)
-      // 解耦评测：仅选检索阶段/确定性指标时，LLM/Embedding 模型可省略（提交前置空）
-      const LLM_FREE_METRICS = ['mrr_k', 'hit_rate_k', 'recall_k', 'exact_match', 'token_f1']
-      const hasGenerationMetric = (values.metrics || []).some((m: string) => !LLM_FREE_METRICS.includes(m))
+      // 解耦评测：仅选无需 LLM 的指标时，LLM/Embedding 模型可省略（提交前置空）
+      const metrics = (values.metrics || []) as string[]
       const payload = { ...values }
-      if (!hasGenerationMetric) {
+      if (!needsLLM(metrics)) {
         payload.llm_model_id = undefined
         payload.embedding_model_id = undefined
       }
@@ -241,15 +280,13 @@ const Evaluations: React.FC = () => {
             rules={[{
               validator: (_, value) => {
                 const metrics: string[] = form.getFieldValue('metrics') || []
-                const LLM_FREE_METRICS = ['mrr_k', 'hit_rate_k', 'recall_k', 'exact_match', 'token_f1']
-                const hasGenerationMetric = metrics.some((m: string) => !LLM_FREE_METRICS.includes(m))
-                if (hasGenerationMetric && !value) {
-                  return Promise.reject('选择了生成阶段指标时必须选择LLM模型')
+                if (needsLLM(metrics) && !value) {
+                  return Promise.reject('选择了需要 LLM 判定的指标时必须选择LLM模型')
                 }
                 return Promise.resolve()
               }
             }]}
-            extra="仅选择检索阶段指标（MRR/HitRate/Recall@K）时可省略"
+            extra="仅选择无需 LLM 的指标（检索类 MRR/HitRate/Recall@K、确定性指标）时可省略"
           >
             <Select
               placeholder="选择LLM模型"
@@ -267,41 +304,13 @@ const Evaluations: React.FC = () => {
             name="metrics"
             label="评估指标"
             rules={[{ required: true }]}
-            extra="生成阶段指标需要 LLM/Embedding 模型；检索阶段指标仅需调用结果中的 retrieval_ids 与数据集标注的 target_chunk_ids（候选池基准如 StratRAG）"
+            extra="需要 LLM/Embedding 判定的指标请同时选择对应模型；检索类指标仅需调用结果中的 retrieval_ids 与数据集标注的 target_chunk_ids（候选池基准如 StratRAG）"
           >
             <Select
               mode="multiple"
               placeholder="选择评估指标"
-              options={[
-                {
-                  label: '生成阶段指标（RAGAS）',
-                  title: '生成阶段指标（RAGAS）',
-                  options: [
-                    { value: 'faithfulness', label: 'Faithfulness 忠实度' },
-                    { value: 'answer_relevancy', label: 'Answer Relevancy 答案相关性' },
-                    { value: 'context_precision', label: 'Context Precision 上下文精确率' },
-                    { value: 'context_recall', label: 'Context Recall 上下文召回率' },
-                    { value: 'answer_correctness', label: 'Answer Correctness 答案正确性' },
-                  ],
-                },
-                {
-                  label: '生成阶段指标（确定性，无需 LLM）',
-                  title: '生成阶段指标（确定性，无需 LLM）',
-                  options: [
-                    { value: 'exact_match', label: 'Exact Match 精确匹配' },
-                    { value: 'token_f1', label: 'Token F1 词元级F1' },
-                  ],
-                },
-                {
-                  label: '检索阶段指标（解耦评测，无需 LLM）',
-                  title: '检索阶段指标（解耦评测，无需 LLM）',
-                  options: [
-                    { value: 'mrr_k', label: 'MRR@K 平均倒数排名' },
-                    { value: 'hit_rate_k', label: 'Hit Rate@K 命中率' },
-                    { value: 'recall_k', label: 'Recall@K 召回率' },
-                  ],
-                },
-              ]}
+              loading={loading}
+              options={metricOptionGroups}
             />
           </Form.Item>
           <Form.Item name="batch_size" label="批次大小">
