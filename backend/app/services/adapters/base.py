@@ -58,9 +58,20 @@ class BaseRAGAdapter(ABC):
         )
 
     def error_message(self, exc: BaseException) -> str:
-        """把异常转成可读错误文案：超时单独识别，其余交给 format_error 兜底"""
+        """把异常转成可读错误文案：超时与上游 5xx 单独识别，其余交给 format_error"""
         if isinstance(exc, httpx.TimeoutException):
             return self.timeout_error_message()
+        if isinstance(exc, httpx.HTTPStatusError):
+            code = exc.response.status_code
+            # 上游网关 502/503/504 与"调大客户端超时"无关：请求根本没等到
+            # 客户端超时就被网关掐了，继续调大 llm_timeout 没有意义。
+            if code in (502, 503, 504):
+                return (
+                    f"上游服务返回 {code}（网关/反向代理超时或不可用）。"
+                    "这是服务端限制，调大 llm_timeout 无效——通常是模型单次"
+                    "生成耗时超过网关上限，请减少 max_tokens、改用非思考型"
+                    "模型，或更换 RAG 系统/网关。"
+                )
         return format_error(exc)
 
     @abstractmethod

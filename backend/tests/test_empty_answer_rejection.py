@@ -215,3 +215,58 @@ async def test_non_timeout_error_keeps_original_message(monkeypatch):
 
     assert resp.success is False
     assert resp.error == "connection refused"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", [502, 503, 504])
+async def test_upstream_gateway_error_says_it_is_not_a_client_timeout(monkeypatch, code):
+    """上游 502/503/504 是服务端限制，不能被误报成客户端超时
+
+    线上：模型单次生成超过网关上限时返回 504（网关自己的 ~300s），
+    此时调大客户端 llm_timeout 完全无效。文案必须说清这一点，
+    否则用户只会不断去调一个没用的参数。
+    """
+    adapter = _adapter()
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(code, json={"error": "upstream timed out"})
+
+    transport = httpx.MockTransport(_handler)
+    orig_client = httpx.AsyncClient
+
+    def _patched(*args, **kwargs):
+        kwargs["transport"] = transport
+        return orig_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _patched)
+
+    resp = await adapter.query("任意问题")
+
+    assert resp.success is False
+    assert str(code) in resp.error
+    assert "上游" in resp.error
+    assert "无效" in resp.error, "应明确指出调大 llm_timeout 无效"
+
+
+@pytest.mark.asyncio
+async def test_client_error_status_keeps_original_message(monkeypatch):
+    """4xx 是请求本身的问题（key/参数），保留原始信息而不是套用网关文案"""
+    adapter = _adapter()
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": "invalid api key"})
+
+    transport = httpx.MockTransport(_handler)
+    orig_client = httpx.AsyncClient
+
+    def _patched(*args, **kwargs):
+        kwargs["transport"] = transport
+        return orig_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _patched)
+
+    resp = await adapter.query("任意问题")
+
+    assert resp.success is False
+    assert "401" in resp.error
+    assert "上游" not in resp.error
