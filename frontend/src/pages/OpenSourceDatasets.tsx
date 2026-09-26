@@ -262,12 +262,16 @@ const OpenSourceDatasets: React.FC = () => {
   ]
 
   // HuggingFace 搜索结果列配置
+  // 各列宽度之和必须放得进弹窗（见下面 Modal 的 width）：
+  // 之前「描述」没给宽度，在 tableLayout:fixed 下被压到 60px，
+  // 九列合计 1000px 挤在 852px 的弹窗里，最右侧「规模」「操作」被裁掉，
+  // 导入按钮点不到。
   const hfColumns = [
     {
       title: '数据集',
       dataIndex: 'id',
       key: 'id',
-      width: 200,
+      width: 180,
       render: (id: string, record: HFDatasetSearchResult) => (
         <a href={record.url} target="_blank" rel="noopener noreferrer">
           <LinkOutlined /> {id}
@@ -278,39 +282,40 @@ const OpenSourceDatasets: React.FC = () => {
       title: '名称',
       dataIndex: 'name',
       key: 'name',
-      width: 150,
+      width: 140,
     },
     {
       title: '描述',
       dataIndex: 'description',
       key: 'description',
       ellipsis: true,
+      width: 180,
     },
     {
       title: '下载量',
       dataIndex: 'downloads',
       key: 'downloads',
-      width: 100,
+      width: 90,
       render: (downloads: number) => downloads?.toLocaleString() || 0,
     },
     {
       title: '点赞',
       dataIndex: 'likes',
       key: 'likes',
-      width: 80,
+      width: 70,
     },
     {
       title: '语言',
       dataIndex: 'language',
       key: 'language',
-      width: 80,
+      width: 70,
       render: (lang: string) => lang ? <Tag>{lang}</Tag> : '-',
     },
     {
       title: '任务',
       dataIndex: 'task_categories',
       key: 'task_categories',
-      width: 150,
+      width: 140,
       render: (cats: string[]) => cats?.length > 0 ? (
         <Space size="small">
           {cats.slice(0, 2).map(cat => <Tag key={cat} color="blue">{cat}</Tag>)}
@@ -326,7 +331,7 @@ const OpenSourceDatasets: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 100,
+      width: 90,
       render: (_: unknown, record: HFDatasetSearchResult) => (
         <Button
           type="primary"
@@ -473,7 +478,9 @@ const OpenSourceDatasets: React.FC = () => {
         open={hfSearchVisible}
         onCancel={() => setHfSearchVisible(false)}
         footer={null}
-        width={900}
+        // 1150：容得下 hfColumns 各列宽度之和（约 1040）并留出内边距，
+        // 否则表格横向溢出，最右侧的「导入」按钮被裁掉
+        width={1150}
       >
         <Row gutter={16} style={{ marginBottom: 16 }}>
           <Col span={12}>
