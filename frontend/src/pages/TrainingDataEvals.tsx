@@ -294,7 +294,9 @@ const TrainingDataEvals: React.FC = () => {
       dataIndex: 'pass_rate',
       key: 'pass_rate',
       width: 100,
-      render: (rate: number) => rate !== undefined ? `${(rate * 100).toFixed(1)}%` : '-'
+      // 用 == null 而不是 !== undefined：后端把没算出来的通过率返回为 null，
+      // null !== undefined 为 true，于是显示成 0.0%——把「没测出来」说成「全军覆没」
+      render: (rate?: number | null) => rate == null ? '-' : `${(rate * 100).toFixed(1)}%`
     },
     {
       title: '样本数',

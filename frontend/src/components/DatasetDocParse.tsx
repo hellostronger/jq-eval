@@ -28,7 +28,10 @@ const statusRender = (status: string) => {
   return <Tag color={s.color}>{s.text}</Tag>
 }
 
-const scoreColor = (score?: number) => (score === undefined ? 'default' : score >= 80 ? 'success' : score >= 60 ? 'warning' : 'error')
+// 注意用 == null 而不是 === undefined：后端把 SQL NULL 序列化成 JSON null，
+// 而 null === undefined 为 false，漏过去的 null 会在调用处 .toFixed() 直接崩掉整页
+const scoreColor = (score?: number | null) =>
+  score == null ? 'default' : score >= 80 ? 'success' : score >= 60 ? 'warning' : 'error'
 
 /**
  * 数据集内文档解析（minerU）
@@ -333,7 +336,7 @@ const DatasetDocParse: React.FC<DatasetDocParseProps> = ({ datasetId, onDocsChan
       width: 80,
       render: (_: unknown, record: DocParseResultInfo) => {
         const s = record.evaluation?.score
-        return s === undefined ? '-' : <Tag color={scoreColor(s)}>{s}</Tag>
+        return s == null ? '-' : <Tag color={scoreColor(s)}>{s}</Tag>
       },
     },
     {
@@ -341,7 +344,10 @@ const DatasetDocParse: React.FC<DatasetDocParseProps> = ({ datasetId, onDocsChan
       dataIndex: 'duration',
       key: 'duration',
       width: 80,
-      render: (d?: number) => (d === undefined ? '-' : `${d.toFixed(1)}s`),
+      // duration 为 SQL NULL 时后端返回 null（不是 undefined），
+      // 用 === undefined 判断会漏过 null，然后 d.toFixed(1) 抛错、
+      // React 整棵树被卸载，点一次「结果」整页白屏
+      render: (d?: number | null) => (d == null ? '-' : `${d.toFixed(1)}s`),
     },
     {
       title: '错误',
@@ -494,14 +500,16 @@ const DatasetDocParse: React.FC<DatasetDocParseProps> = ({ datasetId, onDocsChan
               <div style={{ marginBottom: 12 }}>
                 <Space size="small" wrap>
                   <Tag color={scoreColor(viewingMd.evaluation.score)} style={{ fontSize: 14, padding: '2px 10px' }}>
-                    得分 {viewingMd.evaluation.score}
+                    得分 {viewingMd.evaluation.score ?? '-'}
                   </Tag>
-                  {Object.entries(viewingMd.evaluation.metrics).map(([k, v]) => (
-                    <Tag key={k}>{k}: {(v * 100).toFixed(0)}</Tag>
+                  {/* metrics / suggestions 都可能整体为 null，
+                      逐项再判一次空值，避免 (v * 100) 和 .map 在 null 上炸掉整页 */}
+                  {Object.entries(viewingMd.evaluation.metrics || {}).map(([k, v]) => (
+                    <Tag key={k}>{k}: {v == null ? '-' : `${(v * 100).toFixed(0)}`}</Tag>
                   ))}
                 </Space>
                 <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
-                  {viewingMd.evaluation.suggestions.map((s, i) => <div key={i}>💡 {s}</div>)}
+                  {(viewingMd.evaluation.suggestions || []).map((s, i) => <div key={i}>💡 {s}</div>)}
                 </div>
               </div>
             )}
