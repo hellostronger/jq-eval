@@ -1,6 +1,5 @@
 # MinIO文件服务
 import uuid
-import os
 import re
 from typing import Dict, List, Any, BinaryIO
 from datetime import datetime, timedelta
@@ -56,6 +55,29 @@ class MinIOService:
                 return
         self._buckets_ready = True
 
+    @staticmethod
+    def _sanitize_object_path(file_name: str) -> tuple:
+        """把调用方传入的文件名拆成 (基础名, 目录前缀)
+
+        目录前缀会被保留（文档解析按 datasets/<id>/ 前缀筛选数据集内源文件），
+        但每段都要单独清洗：过滤危险字符、丢弃空段与 "." / ".."，
+        因此无法通过 ../ 之类的输入跳出预期目录。
+        """
+        raw = (file_name or "file").replace("\\", "/")
+        segments = [s for s in raw.split("/") if s not in ("", ".", "..")]
+
+        def clean(seg: str) -> str:
+            return re.sub(r"[^A-Za-z0-9._\-一-鿿]", "_", seg).strip("._")
+
+        if not segments:
+            return "file", ""
+
+        base = clean(segments[-1]) or "file"
+        dirs = [clean(s) for s in segments[:-1]]
+        dirs = [d for d in dirs if d]
+        prefix = "/".join(dirs) + "/" if dirs else ""
+        return base, prefix
+
     async def upload_file(
         self,
         bucket: str,
@@ -64,13 +86,18 @@ class MinIOService:
         content_type: str = None,
         metadata: Dict[str, str] = None
     ) -> Dict[str, Any]:
-        """上传文件"""
+        """上传文件
+
+        file_name 可以带目录前缀（如 datasets/<id>/report.pdf），前缀会被保留：
+        文档解析的「数据集内源文件」就靠 datasets/<id>/ 前缀来按数据集筛选，
+        早期版本用 os.path.basename 把前缀丢掉了，导致按数据集列源文件永远是空。
+        安全性靠逐段清洗保证——每段都过滤危险字符并丢弃 "." / ".."，无法穿越目录。
+        """
         try:
-            # 文件名只保留基础名并过滤路径分隔符/危险字符，防止对象名注入
-            safe_name = os.path.basename(file_name or "file")
-            safe_name = re.sub(r"[^A-Za-z0-9._\-一-鿿]", "_", safe_name).strip("._") or "file"
+            safe_name, safe_prefix = self._sanitize_object_path(file_name)
             # 生成唯一对象名
-            object_name = f"{datetime.utcnow().strftime('%Y/%m/%d')}/{uuid.uuid4()}_{safe_name}"
+            date_prefix = datetime.utcnow().strftime('%Y/%m/%d')
+            object_name = f"{safe_prefix}{date_prefix}/{uuid.uuid4()}_{safe_name}"
 
             # 获取文件大小
             file_data.seek(0, 2)
