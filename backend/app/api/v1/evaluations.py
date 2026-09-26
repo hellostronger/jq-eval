@@ -45,6 +45,9 @@ class EvaluationResponse(BaseModel):
     batch_size: int
     status: str
     progress: int
+    # 失败原因：/status 一直有返回，但详情响应里没有，
+    # 导致评估详情页对 failed 任务什么也显示不出来
+    error: Optional[str] = None
     started_at: Optional[UTCDatetime] = None
     completed_at: Optional[UTCDatetime] = None
     summary: Optional[Dict[str, Any]] = None
