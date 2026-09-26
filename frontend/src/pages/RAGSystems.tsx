@@ -194,8 +194,21 @@ const RAGSystems: React.FC = () => {
 
     try {
       const res = await queryRAGSystem(chattingSystem.id, userMessage)
-      const assistantContent = res.answer || res.response || res.content || '无响应'
-      setChatMessages(prev => [...prev, { role: 'assistant', content: assistantContent }])
+      // 查询失败时后端照样返回 200，失败原因在 success/error 里。
+      // 不看这两个字段，所有失败（连不上、鉴权错、上游超时）都会显示成
+      // 一句「无响应」，跟"模型真的没说话"完全分不开，也无从排查。
+      if (res.success === false) {
+        setChatMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `查询失败：${res.error || '未知原因'}（请检查该系统的 API 地址、密钥与网络连通性）`
+        }])
+      } else {
+        const assistantContent = res.answer || res.response || res.content
+        setChatMessages(prev => [...prev, {
+          role: 'assistant',
+          content: assistantContent || 'RAG 系统返回了空响应（调用成功，但没有内容）'
+        }])
+      }
     } catch (e) {
       setChatMessages(prev => [...prev, { role: 'assistant', content: '查询失败，请检查连接配置' }])
     } finally {

@@ -172,8 +172,20 @@ export const testRAGSystem = (id: string) => {
   return request.post(`/rag-systems/${id}/health`)
 }
 
+// 查询失败时后端仍返回 200，把失败信息放在 success/error 里
+// （见 RAGResponse），所以类型里必须带上这两个字段，
+// 否则前端只能看到空的 answer，真实的失败原因会被丢掉
+export interface RAGQueryResult {
+  answer?: string
+  response?: string
+  content?: string
+  success?: boolean
+  error?: string
+  response_time?: number
+}
+
 export const queryRAGSystem = (id: string, question: string) => {
-  return request.post<{ answer?: string; response?: string; content?: string }>(`/rag-systems/${id}/query`, { question })
+  return request.post<RAGQueryResult>(`/rag-systems/${id}/query`, { question })
 }
 
 export const getLLMModels = () => {
