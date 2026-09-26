@@ -373,6 +373,9 @@ const DatasetDetail: React.FC = () => {
       dataIndex: 'content',
       key: 'content',
       ellipsis: true,
+      // 给内容预览定宽，把空间让给标题；否则两列都按内容撑开，
+      // 右侧「操作」列会被挤出可视区
+      width: 400,
       render: (v: string) => v ? `${v.substring(0, 100)}...` : <Tag color="default">无</Tag>,
     },
     {
@@ -397,9 +400,11 @@ const DatasetDetail: React.FC = () => {
       render: (v: number) => v || 0,
     },
     {
+      // 宽度要放得下「查看/分片详情/分片列表」三个按钮（约 264px），
+      // 否则「分片列表」会溢出单元格被裁掉，点不到
       title: '操作',
       key: 'action',
-      width: 200,
+      width: 270,
       render: (_: unknown, record: DocumentInfo) => (
         <Space>
           <Button
