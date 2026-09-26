@@ -17,6 +17,7 @@ import {
   HistoryOutlined,
 } from '@ant-design/icons'
 import Dashboard from './pages/Dashboard'
+import ErrorBoundary from './components/ErrorBoundary'
 
 // 路由级代码分割：各页面按需加载，首屏只带仪表盘
 const Models = lazy(() => import('./pages/Models'))
@@ -39,6 +40,26 @@ const Prompts = lazy(() => import('./pages/Prompts'))
 const VibeAgent = lazy(() => import('./pages/VibeAgent'))
 
 const { Sider, Content } = Layout
+
+// 页面出错时的区域名称（用于错误兜底提示）
+const PAGE_LABELS: Record<string, string> = {
+  '/dashboard': '仪表盘',
+  '/models': '模型配置',
+  '/model-logs': '模型日志',
+  '/rag-systems': 'RAG系统',
+  '/datasets': '数据集',
+  '/open-source-datasets': '开源数据集',
+  '/invocations': '调用批次',
+  '/load-tests': '性能压测',
+  '/evaluations': '评估任务',
+  '/evaluations/compare': '评估对比',
+  '/training-data-evaluations': '训练数据评估',
+  '/metrics': '指标市场',
+  '/data-sources': '数据源',
+  '/hot-news': '热点新闻',
+  '/prompts': 'Prompt管理',
+  '/vibe-agent': 'VibeAgent',
+}
 
 const menuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘' },
@@ -79,36 +100,38 @@ const App: React.FC = () => {
         />
       </Sider>
       <Content style={{ background: '#f0f2f5', padding: 16, overflow: 'auto' }}>
-        <Suspense
-          fallback={
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
-              <Spin size="large" />
-            </div>
-          }
-        >
-          <Routes>
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/models" element={<Models />} />
-            <Route path="/model-logs" element={<ModelLogs />} />
-            <Route path="/rag-systems" element={<RAGSystems />} />
-            <Route path="/datasets" element={<Datasets />} />
-            <Route path="/datasets/:id" element={<DatasetDetail />} />
-            <Route path="/open-source-datasets" element={<OpenSourceDatasets />} />
-            <Route path="/invocations" element={<Invocations />} />
-            <Route path="/invocations/:id" element={<InvocationDetail />} />
-            <Route path="/load-tests" element={<LoadTests />} />
-            <Route path="/evaluations" element={<Evaluations />} />
-            <Route path="/evaluations/compare" element={<EvaluationCompare />} />
-            <Route path="/evaluations/:id" element={<EvaluationDetail />} />
-            <Route path="/training-data-evaluations" element={<TrainingDataEvals />} />
-            <Route path="/metrics" element={<Metrics />} />
-            <Route path="/data-sources" element={<DataSources />} />
-            <Route path="/hot-news" element={<HotNews />} />
-            <Route path="/prompts" element={<Prompts />} />
-            <Route path="/vibe-agent" element={<VibeAgent />} />
-          </Routes>
-        </Suspense>
+        <ErrorBoundary area={PAGE_LABELS[location.pathname]}>
+          <Suspense
+            fallback={
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+                <Spin size="large" />
+              </div>
+            }
+          >
+            <Routes>
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/models" element={<Models />} />
+              <Route path="/model-logs" element={<ModelLogs />} />
+              <Route path="/rag-systems" element={<RAGSystems />} />
+              <Route path="/datasets" element={<Datasets />} />
+              <Route path="/datasets/:id" element={<DatasetDetail />} />
+              <Route path="/open-source-datasets" element={<OpenSourceDatasets />} />
+              <Route path="/invocations" element={<Invocations />} />
+              <Route path="/invocations/:id" element={<InvocationDetail />} />
+              <Route path="/load-tests" element={<LoadTests />} />
+              <Route path="/evaluations" element={<Evaluations />} />
+              <Route path="/evaluations/compare" element={<EvaluationCompare />} />
+              <Route path="/evaluations/:id" element={<EvaluationDetail />} />
+              <Route path="/training-data-evaluations" element={<TrainingDataEvals />} />
+              <Route path="/metrics" element={<Metrics />} />
+              <Route path="/data-sources" element={<DataSources />} />
+              <Route path="/hot-news" element={<HotNews />} />
+              <Route path="/prompts" element={<Prompts />} />
+              <Route path="/vibe-agent" element={<VibeAgent />} />
+            </Routes>
+          </Suspense>
+        </ErrorBoundary>
       </Content>
     </Layout>
   )
