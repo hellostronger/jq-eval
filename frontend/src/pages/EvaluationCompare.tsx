@@ -60,6 +60,9 @@ const EvaluationCompare: React.FC = () => {
   const allMetrics = data?.evaluations.flatMap(e => e.metrics) || []
   const uniqueMetrics = [...new Set(allMetrics)]
 
+  // 表格总宽 = 问题 200 + 参考答案 150 + 每个（评估 × 指标）单元格 80
+  const compareTableWidth = 200 + 150 + evalNames.length * uniqueMetrics.length * 80
+
   // 构建对比表格列
   const columns = [
     {
@@ -199,7 +202,9 @@ const EvaluationCompare: React.FC = () => {
           columns={columns}
           rowKey="qa_record_id"
           loading={loading}
-          scroll={{ x: 'max-content' }}
+          // 用具体数值而不是 'max-content'：max-content 会让表格按内容自然宽度
+          // 撑开，长问题/参考答案把各列的 ellipsis 顶掉，整张表横向拉出屏幕
+          scroll={{ x: compareTableWidth }}
           bordered
         />
       ),

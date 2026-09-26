@@ -522,7 +522,9 @@ const OpenSourceDatasets: React.FC = () => {
           rowKey="id"
           loading={hfSearchLoading}
           pagination={false}
-          scroll={{ x: 'max-content' }}
+          // 与上面 Modal 的宽度配套：必须是具体数值。用 'max-content' 的话
+          // 搜索结果一有长 ID/描述，表格又会被内容撑开，把「操作」列挤出弹窗
+          scroll={{ x: 1040 }}
         />
 
         {hfSearchResults.length === 0 && !hfSearchLoading && (

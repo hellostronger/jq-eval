@@ -5,6 +5,7 @@ import { ReloadOutlined, StopOutlined } from '@ant-design/icons'
 import { formatShortTime, formatTime } from '@/utils/format'
 import ReactECharts from 'echarts-for-react'
 import { getEvaluation, getEvaluationResults, getEvaluationAnalysis, retryEvaluationWithOption, cancelEvaluation } from '@/api'
+import { usePollingWhenRunning } from '@/hooks/usePollingWhenRunning'
 import type { EvaluationAnalysis } from '@/api'
 import type { Evaluation } from '@/types'
 
@@ -50,11 +51,13 @@ const EvaluationDetail: React.FC = () => {
   const [retryModalVisible, setRetryModalVisible] = useState(false)
   const [reuseInvocation, setReuseInvocation] = useState(true)
 
-  const fetchEvaluation = async () => {
+  // 返回取到的状态，供轮询判断"是否刚刚跑完"（闭包里的 evaluation 是旧值，不能用）
+  const fetchEvaluation = async (): Promise<string | undefined> => {
     if (!id) return
     try {
       const data = await getEvaluation(id)
       setEvaluation(data)
+      return data?.status
     } catch (e) {
       // 错误已在拦截器处理
     }
@@ -131,6 +134,19 @@ const EvaluationDetail: React.FC = () => {
     fetchResults()
   }, [id])
 
+  // 运行中轮询：否则停在详情页时状态和进度永远不更新，
+  // 任务跑完了也看不到结果，只能手动刷新。
+  // 用 fetchEvaluation 返回的状态判断是否刚跑完（不能用闭包里的旧 evaluation）
+  usePollingWhenRunning(
+    evaluation?.status === 'running',
+    async () => {
+      const status = await fetchEvaluation()
+      if (status && status !== 'running') await fetchResults()
+    },
+    5000,
+    [id]
+  )
+
   const getStatusType = (status: string) => {
     const types: Record<string, 'success' | 'warning' | 'processing' | 'error' | 'default'> = {
       completed: 'success',
@@ -140,6 +156,14 @@ const EvaluationDetail: React.FC = () => {
       cancelled: 'warning',
     }
     return types[status] || 'default'
+  }
+
+  // 未完成状态没有结果可看，但必须说清楚"为什么没有"，不能整页留白
+  const NON_COMPLETED_HINT: Record<string, string> = {
+    pending: '任务已创建但尚未启动：请回到「评估任务」列表点击「启动」',
+    running: '任务正在运行，完成后刷新本页即可查看结果',
+    failed: '评估失败',
+    cancelled: '任务已取消',
   }
 
   const metricsColumns = [
@@ -178,6 +202,9 @@ const EvaluationDetail: React.FC = () => {
       render: (date?: string) => formatShortTime(date),
     },
   ]
+
+  // 详细结果表总宽 = 问题 200 + 参考答案 150 + 每个指标列 100 + 时间 100
+  const metricsTableWidth = 200 + 150 + (evaluation?.metrics?.length || 0) * 100 + 100
 
   const barOption = {
     tooltip: { trigger: 'axis' },
@@ -349,7 +376,9 @@ const EvaluationDetail: React.FC = () => {
             setResultPageSize(s)
             fetchResults(p, s)
           }}
-          scroll={{ x: 'max-content' }}
+          // 用具体数值而不是 'max-content'：max-content 会按内容自然宽度撑开表格，
+          // 长问题/参考答案把各列的 ellipsis 顶掉，整张表横向拉出屏幕
+          scroll={{ x: metricsTableWidth }}
         />
       ),
     },
@@ -408,7 +437,22 @@ const EvaluationDetail: React.FC = () => {
         </Descriptions.Item>
       </Descriptions>
 
-      {evaluation?.status === 'completed' && <Tabs items={tabItems} />}
+      {evaluation?.status === 'completed' ? (
+        <Tabs items={tabItems} />
+      ) : (
+        <Alert
+          type={evaluation?.status === 'failed' ? 'error' : 'info'}
+          showIcon
+          message={NON_COMPLETED_HINT[evaluation?.status || ''] || '该评估尚未完成'}
+          // 失败原因后端一直存着（/status 接口有返回），只是详情响应里没带出来，
+          // 之前这里整块空白，用户点进失败任务却看不到任何失败原因
+          description={
+            evaluation?.status === 'failed'
+              ? (evaluation.error || '评估失败，但没有记录失败原因，请到后端日志查看')
+              : undefined
+          }
+        />
+      )}
 
       <Modal
         title="重试评估任务"
