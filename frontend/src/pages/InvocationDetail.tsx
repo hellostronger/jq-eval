@@ -377,7 +377,11 @@ const InvocationDetail: React.FC = () => {
           showSizeChanger: true,
           showTotal: (t) => `共 ${t} 条`,
         }}
-        scroll={{ x: 'max-content' }}
+        // 必须是具体数值，不能用 'max-content'：max-content 会让表格按内容自然宽度
+        // 撑开，长答案把表拉到 4000px 以上，各列的 ellipsis 形同虚设，
+        // 「答案」列被挤到屏幕外，横向要拖两屏半才看得全。
+        // 这里的数值 = 各列 width 之和（含 rowSelection 勾选列约 40px）。
+        scroll={{ x: 1390 }}
       />
 
       <Modal
