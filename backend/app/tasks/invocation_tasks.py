@@ -124,6 +124,19 @@ async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, 
                     # 获取原始问题
                     qa_record = qa_map.get(inv_result.qa_record_id)
                     if not qa_record:
+                        # 旧结果已被删除，若直接跳过，这条 QA 就会从批次里凭空消失：
+                        # 成功+失败永远凑不满 total，进度条卡住且再也无法重试。
+                        # 补一条写明原因的失败记录，保证"每条 QA 都有结果"。
+                        db.add(
+                            InvocationResult(
+                                batch_id=batch_id,
+                                qa_record_id=inv_result.qa_record_id,
+                                rag_system_id=rag_system.id,
+                                question=inv_result.question,
+                                status="failed",
+                                error="问题记录已不存在，无法重试",
+                            )
+                        )
                         fail_count += 1
                         continue
 

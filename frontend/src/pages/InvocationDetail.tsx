@@ -90,14 +90,16 @@ const InvocationDetail: React.FC = () => {
     [id, page, statusFilter],
   )
 
+  // 失败也要刷新：否则提示一闪而过、页面毫无变化，用户以为"点了没反应"
   const handleRetryAllFailed = async () => {
     if (!id) return
     try {
       const res = await retryInvocationBatch(id)
       message.success(`重试任务已启动，将重试 ${res.retry_count} 条失败记录`)
-      fetchData()
     } catch (e) {
-      // 错误已处理
+      // 错误提示已由响应拦截器统一弹出
+    } finally {
+      fetchData()
     }
   }
 
@@ -107,9 +109,10 @@ const InvocationDetail: React.FC = () => {
       await retryInvocationBatch(id, selectedRowKeys as string[])
       message.success(`重试任务已启动，将重试 ${selectedRowKeys.length} 条记录`)
       setSelectedRowKeys([])
-      fetchData()
     } catch (e) {
-      // 错误已处理
+      // 错误提示已由响应拦截器统一弹出
+    } finally {
+      fetchData()
     }
   }
 
@@ -118,9 +121,10 @@ const InvocationDetail: React.FC = () => {
     try {
       await retrySingleResult(id, resultId)
       message.success('重试任务已启动')
-      fetchData()
     } catch (e) {
-      // 错误已处理
+      // 错误提示已由响应拦截器统一弹出
+    } finally {
+      fetchData()
     }
   }
 

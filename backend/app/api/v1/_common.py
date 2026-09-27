@@ -62,6 +62,30 @@ async def commit_delete(db: AsyncSession, referenced_detail: str):
         raise HTTPException(status_code=400, detail=referenced_detail)
 
 
+def batch_in_flight(batch) -> bool:
+    """调用批次是否真的还在执行中。
+
+    不能只看 ``status == "running"``：任务被 worker 丢掉、进程被杀、或重试任务
+    在置 running 之后中途夭折，状态就会永久停在 running。此时若还拿它当
+    "正在执行中"，重试/删除会被一直挡掉，用户再也点不动，批次里的失败记录
+    永远重试不了（实际遇到过：14 条全部已有结果、completed_at 也已写入，
+    status 却是 running）。
+
+    判据是"还有没有没跑完的条目"：total>0 且 成功+失败 >= total 说明每条 QA
+    都已有结果，没有任何待办，此时的 running 是不实的。
+    total 未知（<=0）时保守按在跑处理。
+    """
+    if getattr(batch, "status", None) != "running":
+        return False
+    total = getattr(batch, "total_count", 0) or 0
+    if total <= 0:
+        return True
+    done = (getattr(batch, "completed_count", 0) or 0) + (
+        getattr(batch, "failed_count", 0) or 0
+    )
+    return done < total
+
+
 async def start_task(
     db: AsyncSession,
     obj,

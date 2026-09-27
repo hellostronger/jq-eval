@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from ...core.database import get_db
-from ._common import get_or_404, start_task
+from ._common import get_or_404, start_task, batch_in_flight
 from ...core.utc_datetime import UTCDatetime
 from ...models import InvocationBatch, InvocationResult, Dataset, QARecord, RAGSystem
 
@@ -134,7 +134,7 @@ async def run_invocation_batch(
     """执行调用批次"""
     batch = await get_or_404(db, InvocationBatch, batch_id, "调用批次不存在")
 
-    if batch.status == "running":
+    if batch_in_flight(batch):
         raise HTTPException(status_code=400, detail="调用批次正在执行中")
 
     # 置运行中并派发；broker 不可达时状态自动回滚
@@ -157,7 +157,7 @@ async def retry_invocation_batch(
     """重试调用批次（支持重试全部失败或指定条目）"""
     batch = await get_or_404(db, InvocationBatch, batch_id, "调用批次不存在")
 
-    if batch.status == "running":
+    if batch_in_flight(batch):
         raise HTTPException(status_code=400, detail="调用批次正在执行中，无法重试")
 
     # 确定要重试的结果
@@ -205,7 +205,7 @@ async def retry_single_result(
     """重试单条调用结果"""
     batch = await get_or_404(db, InvocationBatch, batch_id, "调用批次不存在")
 
-    if batch.status == "running":
+    if batch_in_flight(batch):
         raise HTTPException(status_code=400, detail="调用批次正在执行中，无法重试")
 
     result = await db.execute(
@@ -313,7 +313,7 @@ async def delete_invocation_batch(
     """删除调用批次"""
     batch = await get_or_404(db, InvocationBatch, batch_id, "调用批次不存在")
 
-    if batch.status == "running":
+    if batch_in_flight(batch):
         raise HTTPException(status_code=400, detail="调用批次正在执行中，无法删除")
 
     await db.delete(batch)
