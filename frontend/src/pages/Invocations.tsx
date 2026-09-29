@@ -62,13 +62,19 @@ const Invocations: React.FC = () => {
     }
   }
 
+  // 派发后立刻刷新会读回旧状态（Celery 尚未把批次置为 running），
+  // 轮询条件不成立，进度永远停在原地。本地先乐观标记，真实状态交给轮询回填。
+  const markRunning = (batchId: string) =>
+    setBatches((prev) => prev.map((b) => (b.id === batchId ? { ...b, status: 'running' } : b)))
+
   const handleRunBatch = async (batch: InvocationBatch) => {
     try {
       await runInvocationBatch(batch.id)
       message.success('调用批次已启动')
-      fetchData()
+      markRunning(batch.id)
     } catch (e) {
       // 错误已在拦截器处理
+      fetchData()
     }
   }
 
@@ -76,9 +82,10 @@ const Invocations: React.FC = () => {
     try {
       const res = await retryInvocationBatch(batch.id)
       message.success(`重试任务已启动，将重试 ${res.retry_count || batch.failed_count} 条失败记录`)
-      fetchData()
+      markRunning(batch.id)
     } catch (e) {
       // 错误已在拦截器处理
+      fetchData()
     }
   }
 

@@ -90,15 +90,27 @@ const InvocationDetail: React.FC = () => {
     [id, page, statusFilter],
   )
 
-  // 失败也要刷新：否则提示一闪而过、页面毫无变化，用户以为"点了没反应"
+  // 任务派发只写 Redis 队列，真正把批次置为 running 要等 Celery 真正开始执行
+  // （往往数秒之后）。派发后立刻 fetchData 会读回旧的 completed，
+  // 轮询条件永不成立，失败行就一直停在"失败"，看着像"点了没反应"。
+  // 因此本地先乐观置为 running 启动轮询，真实状态由轮询回填。
+  const markRunning = () => setBatch((prev) => (prev ? { ...prev, status: 'running' } : prev))
+
   const handleRetryAllFailed = async () => {
     if (!id) return
     try {
       const res = await retryInvocationBatch(id)
+      // retry_count=0 表示没有可重试记录（如失败项刚被别人重跑完），
+      // 此时任务根本没派发，别把状态闪成 running 再跳回 completed
+      if (!res.retry_count) {
+        message.info('没有需要重试的记录')
+        fetchData()
+        return
+      }
       message.success(`重试任务已启动，将重试 ${res.retry_count} 条失败记录`)
+      markRunning()
     } catch (e) {
       // 错误提示已由响应拦截器统一弹出
-    } finally {
       fetchData()
     }
   }
@@ -109,9 +121,9 @@ const InvocationDetail: React.FC = () => {
       await retryInvocationBatch(id, selectedRowKeys as string[])
       message.success(`重试任务已启动，将重试 ${selectedRowKeys.length} 条记录`)
       setSelectedRowKeys([])
+      markRunning()
     } catch (e) {
       // 错误提示已由响应拦截器统一弹出
-    } finally {
       fetchData()
     }
   }
@@ -121,9 +133,9 @@ const InvocationDetail: React.FC = () => {
     try {
       await retrySingleResult(id, resultId)
       message.success('重试任务已启动')
+      markRunning()
     } catch (e) {
       // 错误提示已由响应拦截器统一弹出
-    } finally {
       fetchData()
     }
   }
