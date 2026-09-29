@@ -286,8 +286,20 @@ const Models: React.FC = () => {
         onCancel={() => setModalVisible(false)}
         onOk={saveModel}
         confirmLoading={saving}
+        width={720}
+        styles={{ body: { maxHeight: '65vh', overflowY: 'auto' } }}
       >
-        <Form form={form} labelCol={{ span: 6 }}>
+        {/* 默认 Modal 宽 520px 配 labelCol span 6 只剩 ~130px 给标签，
+            "请求超时(秒)"/"最大输入长度"/"视觉模型(VLM)" 等长标签会挤压换行、
+            与控件错位。加宽弹窗 + labelWrap 让标签折行而非溢出，
+            wrapperCol flex:1 保证不同控件右边缘对齐。 */}
+        <Form
+          form={form}
+          layout="horizontal"
+          labelCol={{ span: 7, style: { textAlign: 'right' } }}
+          wrapperCol={{ flex: '1 1 0' }}
+          labelWrap
+        >
           <Form.Item name="name" label="名称" rules={[{ required: true }]}>
             <Input placeholder="模型配置名称" />
           </Form.Item>
@@ -299,7 +311,7 @@ const Models: React.FC = () => {
               { value: 'doc_parser', label: '文档解析' },
             ]} />
           </Form.Item>
-          <Form.Item shouldUpdate={(prev, curr) => prev.model_type !== curr.model_type}>
+          <Form.Item noStyle shouldUpdate={(prev, curr) => prev.model_type !== curr.model_type}>
             {({ getFieldValue }) => {
               const modelType = getFieldValue('model_type')
               if (modelType === 'doc_parser') {
@@ -328,7 +340,7 @@ const Models: React.FC = () => {
               )
             }}
           </Form.Item>
-          <Form.Item shouldUpdate={(prev, curr) => prev.model_type !== curr.model_type}>
+          <Form.Item noStyle shouldUpdate={(prev, curr) => prev.model_type !== curr.model_type}>
             {({ getFieldValue }) => {
               const modelType = getFieldValue('model_type')
               if (modelType !== 'doc_parser') return null
@@ -371,7 +383,7 @@ const Models: React.FC = () => {
               )
             }}
           </Form.Item>
-          <Form.Item shouldUpdate={(prev, curr) => prev.model_type !== curr.model_type}>
+          <Form.Item noStyle shouldUpdate={(prev, curr) => prev.model_type !== curr.model_type}>
             {({ getFieldValue }) => {
               // 文档解析服务没有模型名称/API地址/API Key（在上方单独渲染）
               if (getFieldValue('model_type') === 'doc_parser') return null
@@ -390,31 +402,31 @@ const Models: React.FC = () => {
               )
             }}
           </Form.Item>
-          <Form.Item shouldUpdate={(prev, curr) => prev.model_type !== curr.model_type}>
+          <Form.Item noStyle shouldUpdate={(prev, curr) => prev.model_type !== curr.model_type}>
             {({ getFieldValue }) => {
               const modelType = getFieldValue('model_type')
               if (modelType === 'llm') {
                 return (
                   <>
                     <Form.Item name="temperature" label="Temperature">
-                      <Slider min={0} max={2} step={0.1} />
+                      <Slider min={0} max={2} step={0.1} style={{ margin: '8px 0' }} />
                     </Form.Item>
                     <Form.Item name="max_tokens" label="Max Tokens">
-                      <InputNumber min={100} max={32000} />
+                      <InputNumber min={100} max={32000} style={{ width: '100%' }} />
                     </Form.Item>
                     <Form.Item
                       name="timeout"
                       label="请求超时(秒)"
                       tooltip="出站请求超时。留空用默认 300s。思考型模型（如 glm / o 系列）单次生成常远超 300s，需要在此调大"
                     >
-                      <InputNumber min={1} max={3600} placeholder="默认 300" />
+                      <InputNumber min={1} max={3600} placeholder="默认 300" style={{ width: '100%' }} />
                     </Form.Item>
                     <Form.Item
                       name="max_retries"
                       label="最大重试次数"
                       tooltip="失败后自动重试的次数。留空用默认 2"
                     >
-                      <InputNumber min={0} max={10} placeholder="默认 2" />
+                      <InputNumber min={0} max={10} placeholder="默认 2" style={{ width: '100%' }} />
                     </Form.Item>
                     <Form.Item
                       name="is_vlm"
@@ -431,10 +443,10 @@ const Models: React.FC = () => {
                 return (
                   <>
                     <Form.Item name="dimension" label="向量维度">
-                      <InputNumber min={256} max={4096} />
+                      <InputNumber min={256} max={4096} style={{ width: '100%' }} />
                     </Form.Item>
                     <Form.Item name="max_input_length" label="最大输入长度">
-                      <InputNumber min={512} max={8192} />
+                      <InputNumber min={512} max={8192} style={{ width: '100%' }} />
                     </Form.Item>
                   </>
                 )
@@ -465,7 +477,9 @@ const Models: React.FC = () => {
             {({ getFieldValue }) => {
               if (getFieldValue('model_type') === 'doc_parser' || !getFieldValue('extra_params_text')) return null
               return (
-                <Form.Item label=" " colon={false}>
+                // 提示条横跨整个弹窗宽度，不用 label=" " 占位（那会在标签列
+                // 留一个空格，与上方字段的视觉基线对不齐）
+                <Form.Item noStyle>
                   <Alert
                     type="info"
                     showIcon
