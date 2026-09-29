@@ -57,6 +57,22 @@ class DirectLLMAdapter(BaseRAGAdapter):
         """查询LLM"""
         start_time = time.time()
 
+        # 空 Key 会拼出 `Authorization: Bearer `，httpx 抛的是
+        # "Illegal header value b'Bearer '"，完全看不出该去改哪个模型配置。
+        # 提前拦截并给出可定位的提示。
+        if not (self.api_key or "").strip():
+            return RAGResponse(
+                answer="",
+                contexts=contexts or [],
+                response_time=time.time() - start_time,
+                error=(
+                    f"API Key 未配置：模型「{self.model_name or '未命名'}」"
+                    f"（{self.api_endpoint or '未配置地址'}）缺少 API Key，"
+                    "请在「模型配置」中补全后重试。"
+                ),
+                success=False,
+            )
+
         try:
             # 构建消息
             messages = []
@@ -153,6 +169,19 @@ class DirectLLMAdapter(BaseRAGAdapter):
         """流式查询LLM，返回首token延迟"""
         start_time = time.time()
         first_token_time = None
+
+        if not (self.api_key or "").strip():
+            return RAGResponse(
+                answer="",
+                contexts=contexts or [],
+                response_time=time.time() - start_time,
+                error=(
+                    f"API Key 未配置：模型「{self.model_name or '未命名'}」"
+                    f"（{self.api_endpoint or '未配置地址'}）缺少 API Key，"
+                    "请在「模型配置」中补全后重试。"
+                ),
+                success=False,
+            )
 
         try:
             # 构建消息

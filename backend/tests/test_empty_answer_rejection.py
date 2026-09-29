@@ -248,6 +248,75 @@ async def test_upstream_gateway_error_says_it_is_not_a_client_timeout(monkeypatc
     assert "无效" in resp.error, "应明确指出调大 llm_timeout 无效"
 
 
+def _keyless_adapter() -> DirectLLMAdapter:
+    """模型配置里没填 API Key——线上真实状态（模型「glm-5.3-flash」）"""
+    return DirectLLMAdapter({
+        "api_key": "",
+        "api_endpoint": "http://101.43.25.101:3000/v1",
+        "model_name": "glm-5.3-flash",
+        "provider": "openai",
+    })
+
+
+@pytest.mark.asyncio
+async def test_missing_api_key_reports_which_model_to_fix():
+    """空 Key 必须报出模型名与地址，不能把 httpx 的原始天书透给用户
+
+    线上表现：API Key 没填，拼出的头是 `Authorization: Bearer `，
+    httpx 抛 `Illegal header value b'Bearer '`——用户完全看不出
+    该去「模型配置」里改哪一条，只能一次次空重试。
+    """
+    resp = await _keyless_adapter().query("任意问题")
+
+    assert resp.success is False, "空 Key 必然调用失败"
+    assert resp.answer == ""
+    assert "API Key" in resp.error
+    assert "glm-5.3-flash" in resp.error, "必须点名是哪个模型"
+    assert "101.43.25.101:3000" in resp.error, "必须给出地址以便定位"
+    assert "Illegal header value" not in resp.error, "不能把 httpx 天书透出"
+
+
+@pytest.mark.asyncio
+async def test_missing_api_key_also_guarded_in_stream():
+    """query_stream 有独立实现，空 Key 守卫必须两处都钉死
+
+    流式路径若漏了守卫，聊天页会抛出未捕获异常而不是给出可读提示。
+    """
+    resp = await _keyless_adapter().query_stream("任意问题")
+
+    assert resp.success is False
+    assert "API Key" in resp.error
+    assert "glm-5.3-flash" in resp.error
+
+
+@pytest.mark.asyncio
+async def test_whitespace_api_key_treated_as_missing(monkeypatch):
+    """全空格 Key 等同未配置——否则照样拼出非法头"""
+    adapter = DirectLLMAdapter({
+        "api_key": "   ",
+        "api_endpoint": "http://llm.test/v1",
+        "model_name": "thinking-model",
+        "provider": "openai",
+    })
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("空 Key 不应发出任何请求")
+
+    transport = httpx.MockTransport(_handler)
+    orig_client = httpx.AsyncClient
+
+    def _patched(*args, **kwargs):
+        kwargs["transport"] = transport
+        return orig_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _patched)
+
+    resp = await adapter.query("任意问题")
+
+    assert resp.success is False
+    assert "API Key" in resp.error
+
+
 @pytest.mark.asyncio
 async def test_client_error_status_keeps_original_message(monkeypatch):
     """4xx 是请求本身的问题（key/参数），保留原始信息而不是套用网关文案"""
