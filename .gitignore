@@ -37,6 +37,10 @@ env/
 .env
 .env.local
 *.local
+# 备份的环境文件（如 .env.local-middleware.bak）含数据库口令与第三方 API Key，
+# 上面的规则盖不住 .bak 后缀
+.env.*.bak
+.env.*.backup
 
 # Logs
 *.log
@@ -69,6 +73,12 @@ Thumbs.db
 *.temp
 tmp/
 temp/
+# 调试截图（tmp/ 只匹配目录，盖不住 tmp_xxx.jpg 这类落在仓库根的文件）
+tmp_*.jpg
+tmp_*.jpeg
+tmp_*.png
+tmp_*.gif
+tmp_*.webp
 
 # Reference files
 reference/
