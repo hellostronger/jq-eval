@@ -1,6 +1,7 @@
-import React, { Suspense, lazy } from 'react'
+import React, { Suspense, lazy, useState } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Layout, Menu, Spin } from 'antd'
+import type { MenuProps } from 'antd'
 import {
   DashboardOutlined,
   SettingOutlined,
@@ -18,6 +19,12 @@ import {
 } from '@ant-design/icons'
 import Dashboard from './pages/Dashboard'
 import ErrorBoundary from './components/ErrorBoundary'
+import {
+  SUBMENU_DATA_TYPES,
+  TRAINING_DATA_BASE_PATH,
+  getDataTypeOption,
+  getDataTypePath,
+} from './constants/trainingData'
 
 // 路由级代码分割：各页面按需加载，首屏只带仪表盘
 const Models = lazy(() => import('./pages/Models'))
@@ -41,6 +48,9 @@ const VibeAgent = lazy(() => import('./pages/VibeAgent'))
 
 const { Sider, Content } = Layout
 
+// 子菜单 key 不能与子项路径同名，否则父级和「全部类型」会同时高亮
+const TRAINING_DATA_MENU_KEY = 'training-data-evaluations-menu'
+
 // 页面出错时的区域名称（用于错误兜底提示）
 const PAGE_LABELS: Record<string, string> = {
   '/dashboard': '仪表盘',
@@ -53,15 +63,18 @@ const PAGE_LABELS: Record<string, string> = {
   '/load-tests': '性能压测',
   '/evaluations': '评估任务',
   '/evaluations/compare': '评估对比',
-  '/training-data-evaluations': '训练数据评估',
+  [TRAINING_DATA_BASE_PATH]: '训练数据评估',
   '/metrics': '指标市场',
   '/data-sources': '数据源',
   '/hot-news': '热点新闻',
   '/prompts': 'Prompt管理',
   '/vibe-agent': 'VibeAgent',
 }
+SUBMENU_DATA_TYPES.forEach(t => {
+  PAGE_LABELS[getDataTypePath(t)] = `${getDataTypeOption(t)?.label ?? t}评估`
+})
 
-const menuItems = [
+const menuItems: MenuProps['items'] = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘' },
   { key: '/models', icon: <SettingOutlined />, label: '模型配置' },
   { key: '/model-logs', icon: <HistoryOutlined />, label: '模型日志' },
@@ -71,7 +84,18 @@ const menuItems = [
   { key: '/invocations', icon: <ThunderboltOutlined />, label: '调用批次' },
   { key: '/load-tests', icon: <ExperimentOutlined />, label: '性能压测' },
   { key: '/evaluations', icon: <LineChartOutlined />, label: '评估任务' },
-  { key: '/training-data-evaluations', icon: <ExperimentOutlined />, label: '训练数据评估' },
+  {
+    key: TRAINING_DATA_MENU_KEY,
+    icon: <ExperimentOutlined />,
+    label: '训练数据评估',
+    children: [
+      { key: TRAINING_DATA_BASE_PATH, label: '全部类型' },
+      ...SUBMENU_DATA_TYPES.map(t => ({
+        key: getDataTypePath(t),
+        label: getDataTypeOption(t)?.menuLabel ?? t,
+      })),
+    ],
+  },
   { key: '/metrics', icon: <BarChartOutlined />, label: '指标市场' },
   { key: '/data-sources', icon: <DatabaseOutlined />, label: '数据源' },
   { key: '/hot-news', icon: <FireOutlined />, label: '热点新闻' },
@@ -82,6 +106,8 @@ const menuItems = [
 const App: React.FC = () => {
   const location = useLocation()
   const navigate = useNavigate()
+  // 受控展开态：子菜单默认展开，进入子页面后不会自动收起
+  const [openKeys, setOpenKeys] = useState<string[]>([TRAINING_DATA_MENU_KEY])
 
   return (
     <Layout style={{ height: '100vh' }}>
@@ -95,6 +121,8 @@ const App: React.FC = () => {
           mode="inline"
           selectedKeys={[location.pathname]}
           items={menuItems}
+          openKeys={openKeys}
+          onOpenChange={keys => setOpenKeys(keys as string[])}
           onClick={({ key }) => navigate(key)}
           style={{ background: '#001529' }}
         />
@@ -123,7 +151,12 @@ const App: React.FC = () => {
               <Route path="/evaluations" element={<Evaluations />} />
               <Route path="/evaluations/compare" element={<EvaluationCompare />} />
               <Route path="/evaluations/:id" element={<EvaluationDetail />} />
-              <Route path="/training-data-evaluations" element={<TrainingDataEvals />} />
+              <Route path={TRAINING_DATA_BASE_PATH} element={<TrainingDataEvals />} />
+              {/* 训练数据评估按类型拆分子页面：路由显式枚举，非法路径落到「全部类型」之外的空 Routes */}
+              <Route path="/training-data-evaluations/embedding" element={<TrainingDataEvals dataType="embedding" />} />
+              <Route path="/training-data-evaluations/reranker" element={<TrainingDataEvals dataType="reranker" />} />
+              <Route path="/training-data-evaluations/llm" element={<TrainingDataEvals dataType="llm" />} />
+              <Route path="/training-data-evaluations/vlm" element={<TrainingDataEvals dataType="vlm" />} />
               <Route path="/metrics" element={<Metrics />} />
               <Route path="/data-sources" element={<DataSources />} />
               <Route path="/hot-news" element={<HotNews />} />

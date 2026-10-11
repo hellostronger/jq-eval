@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   Card, Table, Button, Tag, Modal, Form, Input, InputNumber, Select, message, Space,
   Progress, Descriptions, Tabs, Tooltip, Divider, Row, Col, Statistic, Alert
@@ -13,25 +13,21 @@ import {
   deleteTrainingDataEval, getTrainingDataEvalStatus, getAvailableTrainingDataMetrics,
   getTrainingDataEvalResults, getDatasets, getModels
 } from '@/api'
-import type { TrainingDataEval, Dataset, TrainingDataMetricDefinition, TrainingDataEvalResult, ModelConfig } from '@/types'
+import type { TrainingDataEval, Dataset, TrainingDataMetricDefinition, TrainingDataEvalResult, ModelConfig, TrainingDataType } from '@/types'
 import type { TrainingDataEvalCreateParams } from '@/api'
 import { usePollingWhenRunning } from '@/hooks/usePollingWhenRunning'
+import { DATA_TYPE_OPTIONS, getDataTypeOption } from '@/constants/trainingData'
 
 const { Option } = Select
 const { TabPane } = Tabs
 const { TextArea } = Input
 
-const DATA_TYPE_OPTIONS = [
-  { value: 'llm', label: '大模型训练数据', color: 'blue' },
-  { value: 'embedding', label: 'Embedding训练数据', color: 'green' },
-  { value: 'reranker', label: 'Reranker训练数据', color: 'purple' },
-  { value: 'reward_model', label: '奖励模型训练数据', color: 'orange' },
-  { value: 'dpo', label: 'DPO训练数据', color: 'cyan' },
-  { value: 'vlm', label: 'VLM训练数据', color: 'magenta' },
-  { value: 'vla', label: 'VLA训练数据', color: 'red' },
-]
+interface Props {
+  /** 传入时页面锁定该训练数据类型（侧边栏子菜单进入的场景），不再显示类型下拉 */
+  dataType?: TrainingDataType
+}
 
-const TrainingDataEvals: React.FC = () => {
+const TrainingDataEvals: React.FC<Props> = ({ dataType }) => {
   const [evaluations, setEvaluations] = useState<TrainingDataEval[]>([])
   const [datasets, setDatasets] = useState<Dataset[]>([])
   const [llmModels, setLlmModels] = useState<ModelConfig[]>([])
@@ -47,12 +43,14 @@ const TrainingDataEvals: React.FC = () => {
   const [resultsPage, setResultsPage] = useState(1)
   const [resultsLoading, setResultsLoading] = useState(false)
   const [form] = Form.useForm()
+  const modelsLoadedRef = useRef(false)
 
   const fetchData = async () => {
     setLoading(true)
     try {
       const [evalData, datasetData] = await Promise.all([
-        getTrainingDataEvals().catch(() => []),
+        // 子页面按类型过滤；「全部类型」页不传 data_type
+        getTrainingDataEvals(dataType ? { data_type: dataType } : undefined).catch(() => []),
         getDatasets().catch(() => [])
       ])
       setEvaluations(evalData)
@@ -66,7 +64,7 @@ const TrainingDataEvals: React.FC = () => {
 
   useEffect(() => {
     fetchData()
-  }, [])
+  }, [dataType])
 
   // 轮询运行中的任务：有任务运行时持续检查状态，任一结束即刷新列表
   usePollingWhenRunning(
@@ -96,32 +94,45 @@ const TrainingDataEvals: React.FC = () => {
   }
 
   // 打开创建弹窗时加载数据集和评估用模型列表
+  // 不能用 datasets.length 给整个函数做短路：挂载时 fetchData() 已经把 datasets 填上了，
+  // 短路之后 getModels 永远不执行，依赖 LLM/Embedding 的指标就没有打分模型可选
   const loadBaseOptions = async () => {
-    if (datasets.length > 0) return
+    if (datasets.length === 0) {
+      getDatasets().catch(() => []).then(setDatasets)
+    }
+    // 模型下拉单独做懒加载：模型数量少且变动不频繁，避免每次开弹窗都打两次接口
+    if (modelsLoadedRef.current) return
+    modelsLoadedRef.current = true
     try {
-      const [datasetData, llmData, embeddingData] = await Promise.all([
-        getDatasets().catch(() => []),
+      const [llmData, embeddingData] = await Promise.all([
         getModels('llm').catch(() => []),
         getModels('embedding').catch(() => []),
       ])
-      setDatasets(datasetData)
       setLlmModels(llmData)
       setEmbeddingModels(embeddingData)
     } catch (e) {
-      // 错误已在拦截器处理
+      // 拉取失败要允许下次重试，否则模型列表会永久为空
+      modelsLoadedRef.current = false
     }
   }
 
 
-  const showCreateDialog = () => {
+  const showCreateDialog = async () => {
     form.resetFields()
-    form.setFieldsValue({
+    const initialValues: Record<string, any> = {
       config: { batch_size: 10 },
       metrics: []
-    })
+    }
+    // 子页面锁定类型：直接带上 data_type 并预加载该类型指标，省去一次手动选择
+    if (dataType) initialValues.data_type = dataType
+    form.setFieldsValue(initialValues)
     setAvailableMetrics([])
     loadBaseOptions()
     setModalVisible(true)
+    if (dataType) {
+      const metricList = await fetchMetrics(dataType)
+      form.setFieldsValue({ metrics: metricList.map(m => m.name) })
+    }
   }
 
   const handleDataTypeChange = async (value: string) => {
@@ -151,7 +162,8 @@ const TrainingDataEvals: React.FC = () => {
         name: values.name,
         description: values.description,
         dataset_id: values.dataset_id,
-        data_type: values.data_type,
+        // 子页面已锁定类型，以 dataType 为准，避免表单被篡改串类型
+        data_type: dataType || values.data_type,
         config: values.config || { batch_size: 10 },
         metrics: values.metrics,
         metric_configs: metricConfigs,
@@ -233,7 +245,7 @@ const TrainingDataEvals: React.FC = () => {
   }
 
   const getDataTypeTag = (dataType: string) => {
-    const option = DATA_TYPE_OPTIONS.find(o => o.value === dataType)
+    const option = getDataTypeOption(dataType)
     return (
       <Tag color={option?.color || 'default'}>
         {option?.label || dataType}
@@ -241,7 +253,9 @@ const TrainingDataEvals: React.FC = () => {
     )
   }
 
-  const columns = [
+  const currentTypeOption = dataType ? getDataTypeOption(dataType) : undefined
+
+  const allColumns = [
     {
       title: '名称',
       dataIndex: 'name',
@@ -350,15 +364,29 @@ const TrainingDataEvals: React.FC = () => {
     }
   ]
 
+  // 子页面已锁定数据类型，整列都是同一个值，去掉减少噪声
+  const columns = dataType
+    ? allColumns.filter(c => c.key !== 'data_type')
+    : allColumns
+
   return (
     <Card
-      title="训练数据评估"
+      title={currentTypeOption ? `${currentTypeOption.label}评估` : '训练数据评估'}
       extra={
         <Button type="primary" icon={<PlusOutlined />} onClick={showCreateDialog}>
           新建评估
         </Button>
       }
     >
+      {currentTypeOption && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={currentTypeOption.description}
+        />
+      )}
+
       <Table
         columns={columns}
         dataSource={evaluations}
@@ -369,7 +397,7 @@ const TrainingDataEvals: React.FC = () => {
 
       {/* 创建评估模态框 */}
       <Modal
-        title="新建训练数据评估"
+        title={currentTypeOption ? `新建${currentTypeOption.label}评估` : '新建训练数据评估'}
         open={modalVisible}
         onOk={saveEvaluation}
         onCancel={() => setModalVisible(false)}
@@ -393,10 +421,12 @@ const TrainingDataEvals: React.FC = () => {
             name="data_type"
             label="训练数据类型"
             rules={[{ required: true, message: '请选择数据类型' }]}
+            extra={dataType ? '当前页面已锁定该数据类型' : undefined}
           >
             <Select
               placeholder="选择数据类型"
-              options={DATA_TYPE_OPTIONS}
+              disabled={!!dataType}
+              options={dataType ? DATA_TYPE_OPTIONS.filter(o => o.value === dataType) : DATA_TYPE_OPTIONS}
               onChange={handleDataTypeChange}
             />
           </Form.Item>
@@ -427,7 +457,12 @@ const TrainingDataEvals: React.FC = () => {
                 placeholder="选择评估用 LLM"
                 showSearch
                 optionFilterProp="label"
-                options={llmModels.map(m => ({ value: m.id, label: m.name }))}
+                options={llmModels.map(m => ({
+                  value: m.id,
+                  label: m.name,
+                  // 非 active 的模型选了也会在任务里调用失败，不如直接置灰
+                  disabled: m.status !== 'active',
+                }))}
               />
             </Form.Item>
           )}
@@ -442,7 +477,11 @@ const TrainingDataEvals: React.FC = () => {
                 placeholder="选择评估用 Embedding"
                 showSearch
                 optionFilterProp="label"
-                options={embeddingModels.map(m => ({ value: m.id, label: m.name }))}
+                options={embeddingModels.map(m => ({
+                  value: m.id,
+                  label: m.name,
+                  disabled: m.status !== 'active',
+                }))}
               />
             </Form.Item>
           )}
