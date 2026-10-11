@@ -259,6 +259,14 @@ def _create_celery_engine():
             connect_args={
                 "timeout": 10,  # 建连超时（秒）
                 "command_timeout": None,  # 语句执行不额外限时（长事务由任务层控制）
+                # tcp 保活：单条评估动辄十几分钟，连接全程空闲，
+                # 云端 PG / 网关会把它悄悄掐掉，收尾落库抛
+                # ConnectionDoesNotExistError（分数全算完却一条存不进去）。
+                # 30s 空闲后开始探活，确保路径上的中间设备不丢弃这条长连接
+                "keepalives": 1,
+                "keepalives_idle": 30,
+                "keepalives_interval": 10,
+                "keepalives_count": 3,
                 "server_settings": {
                     "application_name": "jq_eval_celery",
                 },

@@ -4,6 +4,7 @@ from typing import Dict, List, Any
 from datetime import datetime
 import logging
 from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError, InterfaceError, PendingRollbackError
 from uuid import UUID
 
 from app.core.celery_app import celery_app
@@ -23,6 +24,25 @@ from app.services.training_data.engine import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def _commit_safely(db, attempts: int = 2) -> None:
+    """提交结果，连接被掐断时换新连接重试一次
+
+    评估要跑十几分钟，其间连接一直空闲，云端 PG/网关会把连接悄悄掐掉，
+    表现是收尾 commit 抛 ConnectionDoesNotExistError——几百条样本的指标
+    分数全算完了却一条都存不进去。rollback 后 SQLAlchemy 会重新取出新连接，
+    同一批 pending 对象（expire_on_commit=False，属性值还在会话里）可以直接重放。
+    """
+    for attempt in range(attempts):
+        try:
+            await db.commit()
+            return
+        except (DBAPIError, InterfaceError, PendingRollbackError) as e:
+            if attempt == attempts - 1:
+                raise
+            logger.warning(f"提交时数据库连接失效，换新连接重试一次: {e}")
+            await db.rollback()
 
 
 class _LLMTextAdapter:
@@ -196,7 +216,20 @@ async def _run_training_data_eval(task, eval_id: UUID) -> Dict[str, Any]:
                 eval_data.append(eval_item)
 
             # 执行评估
-            progress_callback = make_progress_callback(task)
+            celery_progress = make_progress_callback(task)
+
+            # 进度同时落库：前端轮询的 /status 读的是 training_data_evals.progress，
+            # 只 update_state 的话页面从头到尾都是 0%，长任务看着像卡死
+            async def progress_callback(progress: float, current: int, total: int):
+                celery_progress(progress, current, total)
+                try:
+                    evaluation.progress = int(progress)
+                    evaluation.total_samples = total
+                    await db.commit()
+                except Exception as e:
+                    # 进度写失败不能拖垮评估本身，回滚后续批次继续跑
+                    logger.warning(f"进度落库失败: {e}")
+                    await db.rollback()
 
             results = await engine.evaluate_batch(
                 records=eval_data,
@@ -270,7 +303,7 @@ async def _run_training_data_eval(task, eval_id: UUID) -> Dict[str, Any]:
             evaluation.quality_distribution = summary.get("quality_distribution", {})
             evaluation.status = TrainingDataEvalStatus.COMPLETED
             evaluation.completed_at = datetime.utcnow()
-            await db.commit()
+            await _commit_safely(db)
 
             return {
                 "eval_id": str(eval_id),

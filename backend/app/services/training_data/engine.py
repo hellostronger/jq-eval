@@ -1,6 +1,7 @@
 # 训练数据评估引擎
 from typing import Dict, List, Any, Optional, Type
 import asyncio
+import inspect
 import numpy as np
 
 from .base import BaseTrainingDataMetric, TrainingDataMetricResult
@@ -136,10 +137,13 @@ class TrainingDataMetricEngine:
             batch_results = await asyncio.gather(*batch_tasks)
             results.extend(batch_results)
 
-            # 进度回调
+            # 进度回调：兼容同步与协程两种回调（任务层需要 await 协程回调把进度落库）
             if progress_callback:
-                progress = min((i + batch_size) / total * 100, 100)
-                progress_callback(progress, i + len(batch), total)
+                # 用实际处理条数而不是 i + batch_size：最后一批不满时会把进度提前顶到 100%
+                progress = min((i + len(batch)) / total * 100, 100)
+                ret = progress_callback(progress, i + len(batch), total)
+                if inspect.isawaitable(ret):
+                    await ret
 
         return results
 
