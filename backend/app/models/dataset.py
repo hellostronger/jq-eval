@@ -32,6 +32,13 @@ class Dataset(BaseModel):
     invocation_batches = relationship("InvocationBatch", back_populates="dataset")
     snapshots = relationship("DatasetSnapshot", back_populates="dataset")
     training_data_evals = relationship("TrainingDataEval", back_populates="dataset")
+    # 训练数据画像：样本与画像随数据集级联删除
+    training_data_records = relationship(
+        "TrainingDataRecord", back_populates="dataset", cascade="all, delete-orphan"
+    )
+    profiles = relationship(
+        "TrainingDataProfile", back_populates="dataset", cascade="all, delete-orphan"
+    )
 
 
 class QARecord(BaseModel):

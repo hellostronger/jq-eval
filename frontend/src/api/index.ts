@@ -833,3 +833,72 @@ export const getAvailableTrainingDataMetrics = (dataType?: string) => {
     params: dataType ? { data_type: dataType } : undefined
   })
 }
+// ---------------------------------------------------------------------------
+// 训练数据画像 API
+// ---------------------------------------------------------------------------
+export interface TrainingDataProfileCreateParams {
+  dataset_id: string
+  name?: string
+  description?: string
+  llm_mode?: 'off' | 'sample' | 'full'
+  llm_model_id?: string
+  llm_sample_size?: number
+}
+
+export const getTrainingDataProfiles = (params?: { dataset_id?: string; status?: string }) => {
+  return request.get<import('@/types').TrainingDataProfile[]>('/training-data-profiles', { params })
+}
+
+export const createTrainingDataProfile = (data: TrainingDataProfileCreateParams) => {
+  return request.post<import('@/types').TrainingDataProfile>('/training-data-profiles', data)
+}
+
+export const getTrainingDataProfile = (id: string) => {
+  return request.get<import('@/types').TrainingDataProfile>(`/training-data-profiles/${id}`)
+}
+
+export const getTrainingDataProfileStatus = (id: string) => {
+  return request.get<{ profile_id: string; status: string; progress: number; total_samples: number; error?: string }>(
+    `/training-data-profiles/${id}/status`
+  )
+}
+
+export const runTrainingDataProfile = (
+  id: string,
+  body?: { llm_mode?: 'off' | 'sample' | 'full'; llm_model_id?: string; llm_sample_size?: number }
+) => {
+  return request.post<import('@/types').TrainingDataProfile>(`/training-data-profiles/${id}/run`, body ?? {})
+}
+
+export const deleteTrainingDataProfile = (id: string) => {
+  return request.delete(`/training-data-profiles/${id}`)
+}
+
+export const getTrainingDataProfileRecords = (
+  id: string,
+  params?: { skip?: number; limit?: number; format?: string; label?: string }
+) => {
+  return request.get<{ total: number; records: Array<Record<string, any>> }>(
+    `/training-data-profiles/${id}/records`,
+    { params }
+  )
+}
+
+export const getUltraDataSamples = () => {
+  return request.get<{ items: import('@/types').UltraDataSampleItem[]; total: number }>(
+    '/training-data-profiles/ultradata/samples'
+  )
+}
+
+export const importUltraDataSample = (data: {
+  sample: string
+  name?: string
+  llm_mode?: 'off' | 'sample' | 'full'
+  llm_model_id?: string
+  llm_sample_size?: number
+}) => {
+  return request.post<{ dataset_id: string; dataset_name: string; imported: number; profile: Record<string, any> }>(
+    '/training-data-profiles/ultradata/import',
+    data
+  )
+}

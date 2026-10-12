@@ -446,3 +446,109 @@ export interface TrainingDataMetricDefinition {
   default_threshold: number
   threshold_type: string
 }
+
+// ---------------------------------------------------------------------------
+// 训练数据画像
+// ---------------------------------------------------------------------------
+export interface TrainingDataProfile {
+  id: string
+  name: string
+  description?: string
+  dataset_id: string
+  source: string
+  format?: string
+  level?: string
+  tags: string[]
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  progress: number
+  error?: string
+  total_samples: number
+  unique_samples: number
+  duplicate_rate: number
+  sampled: boolean
+  overview?: {
+    total: number
+    unique: number
+    duplicate_count: number
+    duplicate_rate: number
+    char_length: { min: number; max: number; avg: number; p50: number; p90: number }
+    tokens: { total: number; avg: number }
+    avg_turns: number
+    scored_ratio: number
+    score_mean?: number
+  }
+  schema_profile?: Array<{
+    name: string
+    coverage: number
+    types: Record<string, number>
+    example?: string
+    values?: Array<{ value: string | number | boolean; count: number; ratio: number }>
+    numeric?: { min: number; max: number; mean: number }
+    text?: { avg_len: number; max_len: number }
+  }>
+  classification?: {
+    formats: Array<{ key: string; label: string; count: number; ratio: number }>
+    languages: Array<{ key: string; count: number; ratio: number }>
+    domains: Array<{ key: string; count: number; ratio: number }>
+    top_domains?: Array<{ key: string; count: number; ratio: number }>
+    length_buckets: Array<{ key: string; count: number }>
+    structure: { avg_turns: number; multi_turn_ratio: number; tool_call_ratio: number; thinking_ratio: number }
+    primary_format: string
+    primary_format_label: string
+    level: string
+    level_reason: string
+  }
+  quality?: {
+    score: number
+    grade: string
+    empty_rate: number
+    duplicate_rate: number
+    overlong_rate: number
+    too_short_rate: number
+    score_mean?: number
+    score_p50?: number
+    score_min?: number
+    score_max?: number
+    issues: string[]
+  }
+  samples?: Array<Record<string, any>>
+  summary?: string
+  llm_mode: 'off' | 'sample' | 'full'
+  llm_model_id?: string
+  llm_sample_size: number
+  llm_analysis?: {
+    mode?: string
+    status?: string
+    reason?: string
+    error?: string
+    what_is_it?: string
+    content_summary?: string
+    style_and_format?: string
+    quality_impression?: string
+    strengths?: string[]
+    weaknesses?: string[]
+    suggested_uses?: string[]
+    risks?: string[]
+    notes?: string
+    analyzed_records?: number
+    topic_counts?: Record<string, number>
+    quality_hist?: Record<string, number>
+    issues?: string[]
+    per_record?: Array<{ batch: number; idx?: number; topics: string[]; quality: number; issue?: string }>
+    truncated?: boolean
+  }
+  source_meta?: Record<string, any>
+  completed_at?: string
+  created_at?: string
+}
+
+export interface UltraDataSampleItem {
+  key: string
+  title: string
+  repo: string
+  level: string
+  description?: string
+  format?: string
+  available: boolean
+  count?: number
+}

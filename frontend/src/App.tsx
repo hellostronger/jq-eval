@@ -43,6 +43,7 @@ const HotNews = lazy(() => import('./pages/HotNews'))
 const LoadTests = lazy(() => import('./pages/LoadTests'))
 const OpenSourceDatasets = lazy(() => import('./pages/OpenSourceDatasets'))
 const TrainingDataEvals = lazy(() => import('./pages/TrainingDataEvals'))
+const TrainingDataProfiles = lazy(() => import('./pages/TrainingDataProfiles'))
 const Prompts = lazy(() => import('./pages/Prompts'))
 const VibeAgent = lazy(() => import('./pages/VibeAgent'))
 
@@ -64,6 +65,7 @@ const PAGE_LABELS: Record<string, string> = {
   '/evaluations': '评估任务',
   '/evaluations/compare': '评估对比',
   [TRAINING_DATA_BASE_PATH]: '训练数据评估',
+  '/training-data-profiles': '训练数据画像',
   '/metrics': '指标市场',
   '/data-sources': '数据源',
   '/hot-news': '热点新闻',
@@ -97,6 +99,7 @@ const menuItems: MenuProps['items'] = [
     ],
   },
   { key: '/metrics', icon: <BarChartOutlined />, label: '指标市场' },
+  { key: '/training-data-profiles', icon: <DatabaseOutlined />, label: '训练数据画像' },
   { key: '/data-sources', icon: <DatabaseOutlined />, label: '数据源' },
   { key: '/hot-news', icon: <FireOutlined />, label: '热点新闻' },
   { key: '/prompts', icon: <EditOutlined />, label: 'Prompt管理' },
@@ -157,6 +160,7 @@ const App: React.FC = () => {
               <Route path="/training-data-evaluations/reranker" element={<TrainingDataEvals dataType="reranker" />} />
               <Route path="/training-data-evaluations/llm" element={<TrainingDataEvals dataType="llm" />} />
               <Route path="/training-data-evaluations/vlm" element={<TrainingDataEvals dataType="vlm" />} />
+              <Route path="/training-data-profiles" element={<TrainingDataProfiles />} />
               <Route path="/metrics" element={<Metrics />} />
               <Route path="/data-sources" element={<DataSources />} />
               <Route path="/hot-news" element={<HotNews />} />

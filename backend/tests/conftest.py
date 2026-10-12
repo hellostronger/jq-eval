@@ -23,6 +23,15 @@ def event_loop():
     loop.close()
 
 
+@pytest.fixture(autouse=True)
+def _restore_current_event_loop(event_loop):
+    """测试里的 asyncio.run() 结束后会把线程当前循环置 None，
+    导致后续异步测试在 asyncio.get_event_loop() 处 RuntimeError。
+    每个测试前把会话循环重新设为当前循环。"""
+    asyncio.set_event_loop(event_loop)
+    yield
+
+
 @pytest.fixture(scope="session")
 async def test_engine():
     """创建测试数据库引擎"""

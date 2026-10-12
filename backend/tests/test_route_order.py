@@ -24,6 +24,9 @@ def _method_paths(routes, method):
     ("/training-data-evals", "GET", "/templates", "/{eval_id}"),
     ("/training-data-evals", "GET", "/quality-rules", "/{eval_id}"),
     ("/training-data-evals", "GET", "/metrics/available", "/{eval_id}"),
+    ("/training-data-profiles", "GET", "/ultradata/catalog", "/{profile_id}"),
+    ("/training-data-profiles", "GET", "/ultradata/samples", "/{profile_id}"),
+    ("/training-data-profiles", "POST", "/ultradata/import", "/{profile_id}/run"),
 ])
 def test_static_route_before_dynamic(prefix, method, static, dynamic):
     routes = api_router.routes

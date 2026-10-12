@@ -23,6 +23,7 @@ from .training_data_eval import (
     TrainingQualityChecker,
     TrainingDataTemplate
 )
+from .training_data_profile import TrainingDataProfile, TrainingDataRecord
 from .vibe_agent import (
     VibeAgentSession,
     VibeAgentWorkflow,
@@ -73,6 +74,8 @@ __all__ = [
     "TrainingDataEvalResult",
     "TrainingQualityChecker",
     "TrainingDataTemplate",
+    "TrainingDataProfile",
+    "TrainingDataRecord",
     "VibeAgentSession",
     "VibeAgentWorkflow",
     "VibeAgentWorkflowVersion",

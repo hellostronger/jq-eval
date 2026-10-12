@@ -13,18 +13,22 @@ import json
 
 from ...core.database import get_db
 from ...core.utc_datetime import UTCDatetime
-from ...models import Dataset, QARecord, Model
+from ...models import Dataset, QARecord, Model, TrainingDataRecord
 from ...models.document import Document, Chunk
 from ...services.documents import (
     extract_text_from_upload,
     create_document as create_doc_record,
     refresh_dataset_stats,
 )
+from ...services.training_data.normalize import normalize_record
 from ._common import get_or_404, validate_upload_size, commit_delete
 
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
+
+# 训练数据样本落库上限：超大文件只保留前 N 条参与画像统计，避免单次导入打爆库
+MAX_TRAINING_RECORDS = 50000
 
 
 async def _ensure_doc_in_dataset(db: AsyncSession, dataset_id: UUID, doc_id: UUID) -> Document:
@@ -464,6 +468,8 @@ async def import_data(
 
     # 保存到数据库
     saved_count = 0
+    training_saved = 0
+    training_truncated = 0
 
     # 兼容开源基准数据集（StratRAG / CRAG 等）：字段别名 + 未知字段保留
     # - question: question|query
@@ -564,6 +570,17 @@ async def import_data(
         db.add(qa_record)
         saved_count += 1
 
+        # 同步落训练数据样本：训练数据画像/分类读的是这张表，
+        # 原始字段完整保留在 payload 里，归一化列供画像直接聚合
+        if training_saved < MAX_TRAINING_RECORDS:
+            db.add(TrainingDataRecord(
+                dataset_id=dataset_id,
+                **normalize_record(record, seq=training_saved),
+            ))
+            training_saved += 1
+        else:
+            training_truncated += 1
+
     logger.info(f"成功添加 {saved_count} 条QA记录到数据库")
 
     # 更新统计
@@ -589,6 +606,8 @@ async def import_data(
     return {
         "message": "数据导入成功",
         "imported_count": len(records),
+        "training_records": training_saved,
+        "training_records_truncated": training_truncated,
         "filename": file.filename,
         "dataset_id": str(dataset_id),
         "file_type": file_ext
