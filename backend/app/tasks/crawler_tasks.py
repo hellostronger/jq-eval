@@ -91,15 +91,22 @@ async def _run_crawl(task, source_id: str) -> Dict[str, Any]:
 
         # 更新源状态
         source.last_crawl_at = datetime.utcnow()
-        source.last_crawl_status = "success" if not crawl_result.errors else "partial"
+        failed = bool(crawl_result.errors)
+        source.last_crawl_status = "partial" if failed else "success"
         source.last_article_count = new_count
         source.total_articles += new_count
-        if crawl_result.errors:
-            source.last_crawl_error = str(crawl_result.errors[0])
+        # 成功时必须显式清空：原先只在出错分支里写 last_crawl_error，导致上一次
+        # 失败留下的错误信息一直残留，库里出现「status=success 却带着 error」的
+        # 自相矛盾状态（CNN 即是如此）
+        source.last_crawl_error = str(crawl_result.errors[0]) if failed else None
 
         await db.commit()
 
-        logger.info(f"爬取完成: {source.name}, 新增 {new_count} 篇文章")
+        log = logger.warning if failed else logger.info
+        log(
+            f"爬取完成: {source.name}, 新增 {new_count} 篇文章"
+            + (f", {len(crawl_result.errors)} 个错误" if failed else "")
+        )
 
         return {
             "source_id": source_id,
@@ -107,7 +114,9 @@ async def _run_crawl(task, source_id: str) -> Dict[str, Any]:
             "total_found": crawl_result.total,
             "new_articles": new_count,
             "errors": crawl_result.errors,
-            "status": "success"
+            # 与 last_crawl_status 保持一致：原先恒为 success，
+            # Flower/日志里会把整体失败的抓取显示成成功
+            "status": "partial" if failed else "success"
         }
 
 
