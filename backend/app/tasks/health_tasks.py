@@ -82,6 +82,9 @@ async def _run_health_check() -> Dict[str, Any]:
 
     # 统计运行中的任务
     async with get_db_context() as db:
+        # 用 scalar() 取 COUNT，不能写 fetchone()["count"]：
+        # 异步会话下 execute() 返回 CursorResult，其 fetchone() 是 cyextension 的
+        # BaseRow，字符串下标会抛 "tuple indices must be integers or slices, not str"
         running_evals = await db.execute(
             text("""
             SELECT COUNT(*) as count FROM evaluations
@@ -89,7 +92,7 @@ async def _run_health_check() -> Dict[str, Any]:
             """),
             {"status": EvaluationStatus.RUNNING}
         )
-        results["running_evaluations"] = running_evals.fetchone()["count"]
+        results["running_evaluations"] = running_evals.scalar()
 
         running_syncs = await db.execute(
             text("""
@@ -98,7 +101,7 @@ async def _run_health_check() -> Dict[str, Any]:
             """),
             {"status": SyncTaskStatus.RUNNING}
         )
-        results["running_sync_tasks"] = running_syncs.fetchone()["count"]
+        results["running_sync_tasks"] = running_syncs.scalar()
 
     # 综合状态
     all_healthy = all(
