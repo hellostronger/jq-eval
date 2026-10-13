@@ -145,7 +145,16 @@ export interface MetricDefinition {
   requires_ground_truth: boolean
   requires_contexts: boolean
   params_schema?: Record<string, any>
+  // 作用域：rag=检索/生成评估，training_data=训练数据质量评估
+  scope?: MetricScope
+  // 适用的训练数据类型，仅 training_data 作用域有值
+  data_types?: string[] | null
+  default_threshold?: number | null
+  threshold_type?: string | null
 }
+
+/** 指标市场收录的两套指标体系 */
+export type MetricScope = 'rag' | 'training_data'
 
 export interface DataSource {
   id: string
@@ -432,6 +441,8 @@ export interface TrainingDataEvalResult {
 export type TrainingDataType = 'llm' | 'embedding' | 'reranker' | 'reward_model' | 'dpo' | 'vlm' | 'vla'
 
 export interface TrainingDataMetricDefinition {
+  // 指标市场（metric_definitions）里的记录 id，提交时用于建立外键
+  id?: string
   name: string
   display_name: string
   description: string

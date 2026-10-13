@@ -1,7 +1,7 @@
 # 指标定义模型
 from sqlalchemy import Column, String, Text, Integer, Float, Boolean, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
-from ..core.db_types import JSONType, UUIDType
+from ..core.db_types import ArrayType, JSONType, UUIDType
 from .base import BaseModel
 
 
@@ -19,6 +19,17 @@ class MetricDefinition(BaseModel):
     framework = Column(String(50), nullable=True)  # ragas/evalscope/custom
     eval_stage = Column(String(20), nullable=False, default='result')  # process/result
 
+    # 作用域：指标归属哪套评估体系。
+    #   rag           —— 检索/生成评估，compute(question, answer, contexts, ground_truth)
+    #   training_data —— 训练数据质量评估，compute 额外吃 chosen/rejected/positive_doc 等字段
+    # 两个体系的 compute 语义不同，故保留各自的基类，但统一落到本表作为指标市场的唯一数据源，
+    # 避免"训练数据指标自成一套、下拉框直读内存注册表"导致市场里看不到、配置无处存放。
+    scope = Column(String(20), nullable=False, default='rag', index=True)
+
+    # 适用的训练数据类型，仅 scope='training_data' 有值
+    # (llm/embedding/reranker/dpo/vlm/vla/reward_model)
+    data_types = Column(ArrayType(String(50)), nullable=True)
+
     # 参数Schema（JSON Schema格式）
     params_schema = Column(JSONType, nullable=True)
     default_params = Column(JSONType, default=dict)
@@ -33,6 +44,10 @@ class MetricDefinition(BaseModel):
     range_min = Column(Float, default=0.0)
     range_max = Column(Float, default=1.0)
     higher_is_better = Column(Boolean, default=True)
+
+    # 通过阈值（训练数据指标靠它产出"合格/不合格"标签，RAG 指标为 NULL）
+    default_threshold = Column(Float, nullable=True)
+    threshold_type = Column(String(20), nullable=True, default='min')  # min/max/range
 
     # 显示配置
     icon = Column(String(50), nullable=True)

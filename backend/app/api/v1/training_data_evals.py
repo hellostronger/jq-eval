@@ -19,6 +19,7 @@ from ...models import (
     TrainingDataTemplate,
     Dataset,
     QARecord,
+    MetricDefinition,
     Model
 )
 from ...services.training_data.engine import TRAINING_DATA_METRIC_REGISTRY
@@ -100,33 +101,65 @@ async def create_training_data_eval(
         config.setdefault("embedding_model_id", str(data.embedding_model_id))
 
     # 根据所选指标生成指标配置（写入 metric_configs 表，任务执行时读取）
-    metric_config_rows = []
+    # 指标定义统一来自指标市场：按 name 查出 metric_id 落到配置行上，
+    # 阈值等字段以市场里的值为准，避免前端漏传导致配置缺字段
+    selected_names = {c.metric_name for c in data.metric_configs} | set(data.metrics)
+    market_rows = (
+        (
+            await db.execute(
+                select(MetricDefinition).where(
+                    MetricDefinition.scope == "training_data",
+                    MetricDefinition.name.in_(selected_names),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    ) if selected_names else []
+    market_by_name = {row.name: row for row in market_rows}
+
+    def _resolve(name: str) -> Optional[Dict[str, Any]]:
+        """把一个指标名解析成可落库的配置行；市场里查不到则返回 None"""
+        metric_cls = TRAINING_DATA_METRIC_REGISTRY.get(name)
+        if metric_cls is None or data.data_type not in metric_cls.data_types:
+            return None
+        row = market_by_name.get(name)
+        return {
+            "metric_id": str(row.id) if row else None,
+            "metric_name": name,
+            "metric_type": metric_cls.category,
+            "params": {},
+            "weight": 1.0,
+            "enabled": True,
+            "threshold": metric_cls.default_threshold,
+            "threshold_type": metric_cls.threshold_type,
+        }
+
+    metric_config_rows: List[Dict[str, Any]] = []
+    seen_names = set()
     for config_item in data.metric_configs:
+        base = _resolve(config_item.metric_name)
+        if base is None:
+            # 市场/注册表里没有、或不适用于该 data_type 的指标，跳过而不是写脏数据
+            continue
+        seen_names.add(config_item.metric_name)
         metric_config_rows.append({
-            "metric_name": config_item.metric_name,
-            "metric_type": config_item.metric_type,
-            "params": config_item.params,
+            **base,
+            "params": config_item.params or {},
             "weight": config_item.weight,
             "enabled": config_item.enabled,
-            "threshold": config_item.threshold,
-            "threshold_type": config_item.threshold_type,
+            "threshold": config_item.threshold if config_item.threshold is not None else base["threshold"],
+            "threshold_type": config_item.threshold_type or base["threshold_type"],
         })
-    # 未传 metric_configs 时按 metrics 列表生成默认配置
-    existing_names = {c["metric_name"] for c in metric_config_rows}
+
+    # 未传 metric_configs 时按 metrics 列表补默认配置
     for name in data.metrics:
-        if name in existing_names:
+        if name in seen_names:
             continue
-        metric_cls = TRAINING_DATA_METRIC_REGISTRY.get(name)
-        if metric_cls and data.data_type in metric_cls.data_types:
-            metric_config_rows.append({
-                "metric_name": name,
-                "metric_type": metric_cls.category,
-                "params": {},
-                "weight": 1.0,
-                "enabled": True,
-                "threshold": metric_cls.default_threshold,
-                "threshold_type": metric_cls.threshold_type,
-            })
+        base = _resolve(name)
+        if base:
+            seen_names.add(name)
+            metric_config_rows.append(base)
 
     evaluation = TrainingDataEval(
         name=data.name,
@@ -146,6 +179,7 @@ async def create_training_data_eval(
     for config_item in metric_config_rows:
         metric_config = TrainingDataMetricConfig(
             eval_id=evaluation.id,
+            metric_id=config_item.get("metric_id"),
             metric_name=config_item["metric_name"],
             metric_type=config_item.get("metric_type") or "quality",
             params=config_item.get("params") or {},
@@ -182,13 +216,46 @@ async def list_training_data_evals(
 
 @router.get("/metrics/available")
 async def get_available_metrics(
-    data_type: Optional[str] = None
+    data_type: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
 ):
-    """获取可用的训练数据评估指标"""
+    """获取可用的训练数据评估指标
+
+    数据源改为指标市场（metric_definitions 表），与普通评估共用一套指标定义；
+    保留本端点是为了兼容既有前端调用，返回体沿用 {"metrics": [...]} 结构。
+    仍在注册表里、且适用于该 data_type 的指标才返回——市场里可能有已下架
+    或用户自建但无对应实现的行，那些不该出现在可选列表里。
+    """
+    query = select(MetricDefinition).where(
+        MetricDefinition.scope == "training_data",
+        MetricDefinition.is_active == True,
+        MetricDefinition.is_public == True,
+    ).order_by(MetricDefinition.sort_order, MetricDefinition.usage_count.desc())
+
+    rows = list((await db.execute(query)).scalars().all())
+
     metrics = []
-    for name, metric_class in TRAINING_DATA_METRIC_REGISTRY.items():
-        if data_type is None or data_type in metric_class.data_types:
-            metrics.append(metric_class.get_info(metric_class()))
+    for row in rows:
+        if data_type and data_type not in (row.data_types or []):
+            continue
+        if row.name not in TRAINING_DATA_METRIC_REGISTRY:
+            continue
+        metrics.append({
+            "id": str(row.id),
+            "name": row.name,
+            "display_name": row.display_name,
+            "description": row.description,
+            "category": row.category,
+            "data_types": row.data_types or [],
+            "requires_llm": row.requires_llm,
+            "requires_embedding": row.requires_embedding,
+            "requires_ground_truth": row.requires_ground_truth,
+            "range_min": row.range_min,
+            "range_max": row.range_max,
+            "higher_is_better": row.higher_is_better,
+            "default_threshold": row.default_threshold,
+            "threshold_type": row.threshold_type,
+        })
     return {"metrics": metrics}
 
 

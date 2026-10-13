@@ -92,6 +92,68 @@ async def init_db():
                 ADD COLUMN eval_stage VARCHAR(20) NOT NULL DEFAULT 'result'
             """))
 
+        # metric_definitions.scope / data_types / default_threshold / threshold_type
+        # 训练数据质量评估指标并入指标市场后，metric_definitions 成为两套体系共用的唯一数据源，
+        # 需要补齐描述训练数据指标的四个字段。create_all 不会给已存在的表加列，故在此幂等 ALTER。
+        for _col, _ddl in (
+            ("scope", "VARCHAR(20) NOT NULL DEFAULT 'rag'"),
+            ("data_types", "VARCHAR(50)[]"),
+            ("default_threshold", "FLOAT"),
+            ("threshold_type", "VARCHAR(20) DEFAULT 'min'"),
+        ):
+            result = await conn.execute(text(f"""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'metric_definitions' AND column_name = '{_col}'
+            """))
+            if result.fetchone() is None:
+                await conn.execute(text(
+                    f"ALTER TABLE metric_definitions ADD COLUMN {_col} {_ddl}"
+                ))
+
+        # scope 查询几乎覆盖所有指标市场调用，建个索引
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_metric_definitions_scope
+            ON metric_definitions (scope)
+        """))
+
+        # training_data_metric_configs.metric_id（训练数据指标配置并入指标市场后补外键）
+        result = await conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'training_data_metric_configs' AND column_name = 'metric_id'
+        """))
+        if result.fetchone() is None:
+            await conn.execute(text("""
+                ALTER TABLE training_data_metric_configs
+                ADD COLUMN metric_id UUID
+            """))
+            await conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_training_data_metric_configs_metric_id
+                ON training_data_metric_configs (metric_id)
+            """))
+            # 老数据按 metric_name 回填；指标市场里查不到的（已下架/改名）保持 NULL
+            await conn.execute(text("""
+                UPDATE training_data_metric_configs AS c
+                SET metric_id = m.id
+                FROM metric_definitions AS m
+                WHERE c.metric_id IS NULL AND c.metric_name = m.name
+            """))
+
+        # 补 metric_id 的外键约束。裸 ADD COLUMN 只加列不建 FK——
+        # create_all 遇到已存在的表会直接跳过，这张表是本次改动前就有的，
+        # 不显式补上的话引用完整性形同虚设（与 eval_id 的 FK 对齐）。
+        fk = await conn.execute(text("""
+            SELECT constraint_name FROM information_schema.table_constraints
+            WHERE table_name = 'training_data_metric_configs'
+              AND constraint_type = 'FOREIGN KEY'
+              AND constraint_name = 'fk_training_data_metric_configs_metric_id'
+        """))
+        if fk.fetchone() is None:
+            await conn.execute(text("""
+                ALTER TABLE training_data_metric_configs
+                ADD CONSTRAINT fk_training_data_metric_configs_metric_id
+                FOREIGN KEY (metric_id) REFERENCES metric_definitions (id)
+            """))
+
         # evaluations.invocation_batch_id
         result = await conn.execute(text("""
             SELECT column_name FROM information_schema.columns
@@ -254,19 +316,18 @@ def _create_celery_engine():
             poolclass=NullPool,
             # NullPool 每次借出新建连接；评估任务单条可达 10min+（思考型模型
             # 多轮 LLM 调用），若连接在任务中途被服务端/防火墙掐断，
-            # 收尾落库全部失败、状态卡 running。tcp 保活 + 语句超时兜底：
-            # keepalives 让空闲连接可被尽早检出，statement 超时避免无界等待。
+            # 收尾落库全部失败、状态卡 running。
+            #
+            # 注意：这里必须用 asyncpg 的参数名，不能照抄 psycopg2 的
+            # keepalives/keepalives_idle/keepalives_interval/keepalives_count——
+            # 那些是 libpq 套接字选项，asyncpg.connect() 不接受，传进去直接
+            # TypeError: connect() got an unexpected keyword argument 'keepalives'，
+            # Celery worker 首次借连接就崩。asyncpg 暂未暴露 TCP keepalive 配置，
+            # 长连接存活改由 pool_pre_ping + NullPool 每次新建 + 任务层
+            # 分段落库来兜底，不在连接参数上做文章。
             connect_args={
                 "timeout": 10,  # 建连超时（秒）
                 "command_timeout": None,  # 语句执行不额外限时（长事务由任务层控制）
-                # tcp 保活：单条评估动辄十几分钟，连接全程空闲，
-                # 云端 PG / 网关会把它悄悄掐掉，收尾落库抛
-                # ConnectionDoesNotExistError（分数全算完却一条存不进去）。
-                # 30s 空闲后开始探活，确保路径上的中间设备不丢弃这条长连接
-                "keepalives": 1,
-                "keepalives_idle": 30,
-                "keepalives_interval": 10,
-                "keepalives_count": 3,
                 "server_settings": {
                     "application_name": "jq_eval_celery",
                 },

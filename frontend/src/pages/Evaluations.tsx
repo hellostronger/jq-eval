@@ -31,7 +31,9 @@ const Evaluations: React.FC = () => {
         getModels('llm').catch((e) => { console.error('getModels llm failed:', e); return [] }),
         getModels('embedding').catch((e) => { console.error('getModels embedding failed:', e); return [] }),
         getInvocationBatches({ status: 'completed' }).catch((e) => { console.error('getInvocationBatches failed:', e); return [] }),
-        getMetrics().catch((e) => { console.error('getMetrics failed:', e); return [] }),
+        // 指标市场同时收录训练数据指标，这里按 scope=rag 取回评估体系那一批，
+        // 否则指标下拉会混进 embedding_quality 之类不适用的选项
+        getMetrics({ scope: 'rag' }).catch((e) => { console.error('getMetrics failed:', e); return [] }),
       ])
       setEvaluations(evalData)
       setDatasets(datasetData)

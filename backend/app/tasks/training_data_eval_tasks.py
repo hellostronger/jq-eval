@@ -135,7 +135,7 @@ async def _run_training_data_eval(task, eval_id: UUID) -> Dict[str, Any]:
 
             # 如果没有配置，使用默认指标
             if not metric_configs:
-                metric_configs = _get_default_metrics(evaluation.data_type)
+                metric_configs = await _get_default_metrics(db, evaluation.data_type)
 
             # 根据指标依赖加载模型：requires_llm / requires_embedding
             needs_llm = any(
@@ -321,43 +321,45 @@ async def _run_training_data_eval(task, eval_id: UUID) -> Dict[str, Any]:
             return {"error": format_error(e)}
 
 
-def _get_default_metrics(data_type: str) -> List[Dict[str, Any]]:
-    """获取默认指标配置（指标名必须存在于 TRAINING_DATA_METRIC_REGISTRY）"""
-    default_metrics = {
-        "llm": [
-            {"metric_name": "llm_response_quality"},
-            {"metric_name": "llm_coherence"},
-            {"metric_name": "llm_response_length"},
-        ],
-        "embedding": [
-            {"metric_name": "embedding_quality"},
-            {"metric_name": "embedding_completeness"},
-            {"metric_name": "embedding_text_length"},
-        ],
-        "reranker": [
-            {"metric_name": "reranker_pair_quality"},
-            {"metric_name": "reranker_label_consistency"},
-        ],
-        "reward_model": [
-            {"metric_name": "reward_model_pair_quality"},
-            {"metric_name": "reward_model_label_confidence"},
-        ],
-        "dpo": [
-            {"metric_name": "dpo_pair_quality"},
-            {"metric_name": "dpo_preference_strength"},
-        ],
-        "vlm": [
-            {"metric_name": "vlm_image_text_alignment"},
-            {"metric_name": "vlm_question_relevance"},
-        ],
-        "vla": [
-            {"metric_name": "vla_action_reasoning"},
-            {"metric_name": "vla_instruction_clarity"},
-        ],
-    }
-    # 过滤注册表中不存在的指标，避免引擎静默丢弃全部指标
-    defaults = default_metrics.get(data_type, [])
-    return [m for m in defaults if m["metric_name"] in TRAINING_DATA_METRIC_REGISTRY]
+async def _get_default_metrics(db, data_type: str) -> List[Dict[str, Any]]:
+    """获取默认指标配置——从指标市场取该 data_type 适用的全部指标
+
+    原先这里硬编码了一份每个类型的默认指标名单，只有 7 组共 17 个，
+    而注册表里有 35 个；LLM 少了 helpfulness/hallucination/instruction_following，
+    embedding 少了 diversity/consistency/noise_detection，DPO 少了 3 个，
+    注册表新增指标也不会自动进入默认集。改为从指标市场按 data_type 取全量。
+    """
+    from ..models.metric import MetricDefinition
+
+    query = (
+        select(MetricDefinition)
+        .where(
+            MetricDefinition.scope == "training_data",
+            MetricDefinition.is_active == True,
+        )
+        .order_by(MetricDefinition.sort_order)
+    )
+    rows = list((await db.execute(query)).scalars().all())
+
+    defaults = []
+    for row in rows:
+        if data_type not in (row.data_types or []):
+            continue
+        # 市场里可能有用户自建/已下架但无实现的指标，引擎拿不到类会静默丢弃
+        metric_cls = TRAINING_DATA_METRIC_REGISTRY.get(row.name)
+        if metric_cls is None:
+            continue
+        defaults.append({
+            "metric_id": str(row.id),
+            "metric_name": row.name,
+            "metric_type": metric_cls.category,
+            "params": {},
+            "weight": 1.0,
+            "enabled": True,
+            "threshold": metric_cls.default_threshold,
+            "threshold_type": metric_cls.threshold_type,
+        })
+    return defaults
 
 
 @celery_app.task(bind=True, name="batch_training_data_eval_task")

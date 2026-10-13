@@ -1,5 +1,5 @@
 import { request } from './request'
-import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, DataSource, ModelConfig, SystemStats, NewsSource, HotArticle, NewsStats, InvocationBatch, InvocationResult, LoadTest, OpenSourceDataset, AnnotationCorrection } from '@/types'
+import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, MetricScope, DataSource, ModelConfig, SystemStats, NewsSource, HotArticle, NewsStats, InvocationBatch, InvocationResult, LoadTest, OpenSourceDataset, AnnotationCorrection } from '@/types'
 
 // 文档和分片API
 export interface DocumentInfo {
@@ -414,16 +414,19 @@ export const getHealth = () => {
 }
 
 // 指标市场API
-export const getMetrics = () => {
-  return request.get<MetricDefinition[]>('/metrics')
+// scope/data_type 用于把两套指标体系分开取：普通评估取 rag，训练数据评估取 training_data
+export const getMetrics = (params?: { scope?: MetricScope; data_type?: string }) => {
+  return request.get<MetricDefinition[]>('/metrics', { params })
 }
 
 export const getMetricCategories = () => {
   return request.get<string[]>('/metrics/categories')
 }
 
-export const getMetricsByCategory = (category: string) => {
-  return request.get<MetricDefinition[]>('/metrics', { params: { category } })
+export const getMetricsByCategory = (category: string, scope?: MetricScope) => {
+  return request.get<MetricDefinition[]>('/metrics', {
+    params: { category, ...(scope ? { scope } : {}) },
+  })
 }
 
 // 数据源API
@@ -828,10 +831,12 @@ export const getTrainingDataEvalResults = (id: string, params?: { status?: strin
   }>(`/training-data-evals/${id}/results`, { params })
 }
 
+// 训练数据页的指标同样取自指标市场（scope=training_data），与普通评估共用一套指标定义
 export const getAvailableTrainingDataMetrics = (dataType?: string) => {
-  return request.get<{ metrics: import('@/types').TrainingDataMetricDefinition[] }>('/training-data-evals/metrics/available', {
-    params: dataType ? { data_type: dataType } : undefined
-  })
+return request.get<{ metrics: import('@/types').TrainingDataMetricDefinition[] }>(
+    '/training-data-evals/metrics/available',
+    { params: dataType ? { data_type: dataType } : undefined },
+  )
 }
 // ---------------------------------------------------------------------------
 // 训练数据画像 API

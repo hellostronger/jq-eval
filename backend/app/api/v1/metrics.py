@@ -41,6 +41,12 @@ class MetricResponse(BaseModel):
     category: str
     framework: Optional[str]
     eval_stage: str
+    # 作用域：rag=检索/生成评估，training_data=训练数据质量评估
+    scope: str
+    # 适用的训练数据类型（仅 training_data 作用域有值）
+    data_types: Optional[List[str]]
+    default_threshold: Optional[float]
+    threshold_type: Optional[str]
     requires_llm: bool
     requires_embedding: bool
     requires_ground_truth: bool
@@ -57,10 +63,16 @@ async def list_metrics(
     category: Optional[str] = None,
     framework: Optional[str] = None,
     eval_stage: Optional[str] = None,
+    scope: Optional[str] = None,
+    data_type: Optional[str] = None,
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
-    """浏览指标市场"""
+    """浏览指标市场
+
+    scope 区分两套指标体系；训练数据页按 data_type 取自己那批指标
+    （llm/embedding/reranker/dpo/vlm/vla/reward_model）。
+    """
     query = select(MetricDefinition).where(
         MetricDefinition.is_active == True,
         MetricDefinition.is_public == True
@@ -72,6 +84,9 @@ async def list_metrics(
         query = query.where(MetricDefinition.framework == framework)
     if eval_stage:
         query = query.where(MetricDefinition.eval_stage == eval_stage)
+    if scope:
+        query = query.where(MetricDefinition.scope == scope)
+
     if search:
         query = query.where(
             MetricDefinition.name.ilike(f"%{search}%") |
@@ -80,7 +95,12 @@ async def list_metrics(
 
     query = query.order_by(MetricDefinition.sort_order, MetricDefinition.usage_count.desc())
     result = await db.execute(query)
-    metrics = result.scalars().all()
+    metrics = list(result.scalars().all())
+
+    # data_types 是数组列，下推到 SQL 会走方言相关的 contains 语义
+    # （非 PG 方言退化为子串匹配，"llm" 会误命中 "llm_x"），故取出后在 Python 里过滤
+    if data_type:
+        metrics = [m for m in metrics if data_type in (m.data_types or [])]
 
     return [MetricResponse.model_validate(m) for m in metrics]
 

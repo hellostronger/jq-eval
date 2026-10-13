@@ -63,6 +63,13 @@ class TrainingDataMetricConfig(BaseModel):
     __tablename__ = "training_data_metric_configs"
 
     eval_id = Column(UUIDType(as_uuid=True), ForeignKey("training_data_evals.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # 关联指标市场。原先只存 metric_name 字符串：没有引用完整性，指标改名即成孤儿，
+    # 也无法 join 出 display_name/category。与 evaluation_metric_configs.metric_id 对齐，
+    # 新写入必须带上；老数据由 init_db 的回填语句按 metric_name 补齐。
+    metric_id = Column(UUIDType(as_uuid=True), ForeignKey("metric_definitions.id"), nullable=True, index=True)
+
+    # 冗余保留指标名：历史结果按名字展示，且指标下架/改名后仍能读出当时用的什么
     metric_name = Column(String(100), nullable=False)
     metric_type = Column(String(50), nullable=False)  # quality/diversity/completeness/consistency/safety
 
@@ -77,6 +84,7 @@ class TrainingDataMetricConfig(BaseModel):
 
     # 关系
     evaluation = relationship("TrainingDataEval", back_populates="metric_configs")
+    metric = relationship("MetricDefinition")
 
 
 class TrainingDataEvalResult(BaseModel):

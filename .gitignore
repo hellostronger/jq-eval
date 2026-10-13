@@ -46,6 +46,12 @@ env/
 *.log
 logs/
 
+# Celery Beat
+# beat 的调度状态是纯运行时产物：.dat 是 shelve 调度表（记 last_run_at），
+# .bak/.dir 是原子写残留。落在 backend/ 下会被误提交，且内容随每次 tick 变动。
+celerybeat-schedule*
+celerybeat.pid
+
 # Database
 *.db
 *.sqlite3
