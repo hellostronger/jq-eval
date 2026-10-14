@@ -51,6 +51,7 @@ async def init_db():
             model, model_log, model_mapping, rag_system, metric, sync,
             hot_news, load_test, prompt, vibe_agent, doc_parse,
             training_data_eval, open_source_dataset, training_data_profile,
+            eval_set_profile,
         )
 
         # 创建所有表
@@ -58,6 +59,20 @@ async def init_db():
 
         # 添加新列（如果不存在）
         from sqlalchemy import text
+
+        # datasets.dataset_kind —— 存量行靠 DEFAULT 回填 general，不猜用途
+        result = await conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'datasets' AND column_name = 'dataset_kind'
+        """))
+        if result.fetchone() is None:
+            await conn.execute(text("""
+                ALTER TABLE datasets
+                ADD COLUMN dataset_kind VARCHAR(20) NOT NULL DEFAULT 'general'
+            """))
+            await conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_datasets_dataset_kind ON datasets(dataset_kind)
+            """))
 
         # models.save_logs
         result = await conn.execute(text("""

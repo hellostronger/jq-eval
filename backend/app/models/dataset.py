@@ -11,6 +11,9 @@ class Dataset(BaseModel):
 
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
+    # 用途判别：训练集 / 评测集 / 历史数据（无法判定用途）
+    # 存量行统一回填 general，不猜——猜错会让数据集从现有下拉框里消失
+    dataset_kind = Column(String(20), nullable=False, default="general", index=True)
     source_type = Column(String(50), nullable=True)
     source_url = Column(String(1000), nullable=True)
     record_count = Column(Integer, default=0)
@@ -38,6 +41,13 @@ class Dataset(BaseModel):
     )
     profiles = relationship(
         "TrainingDataProfile", back_populates="dataset", cascade="all, delete-orphan"
+    )
+    # 评测集画像：样本与画像随数据集级联删除
+    eval_set_records = relationship(
+        "EvalSetRecord", back_populates="dataset", cascade="all, delete-orphan"
+    )
+    eval_set_profiles = relationship(
+        "EvalSetProfile", back_populates="dataset", cascade="all, delete-orphan"
     )
 
 

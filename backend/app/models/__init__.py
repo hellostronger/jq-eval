@@ -24,6 +24,7 @@ from .training_data_eval import (
     TrainingDataTemplate
 )
 from .training_data_profile import TrainingDataProfile, TrainingDataRecord
+from .eval_set_profile import EvalSetProfile, EvalSetRecord
 from .vibe_agent import (
     VibeAgentSession,
     VibeAgentWorkflow,
@@ -76,6 +77,8 @@ __all__ = [
     "TrainingDataTemplate",
     "TrainingDataProfile",
     "TrainingDataRecord",
+    "EvalSetProfile",
+    "EvalSetRecord",
     "VibeAgentSession",
     "VibeAgentWorkflow",
     "VibeAgentWorkflowVersion",
