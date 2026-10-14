@@ -27,6 +27,10 @@ def _method_paths(routes, method):
     ("/training-data-profiles", "GET", "/ultradata/catalog", "/{profile_id}"),
     ("/training-data-profiles", "GET", "/ultradata/samples", "/{profile_id}"),
     ("/training-data-profiles", "POST", "/ultradata/import", "/{profile_id}/run"),
+    # 评测集画像：/compare 是最容易被遮蔽的一个（POST 静态 vs POST /{id}/run 动态）
+    ("/eval-set-profiles", "GET", "/samples", "/{profile_id}"),
+    ("/eval-set-profiles", "POST", "/samples/import", "/{profile_id}/run"),
+    ("/eval-set-profiles", "POST", "/compare", "/{profile_id}/run"),
 ])
 def test_static_route_before_dynamic(prefix, method, static, dynamic):
     routes = api_router.routes

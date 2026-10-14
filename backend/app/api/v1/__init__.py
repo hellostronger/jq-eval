@@ -1,7 +1,7 @@
 # API v1 Module
 from fastapi import APIRouter
 
-from . import health, models, rag_systems, datasets, evaluations, metrics, tags, data_sources, files, graph, hot_news, invocations, load_tests, open_source_datasets, annotation_corrections, prompts, training_data_evals, training_data_profiles, vibe_agent, model_logs, model_mappings, proxy, doc_parser
+from . import health, models, rag_systems, datasets, evaluations, metrics, tags, data_sources, files, graph, hot_news, invocations, load_tests, open_source_datasets, annotation_corrections, prompts, training_data_evals, training_data_profiles, eval_set_profiles, vibe_agent, model_logs, model_mappings, proxy, doc_parser
 
 api_router = APIRouter()
 
@@ -28,6 +28,7 @@ api_router.include_router(annotation_corrections.router, prefix="/annotation-cor
 api_router.include_router(prompts.router, tags=["Prompts"])
 api_router.include_router(training_data_evals.router, prefix="/training-data-evals", tags=["Training Data Evaluations"])
 api_router.include_router(training_data_profiles.router, prefix="/training-data-profiles", tags=["Training Data Profiles"])
+api_router.include_router(eval_set_profiles.router, prefix="/eval-set-profiles", tags=["Eval Set Profiles"])
 api_router.include_router(vibe_agent.router, tags=["VibeAgent"])
 
 __all__ = ["api_router"]
