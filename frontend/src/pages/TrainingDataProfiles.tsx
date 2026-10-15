@@ -454,7 +454,9 @@ const ProfileDetail: React.FC<DetailProps> = ({
                 <Col span={6}>
                   <Statistic
                     title="层级建议"
-                    valueRender={<Tag color={LEVEL_COLORS[profile.level ?? '']}>{profile.level}</Tag> as any}
+                    formatter={() => (
+                      <Tag color={LEVEL_COLORS[profile.level ?? '']}>{profile.level || '-'}</Tag>
+                    )}
                   />
                 </Col>
               </Row>
@@ -465,7 +467,11 @@ const ProfileDetail: React.FC<DetailProps> = ({
                 <Col span={6}>
                   <Statistic
                     title="质量评级"
-                    valueRender={<Tag color={GRADE_COLORS[q?.grade ?? '']}>{GRADE_LABELS[q?.grade ?? ''] ?? q?.grade} {q?.score?.toFixed(2)}</Tag> as any}
+                    formatter={() => (
+                      <Tag color={GRADE_COLORS[q?.grade ?? '']}>
+                        {GRADE_LABELS[q?.grade ?? ''] ?? q?.grade ?? '-'} {q?.score?.toFixed(2)}
+                      </Tag>
+                    )}
                   />
                 </Col>
               </Row>
