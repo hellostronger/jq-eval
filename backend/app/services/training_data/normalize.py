@@ -207,6 +207,21 @@ def _extract_messages(record: Dict[str, Any], fmt: str) -> List[Dict[str, str]]:
     return out
 
 
+def _count_rounds(messages: List[Dict[str, str]]) -> int:
+    """对话轮次 = user 消息数。
+
+    不要用 len(messages)：标准 SFT 样本 [{user},{assistant}] 是 1 轮 2 条消息，
+    按条数统计会把「1 轮问答」显示成「2 轮」，量纲错了。
+    没有显式 user 角色时（角色名异常/被抹平），退化为按 user/assistant 交替推断。
+    """
+    if not messages:
+        return 0
+    user_msgs = sum(1 for m in messages if (m.get("role") or "").lower() == "user")
+    if user_msgs:
+        return user_msgs
+    return (len(messages) + 1) // 2
+
+
 def _extract_pretrain_text(record: Dict[str, Any]) -> str:
     # cleaned_content（UltraX 精炼后）优先于 raw_content；正文字段按此顺序取首个非空
     value = _first(
@@ -387,6 +402,7 @@ def normalize_record(record: Dict[str, Any], seq: int = 0) -> Dict[str, Any]:
             hash_source or json.dumps(record, ensure_ascii=False, sort_keys=True, default=str)
         ),
         "turn_count": len(messages),
+        "round_count": _count_rounds(messages),
         "has_tools": bool(_first(record, "tools", "functions", "tool_calls")),
         "payload": record,
         "record_metadata": metadata,

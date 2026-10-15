@@ -60,6 +60,24 @@ async def init_db():
         # 添加新列（如果不存在）
         from sqlalchemy import text
 
+        # training_data_records.round_count —— 对话轮次。
+        # 既有 turn_count 存的是消息条数（一条 user+assistant 记为 2），
+        # 与用户理解的「多少轮」不是一个量纲，故新增轮次列而不改旧列语义，
+        # 避免存量数据被静默改写后前后画像不可比。
+        result = await conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'training_data_records' AND column_name = 'round_count'
+        """))
+        if result.fetchone() is None:
+            await conn.execute(text("""
+                ALTER TABLE training_data_records
+                ADD COLUMN round_count INTEGER DEFAULT 0
+            """))
+            await conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_training_data_records_round_count
+                ON training_data_records(round_count)
+            """))
+
         # datasets.dataset_kind —— 存量行靠 DEFAULT 回填 general，不猜用途
         result = await conn.execute(text("""
             SELECT column_name FROM information_schema.columns

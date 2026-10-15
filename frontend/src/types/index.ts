@@ -503,7 +503,33 @@ export interface TrainingDataProfile {
     domains: Array<{ key: string; count: number; ratio: number }>
     top_domains?: Array<{ key: string; count: number; ratio: number }>
     length_buckets: Array<{ key: string; count: number }>
-    structure: { avg_turns: number; multi_turn_ratio: number; tool_call_ratio: number; thinking_ratio: number }
+    structure: {
+      // 对话轮次画像（均值会骗人，务必看 p50/p90 与分布）
+      round_field?: string
+      round_stats?: { min: number; max: number; avg: number; p50: number; p90: number; samples?: number }
+      round_distribution?: Array<{ key: string; count: number }>
+      round_observations?: string[]
+      single_turn_ratio?: number
+      multi_turn_ratio?: number
+      deep_turn_ratio?: number
+      // 旧口径：消息条数，保留兼容
+      avg_turns: number
+      multi_turn_ratio_msgs?: number
+      tool_call_ratio: number
+      thinking_ratio: number
+    }
+    // 通用层：schema 探测 + 按能力分派的统计器
+    generic?: {
+      schema?: {
+        fields?: Array<{ field: string; kind: string; roles: string[]; coverage: number }>
+        role_fields?: Record<string, string>
+        capabilities?: string[]
+      }
+      capabilities?: string[]
+      applied?: string[]
+      skipped?: Array<{ name: string; reason: string }>
+      dimensions?: Record<string, any>
+    }
     primary_format: string
     primary_format_label: string
     level: string

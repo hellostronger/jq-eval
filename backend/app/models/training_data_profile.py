@@ -33,7 +33,8 @@ class TrainingDataRecord(BaseModel):
     char_length = Column(Integer, default=0)
     est_tokens = Column(Integer, default=0)
     content_hash = Column(String(64), nullable=True, index=True)  # 去重
-    turn_count = Column(Integer, default=0)
+    turn_count = Column(Integer, default=0)   # 消息条数（注意：不是轮次）
+    round_count = Column(Integer, default=0, index=True)  # 对话轮次（user 消息数），画像按它统计
     has_tools = Column(Boolean, default=False)
 
     payload = Column(JSONType, default=dict)          # 原始记录，原样保留

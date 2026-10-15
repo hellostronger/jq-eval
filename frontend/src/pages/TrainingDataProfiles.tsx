@@ -504,11 +504,82 @@ const ProfileDetail: React.FC<DetailProps> = ({
                       ))}
                     </div>
                   )}
+                  {cls.structure?.round_stats ? (
+                    <div style={{ marginTop: 8 }}>
+                      <strong>对话轮次</strong>
+                      {cls.structure.round_field && (
+                        <Tag style={{ marginLeft: 6 }}>字段 {cls.structure.round_field}</Tag>
+                      )}
+                      <div style={{ margin: '6px 0 8px', color: '#666', fontSize: 13 }}>
+                        中位数 <b>{cls.structure.round_stats.p50}</b> 轮 ·
+                        P90 <b>{cls.structure.round_stats.p90}</b> 轮 ·
+                        平均 <b>{cls.structure.round_stats.avg}</b> 轮 ·
+                        最长 <b>{cls.structure.round_stats.max}</b> 轮
+                      </div>
+                      <div style={{ marginBottom: 6 }}>
+                        {(cls.structure.round_distribution ?? [])
+                          .filter(d => d.count > 0)
+                          .map(d => (
+                            <Tag key={d.key} style={{ marginBottom: 4 }}>
+                              {d.key} {d.count.toLocaleString()}
+                            </Tag>
+                          ))}
+                      </div>
+                      <div style={{ color: '#666', fontSize: 13 }}>
+                        单轮 <b>{pct(cls.structure.single_turn_ratio ?? 0)}</b> ·
+                        多轮(2-4轮) <b>{pct(cls.structure.multi_turn_ratio ?? 0)}</b> ·
+                        深度对话(5轮+) <b>{pct(cls.structure.deep_turn_ratio ?? 0)}</b>
+                      </div>
+                      {(cls.structure.round_observations ?? []).map((o, i) => (
+                        <Alert key={i} type="warning" showIcon style={{ marginTop: 6 }}
+                          message={o} />
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 8, color: '#999', fontSize: 13 }}>
+                      <strong>对话轮次：</strong>
+                      未探测到对话结构字段（该数据集为纯指令/纯语料形态）
+                    </div>
+                  )}
                   {cls.level_reason && (
                     <div style={{ marginTop: 8, color: '#666' }}>
                       层级依据：{cls.level_reason}
                     </div>
                   )}
+                </Card>
+              )}
+              {cls?.generic && (
+                <Card size="small" title="结构探测（Schema）" style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 8 }}>
+                    <strong>识别到的能力：</strong>
+                    {(cls.generic.capabilities ?? []).length > 0
+                      ? (cls.generic.capabilities ?? []).map(c => (
+                        <Tag key={c} color="green" style={{ marginBottom: 4 }}>{c}</Tag>
+                      ))
+                      : <span style={{ color: '#999' }}>无</span>}
+                  </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <strong>已启用统计：</strong>
+                    {(cls.generic.applied ?? []).map(n => (
+                      <Tag key={n} color="blue" style={{ marginBottom: 4 }}>{n}</Tag>
+                    ))}
+                    {(cls.generic.skipped ?? []).map(s => (
+                      <Tag key={s.name} color="default" style={{ marginBottom: 4 }}
+                        title={s.reason}>{s.name}（不适用）</Tag>
+                    ))}
+                  </div>
+                  {(() => {
+                    const roleFields = cls.generic?.schema?.role_fields
+                    if (!roleFields || Object.keys(roleFields).length === 0) return null
+                    return (
+                      <div style={{ color: '#666', fontSize: 13 }}>
+                        <strong>字段角色映射：</strong>
+                        {Object.entries(roleFields).map(([role, field]) => (
+                          <Tag key={role} style={{ marginBottom: 4, marginLeft: 4 }}>{field}</Tag>
+                        ))}
+                      </div>
+                    )
+                  })()}
                 </Card>
               )}
             </>

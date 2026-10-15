@@ -44,6 +44,7 @@ async def _load_rows(
             TrainingDataRecord.est_tokens,
             TrainingDataRecord.content_hash,
             TrainingDataRecord.turn_count,
+            TrainingDataRecord.round_count,
             TrainingDataRecord.has_tools,
             TrainingDataRecord.score,
         )

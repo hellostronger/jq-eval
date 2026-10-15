@@ -18,6 +18,7 @@ from .normalize import (
     LENGTH_BUCKETS,
     _s,
 )
+from ..profiling.profilers import run_profilers
 
 # 样本预览与字段画像的抽样上限（避免大 payload 把画像列撑爆）
 PAYLOAD_PROFILE_LIMIT = 1000
@@ -64,6 +65,36 @@ def bucket_of(char_length: int) -> str:
         if char_length >= low and (high is None or char_length < high):
             return label
     return BUCKET_LABELS[-1]
+
+
+# 对话轮次分桶（对数式：轮次跨度大，等距分桶会让「1 轮」挤成一根柱子）
+ROUND_BUCKETS = [(0, 1), (1, 2), (2, 4), (4, 8), (8, 16), (16, None)]
+ROUND_BUCKET_LABELS = ["1轮", "2轮", "3-4轮", "5-8轮", "9-16轮", "16轮+"]
+
+
+def round_bucket_of(n: int) -> str:
+    for (low, high), label in zip(ROUND_BUCKETS, ROUND_BUCKET_LABELS):
+        if n > low and (high is None or n <= high):
+            return label
+    return ROUND_BUCKET_LABELS[-1]
+
+
+def round_stats(values: List[int]) -> Dict[str, Any]:
+    """轮次的集中趋势与离散程度。
+
+    对多轮对话数据均值会骗人：少量超长对话会把均值拉高，
+    要判断「典型样本到底几轮」必须看 p50/p90。
+    """
+    if not values:
+        return {"min": 0, "max": 0, "avg": 0.0, "p50": 0, "p90": 0, "samples": 0}
+    return {
+        "min": min(values),
+        "max": max(values),
+        "avg": _round(statistics.fmean(values), 2),
+        "p50": _round(_percentile(values, 0.5)),
+        "p90": _round(_percentile(values, 0.9)),
+        "samples": len(values),
+    }
 
 
 def _field_type(value: Any) -> str:
@@ -225,6 +256,21 @@ def build_profile(
 
     turn_counts = [int(r.get("turn_count") or 0) for r in rows]
     with_turns = [t for t in turn_counts if t > 0]
+
+    # 对话轮次：优先用 round_count（=user 消息数）；存量数据该列可能为 0，
+    # 此时回退到消息条数折半，保证老数据集重跑画像也有轮次分布
+    rounds: List[int] = []
+    for r in rows:
+        rc = int(r.get("round_count") or 0)
+        if rc <= 0:
+            msgs = int(r.get("turn_count") or 0)
+            rc = (msgs + 1) // 2 if msgs > 0 else 0
+        if rc > 0:
+            rounds.append(rc)
+    round_bucket_counts = Counter(round_bucket_of(n) for n in rounds)
+    single_turn = sum(1 for n in rounds if n <= 1)
+    multi_turn = sum(1 for n in rounds if 2 <= n <= 4)
+    deep_turn = sum(1 for n in rounds if n >= 5)
     tool_count = sum(1 for r in rows if r.get("has_tools"))
     thinking_count = sum(1 for r in rows if any(
         kw in (str(r.get("text") or "") + str(r.get("instruction") or ""))[:2000].lower()
@@ -295,8 +341,18 @@ def build_profile(
             for label in BUCKET_LABELS
         ],
         "structure": {
+            # 对话轮次画像：均值不够用，必须给分布。
+            # 平均 4 轮可能是「绝大多数 2 轮 + 少量 20 轮长对话」，两者是完全不同的数据。
+            "round_stats": round_stats(rounds),
+            "round_distribution": [
+                {"key": label, "count": round_bucket_counts.get(label, 0)}
+                for label in ROUND_BUCKET_LABELS
+            ],
+            "single_turn_ratio": _round(single_turn / total, 4) if total else 0.0,
+            "multi_turn_ratio": _round(multi_turn / total, 4) if total else 0.0,
+            "deep_turn_ratio": _round(deep_turn / total, 4) if total else 0.0,
             "avg_turns": _round(statistics.fmean(with_turns), 2) if with_turns else 0,
-            "multi_turn_ratio": _round(len(with_turns) / total, 4) if total else 0.0,
+            "multi_turn_ratio_msgs": _round(len(with_turns) / total, 4) if total else 0.0,
             "tool_call_ratio": _round(tool_count / total, 4) if total else 0.0,
             "thinking_ratio": _round(thinking_count / total, 4) if total else 0.0,
         },
@@ -332,6 +388,32 @@ def build_profile(
         {"key": key, "count": count, "ratio": _round(count / total, 4) if total else 0}
         for key, count in domain_counts.most_common(5)
     ]
+
+    # ---- 通用层：schema 探测 + 按能力分派的统计器 ----
+    # 不再假定固定字段名：先探测这份数据到底有哪些结构（对话/选项/正负例/打分/学科），
+    # 再只运行适用的统计器，把不适用的维度显式标为 skipped 而不是输出 0 值。
+    generic = run_profilers(
+        [r.get("payload") for r in rows if isinstance(r.get("payload"), dict)],
+    )
+    classification["generic"] = {
+        "schema": generic["schema"],
+        "capabilities": generic["capabilities"],
+        "applied": generic["applied"],
+        "skipped": generic["skipped"],
+        "dimensions": generic["dimensions"],
+    }
+    # 用通用层探测到的轮次画像覆盖归一化层的估计（字段名不同也能算对）
+    conv_dim = (generic["dimensions"] or {}).get("conversation") or {}
+    if conv_dim:
+        classification["structure"].update({
+            "round_field": conv_dim.get("field"),
+            "round_stats": conv_dim.get("stats"),
+            "round_distribution": conv_dim.get("distribution"),
+            "round_observations": conv_dim.get("observations"),
+            "single_turn_ratio": (conv_dim.get("ratios") or {}).get("single_turn"),
+            "multi_turn_ratio": (conv_dim.get("ratios") or {}).get("multi_turn"),
+            "deep_turn_ratio": (conv_dim.get("ratios") or {}).get("deep_turn"),
+        })
 
     return {
         "format": top_format,
@@ -415,9 +497,19 @@ def build_summary_text(
 
     parts.append(f"整体质量评级：{GRADE_LABELS.get(grade, grade)}（{quality_score:.2f}）。")
 
-    if structure.get("multi_turn_ratio", 0) >= 0.3:
-        parts.append(f"{_pct(int(structure['multi_turn_ratio'] * total), total)} 为多轮对话样本"
-                     f"（平均 {structure.get('avg_turns', 0):.1f} 轮）。")
+    rs = structure.get("round_stats") or {}
+    if rs.get("samples"):
+        parts.append(
+            f"对话轮次：中位数 {rs['p50']} 轮、P90 {rs['p90']} 轮、最长 {rs['max']} 轮"
+            f"（单轮占 {_pct(int(structure.get('single_turn_ratio', 0) * total), total)}，"
+            f"多轮 2-4 轮占 {_pct(int(structure.get('multi_turn_ratio', 0) * total), total)}，"
+            f"5 轮以上占 {_pct(int(structure.get('deep_turn_ratio', 0) * total), total)}）"
+        )
+    if structure.get("multi_turn_ratio_msgs", 0) >= 0.3:
+        parts.append(
+            f"{_pct(int(structure['multi_turn_ratio_msgs'] * total), total)} 为多消息对话样本"
+            f"（平均 {structure.get('avg_turns', 0):.1f} 条消息）"
+        )
     if structure.get("tool_call_ratio", 0) > 0:
         parts.append(f"{_pct(int(structure['tool_call_ratio'] * total), total)} 含工具调用。")
 
