@@ -182,22 +182,22 @@ curl http://localhost:9091/healthz   # Milvus
 cd backend
 
 # 首次：创建虚拟环境并安装依赖
-python -m venv .venv
-.venv\Scripts\pip install -r requirements.txt
+python -m venv venv
+venv\Scripts\pip install -r requirements.txt
 
-# 后续启动
-.venv\Scripts\Activate.ps1
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# 后续启动（dev.py = uvicorn --reload，但修掉了 Windows 上的重载卡死）
+venv\Scripts\Activate.ps1
+python dev.py
 ```
 
 Linux/Mac：
 
 ```bash
 cd backend
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-source .venv/bin/activate
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt
+source venv/bin/activate
+python dev.py
 ```
 
 验证：

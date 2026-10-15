@@ -26,4 +26,5 @@ echo "📍 API地址: http://localhost:8000"
 echo "📍 文档地址: http://localhost:8000/docs"
 echo ""
 
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+# 用 dev.py 而非 `uvicorn --reload`：后者的 Windows 重载会卡死在 "Reloading..."
+python dev.py
