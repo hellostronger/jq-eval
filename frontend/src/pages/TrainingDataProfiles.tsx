@@ -138,15 +138,19 @@ const TrainingDataProfiles: React.FC = () => {
   }, 4000, [detail?.id])
 
   const onCreate = async () => {
-    const values = await form.validateFields()
-    setSaving(true)
     try {
+      // validateFields 放在 try 内、setSaving 之前：校验不通过时既不弹 loading，
+      // 也不会让 onOk 依赖的 promise 抛出未处理拒绝（antd 已在字段下方标红）。
+      const values = await form.validateFields()
+      setSaving(true)
       const profile = await createTrainingDataProfile(values)
       setModalVisible(false)
       form.resetFields()
       message.success('画像已创建' + (profile.llm_mode !== 'off' ? '，LLM 分析进行中' : ''))
       fetchProfiles()
       openDetail(profile.id)
+    } catch {
+      // 校验失败已由 antd 标红；创建失败已由 axios 拦截器弹提示。这里只需吞掉 rejection。
     } finally {
       setSaving(false)
     }
