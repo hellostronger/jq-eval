@@ -9,6 +9,7 @@ from .base import (
 )
 from .registry import (
     create_connector,
+    list_catalog,
     list_connector_types,
     supports_api_ingest,
 )
@@ -21,6 +22,7 @@ __all__ = [
     "RemoteChunk",
     "RemoteDocument",
     "create_connector",
+    "list_catalog",
     "list_connector_types",
     "supports_api_ingest",
 ]

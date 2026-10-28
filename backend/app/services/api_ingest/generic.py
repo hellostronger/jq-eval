@@ -350,6 +350,15 @@ class GenericHttpConnector(BaseApiIngestConnector):
         ids = dig(payload, spec.get("retrieval_ids_path") or "retrieval_ids", []) or []
         if isinstance(contexts, str):
             contexts = [contexts]
+        # 有的系统返回对象数组（如 Flowise sourceDocuments），用子路径抽正文
+        content_path = spec.get("contexts_content_path")
+        if content_path and isinstance(contexts, list):
+            extracted = []
+            for item in contexts:
+                text = dig(item, content_path) if isinstance(item, dict) else item
+                if text:
+                    extracted.append(str(text))
+            contexts = extracted
         return {
             "answer": answer,
             "contexts": contexts,

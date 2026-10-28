@@ -812,3 +812,457 @@ def asyncio_run(coro):
     import asyncio
 
     return asyncio.run(coro)
+
+
+# ============================================================ 开源系统连接器
+# 这一组锁住「主流开源 >1k star 方案」的请求形状；真实部署未联调的仍然
+# 在 registry 里标 verified=False，测试通过不等于上游版本一定兼容。
+
+
+def test_anythingllm_workspace_upload_and_chat():
+    calls = []
+    connector = create_connector(
+        "anythingllm",
+        {"api_endpoint": "http://localhost:3001", "api_key": "al-key"},
+        transport=routes_transport(
+            {
+                ("GET", "/api/v1/workspaces"): {
+                    "workspaces": [{"slug": "kb1", "name": "知识库"}]
+                },
+                ("POST", "/api/v1/workspace/new"): {
+                    "workspace": {"slug": "kb-new", "name": "新建库"}
+                },
+                ("POST", "/api/v1/document/upload"): {
+                    "success": True,
+                    "documents": [
+                        {
+                            "location": "custom-documents/faq.md-abc.json",
+                            "title": "faq.md",
+                        }
+                    ],
+                },
+                ("GET", "/api/v1/workspace/kb-new"): {
+                    "workspace": {
+                        "documents": [
+                            {
+                                "docpath": "custom-documents/faq.md-abc.json",
+                                "title": "faq.md",
+                            }
+                        ]
+                    }
+                },
+                ("POST", "/api/v1/workspace/kb-new/chat"): {
+                    "textResponse": "七天无理由退货",
+                    "sources": [{"chunk": "退款政策是七天无理由", "title": "faq.md"}],
+                },
+            },
+            calls,
+        ),
+    )
+
+    assert [kb.id for kb in asyncio_run(connector.list_knowledge_bases())] == ["kb1"]
+    kb = asyncio_run(connector.create_knowledge_base("新建库"))
+    assert kb.id == "kb-new"
+    doc = asyncio_run(connector.upload_document("kb-new", "faq.md", b"hello"))
+    assert doc.id.endswith("faq.md-abc.json")
+    assert doc.ready
+
+    upload_call = next(c for c in calls if c.url.path == "/api/v1/document/upload")
+    assert b"addToWorkspaces" in upload_call.content
+    assert upload_call.headers["authorization"] == "Bearer al-key"
+
+    documents = asyncio_run(connector.list_documents("kb-new"))
+    assert documents[0].id == doc.id
+
+    answer = asyncio_run(connector.ask("退款政策?", chat_id="kb-new"))
+    assert answer["answer"] == "七天无理由退货"
+    assert answer["contexts"] == ["退款政策是七天无理由"]
+
+
+def test_open_webui_knowledge_upload_and_chat():
+    calls = []
+    connector = create_connector(
+        "open_webui",
+        {
+            "api_endpoint": "http://localhost:3000",
+            "api_key": "owui-key",
+            "model": "qwen2.5:7b",
+        },
+        transport=routes_transport(
+            {
+                ("GET", "/api/v1/knowledge/"): {
+                    "items": [{"id": "kb1", "name": "知识库"}],
+                    "total": 1,
+                },
+                ("POST", "/api/v1/knowledge/create"): {"id": "kb-new", "name": "新建库"},
+                ("POST", "/api/v1/files/"): {"id": "file1", "filename": "faq.md"},
+                ("POST", "/api/v1/knowledge/kb-new/file/add"): {
+                    "files": [{"id": "file1", "filename": "faq.md"}]
+                },
+                ("GET", "/api/v1/knowledge/kb-new"): {
+                    "files": [{"id": "file1", "filename": "faq.md"}]
+                },
+                ("POST", "/api/chat/completions"): {
+                    "choices": [{"message": {"content": "答案"}}],
+                    "sources": [{"content": "命中的分片", "document_id": "c1"}],
+                },
+            },
+            calls,
+        ),
+    )
+
+    assert asyncio_run(connector.list_knowledge_bases())[0].id == "kb1"
+    assert asyncio_run(connector.create_knowledge_base("新建库")).id == "kb-new"
+    doc = asyncio_run(connector.upload_document("kb-new", "faq.md", b"hello"))
+    assert doc.id == "file1" and doc.ready
+    assert asyncio_run(connector.list_documents("kb-new"))[0].id == "file1"
+
+    answer = asyncio_run(connector.ask("问题", chat_id="kb-new"))
+    assert answer["answer"] == "答案"
+    assert answer["contexts"] == ["命中的分片"]
+
+    chat_call = next(c for c in calls if c.url.path == "/api/chat/completions")
+    body = json.loads(chat_call.content)
+    assert body["files"] == [{"type": "collection", "id": "kb-new"}]
+
+
+def test_maxkb_dataset_paragraphs_and_application_chat():
+    calls = []
+    connector = create_connector(
+        "maxkb",
+        {
+            "api_endpoint": "http://localhost:8080",
+            "api_key": "app-key",
+            "dataset_api_key": "dataset-key",
+            "application_id": "app1",
+        },
+        transport=routes_transport(
+            {
+                ("GET", "/api/dataset"): {
+                    "code": 200,
+                    "data": {"records": [{"id": "kb1", "name": "知识库"}]},
+                },
+                ("POST", "/api/dataset"): {
+                    "code": 200,
+                    "data": {"id": "kb-new", "name": "新建库"},
+                },
+                ("POST", "/api/dataset/kb-new/document"): {
+                    "code": 200,
+                    "data": {"id": "doc1", "name": "faq.md"},
+                },
+                ("GET", "/api/dataset/kb-new/document"): {
+                    "code": 200,
+                    "data": {
+                        "records": [
+                            {"id": "doc1", "name": "faq.md", "status": "SUCCESS"}
+                        ]
+                    },
+                },
+                ("GET", "/api/dataset/kb-new/document/doc1/paragraph"): {
+                    "code": 200,
+                    "data": {"records": [{"id": "p1", "content": "分片内容"}]},
+                },
+                ("POST", "/api/application/app1/chat/completions"): {
+                    "code": 200,
+                    "data": {
+                        "choices": [{"message": {"content": "答案"}}],
+                        "references": [{"id": "p1", "content": "分片内容"}],
+                    },
+                },
+            },
+            calls,
+        ),
+    )
+
+    assert asyncio_run(connector.list_knowledge_bases())[0].id == "kb1"
+    assert asyncio_run(connector.create_knowledge_base("新建库")).id == "kb-new"
+    doc = asyncio_run(connector.upload_document("kb-new", "faq.md", b"hello"))
+    assert doc.id == "doc1"
+    assert asyncio_run(connector.list_documents("kb-new"))[0].ready
+    assert asyncio_run(connector.list_chunks("kb-new", "doc1"))[0].content == "分片内容"
+
+    answer = asyncio_run(connector.ask("问题"))
+    assert answer["answer"] == "答案"
+    assert answer["contexts"] == ["分片内容"]
+
+    dataset_call = next(c for c in calls if c.url.path == "/api/dataset/kb-new/document")
+    assert dataset_call.headers["authorization"] == "Bearer dataset-key"
+    app_call = next(c for c in calls if c.url.path == "/api/application/app1/chat/completions")
+    assert app_call.headers["authorization"] == "Bearer app-key"
+
+
+def test_lightrag_upload_poll_chunks_and_query():
+    connector = create_connector(
+        "lightrag",
+        {"api_endpoint": "http://localhost:9621", "api_key": "lr-key"},
+        transport=routes_transport(
+            {
+                ("POST", "/documents"): {"status": "success", "track_id": "track1"},
+                ("GET", "/documents"): {
+                    "statuses": {
+                        "doc1": {"status": "processed", "file_path": "faq.md"}
+                    }
+                },
+                ("GET", "/chunks"): {
+                    "chunks": [
+                        {"id": "c1", "content": "分片内容", "chunk_order_index": 0}
+                    ]
+                },
+                ("POST", "/query"): {
+                    "response": "答案",
+                    "references": [{"reference_id": "c1", "content": "分片内容"}],
+                },
+            },
+        ),
+    )
+
+    kb = asyncio_run(connector.list_knowledge_bases())[0]
+    assert kb.id == "lightrag:account"
+    doc = asyncio_run(connector.upload_document(kb.id, "faq.md", b"hello"))
+    assert doc.id == "doc1"
+    assert asyncio_run(connector.list_documents(kb.id))[0].ready
+    assert asyncio_run(connector.list_chunks(kb.id, "doc1"))[0].id == "c1"
+
+    answer = asyncio_run(connector.ask("问题"))
+    assert answer["answer"] == "答案"
+    assert answer["contexts"] == ["分片内容"]
+
+
+def test_langchain_chatchat_kb_upload_and_chat():
+    connector = create_connector(
+        "langchain_chatchat",
+        {"api_endpoint": "http://localhost:7861", "api_key": "cc-key"},
+        transport=routes_transport(
+            {
+                ("GET", "/knowledge_base/list_knowledge_bases"): {"data": ["kb1"]},
+                ("POST", "/knowledge_base/create_knowledge_base"): {"code": 200},
+                ("POST", "/knowledge_base/upload_docs"): {
+                    "code": 200,
+                    "data": {"loaded_files": ["faq.md"], "failed_files": []},
+                },
+                ("GET", "/knowledge_base/list_files"): {
+                    "data": [{"file_name": "faq.md"}]
+                },
+                ("POST", "/chat/chat"): {
+                    "answer": "答案",
+                    "docs": [
+                        {
+                            "page_content": "分片内容",
+                            "metadata": {"source": "faq.md"},
+                        }
+                    ],
+                },
+            },
+        ),
+    )
+
+    assert asyncio_run(connector.list_knowledge_bases())[0].id == "kb1"
+    assert asyncio_run(connector.create_knowledge_base("新建库")).id == "新建库"
+    doc = asyncio_run(connector.upload_document("kb1", "faq.md", b"hello"))
+    assert doc.id == "faq.md" and doc.ready
+    assert asyncio_run(connector.list_documents("kb1"))[0].id == "faq.md"
+
+    answer = asyncio_run(connector.ask("问题", chat_id="kb1"))
+    assert answer["answer"] == "答案"
+    assert answer["contexts"] == ["分片内容"]
+
+
+def test_qanything_kb_upload_and_chat():
+    connector = create_connector(
+        "qanything",
+        {"api_endpoint": "http://localhost:8777"},
+        transport=routes_transport(
+            {
+                ("POST", "/api/local_doc_qa/list_kbs"): {
+                    "code": 200,
+                    "data": [{"kb_id": "kb1", "kb_name": "知识库"}],
+                },
+                ("POST", "/api/local_doc_qa/create_kb"): {
+                    "code": 200,
+                    "data": {"kb_id": "kb-new", "kb_name": "新建库"},
+                },
+                ("POST", "/api/local_doc_qa/upload_files"): {
+                    "code": 200,
+                    "data": [{"file_id": "doc1", "file_name": "faq.md"}],
+                },
+                ("POST", "/api/local_doc_qa/list_files"): {
+                    "code": 200,
+                    "data": [
+                        {"file_id": "doc1", "file_name": "faq.md", "status": "success"}
+                    ],
+                },
+                ("POST", "/api/local_doc_qa/chat"): {
+                    "response": "答案",
+                    "source_documents": [{"content": "分片内容", "file_id": "doc1"}],
+                },
+            },
+        ),
+    )
+
+    assert asyncio_run(connector.list_knowledge_bases())[0].id == "kb1"
+    assert asyncio_run(connector.create_knowledge_base("新建库")).id == "kb-new"
+    doc = asyncio_run(connector.upload_document("kb-new", "faq.md", b"hello"))
+    assert doc.id == "doc1"
+    assert asyncio_run(connector.list_documents("kb-new"))[0].ready
+
+    answer = asyncio_run(connector.ask("问题", chat_id="kb-new"))
+    assert answer["answer"] == "答案"
+    assert answer["contexts"] == ["分片内容"]
+
+
+def test_privategpt_ingest_and_chat():
+    connector = create_connector(
+        "privategpt",
+        {"api_endpoint": "http://localhost:8001", "model": "private-gpt"},
+        transport=routes_transport(
+            {
+                ("POST", "/v1/ingest"): {"id": "doc1", "object": "ingest"},
+                ("POST", "/v1/chat/completions"): {
+                    "choices": [{"message": {"content": "答案"}}],
+                    "sources": [{"content": "分片内容", "id": "c1"}],
+                },
+            },
+        ),
+    )
+    doc = asyncio_run(connector.upload_document("privategpt:account", "faq.md", b"hello"))
+    assert doc.id == "doc1" and doc.ready
+    assert asyncio_run(connector.list_documents("privategpt:account"))[0].id == "doc1"
+    answer = asyncio_run(connector.ask("问题"))
+    assert answer["answer"] == "答案"
+    assert answer["contexts"] == ["分片内容"]
+
+
+def test_r2r_documents_chunks_and_retrieval():
+    connector = create_connector(
+        "r2r",
+        {"api_endpoint": "http://localhost:7272", "api_key": "r2r-key"},
+        transport=routes_transport(
+            {
+                ("POST", "/v3/documents"): {
+                    "results": {"document_id": "doc1", "title": "faq.md"}
+                },
+                ("GET", "/v3/documents"): {
+                    "results": [
+                        {"id": "doc1", "title": "faq.md", "status": "success"}
+                    ]
+                },
+                ("GET", "/v3/documents/doc1/chunks"): {
+                    "results": [{"id": "c1", "text": "分片内容", "chunk_order": 0}]
+                },
+                ("POST", "/v3/retrieval"): {
+                    "generated_answer": "答案",
+                    "results": {
+                        "chunk_search_results": [{"id": "c1", "text": "分片内容"}]
+                    },
+                },
+            },
+        ),
+    )
+    doc = asyncio_run(connector.upload_document("r2r:account", "faq.md", b"hello"))
+    assert doc.id == "doc1"
+    assert asyncio_run(connector.list_documents("r2r:account"))[0].ready
+    assert asyncio_run(connector.list_chunks("r2r:account", "doc1"))[0].content == "分片内容"
+    answer = asyncio_run(connector.ask("问题"))
+    assert answer["answer"] == "答案"
+    assert answer["contexts"] == ["分片内容"]
+
+
+def test_docsgpt_upload_and_chat():
+    connector = create_connector(
+        "docsgpt",
+        {"api_endpoint": "http://localhost:5001"},
+        transport=routes_transport(
+            {
+                ("POST", "/api/upload"): {"success": True, "message": "ok"},
+                ("GET", "/api/docs"): {"docs": [{"name": "faq.md"}]},
+                ("POST", "/api/chat"): {
+                    "answer": "答案",
+                    "sources": [{"text": "分片内容", "title": "faq.md"}],
+                },
+            },
+        ),
+    )
+    doc = asyncio_run(connector.upload_document("docsgpt:account", "faq.md", b"hello"))
+    assert doc.id == "faq.md"
+    assert asyncio_run(connector.list_documents("docsgpt:account"))[0].id == "faq.md"
+    answer = asyncio_run(connector.ask("问题"))
+    assert answer["answer"] == "答案"
+    assert answer["contexts"] == ["分片内容"]
+
+
+def test_khoj_upload_and_chat():
+    connector = create_connector(
+        "khoj",
+        {"api_endpoint": "http://localhost:42110", "api_key": "kk-key"},
+        transport=routes_transport(
+            {
+                ("PUT", "/api/content/"): {"success": True},
+                ("POST", "/api/chat"): {
+                    "response": "答案",
+                    "references": [
+                        {
+                            "additional": {
+                                "file": "faq.md",
+                                "compiled": "分片内容",
+                            }
+                        }
+                    ],
+                },
+            },
+        ),
+    )
+    doc = asyncio_run(connector.upload_document("khoj:account", "faq.md", b"hello"))
+    assert doc.id == "faq.md"
+    assert asyncio_run(connector.list_documents("khoj:account"))[0].id == "faq.md"
+    answer = asyncio_run(connector.ask("问题"))
+    assert answer["answer"] == "答案"
+    assert answer["contexts"] == ["分片内容"]
+
+
+# --------------------------------------------------------------- 覆盖清单
+
+
+def test_catalog_lists_all_supported_types_and_reasons():
+    from app.services.api_ingest import list_catalog
+
+    data = list_catalog()
+    items = {item["system_type"]: item for item in data["items"] if item.get("system_type")}
+    types = {item["system_type"]: item for item in list_connector_types()}
+
+    # 每个已接入的类型都必须在清单里有 star / repo / 覆盖说明
+    for system_type in types:
+        if system_type in ("generic", "coze"):
+            continue
+        if system_type not in items:
+            # 百度/阿里/腾讯/字节/讯飞等闭源商业云不在“开源 >1k star”清单里，
+            # 但必须有 profile 说明，避免被误认为遗漏。
+            assert types[system_type]["capabilities"]["notes"]
+            continue
+        assert system_type in items, f"{system_type} 未出现在 >1k star 清单"
+        assert items[system_type]["stars"] > 1000
+        assert items[system_type]["repo"]
+        assert items[system_type]["notes"]
+
+    # 明确排除的也要写原因，不能静默消失
+    excluded = [item for item in data["items"] if item["integration"] == "excluded"]
+    assert excluded
+    assert all(item["notes"] for item in excluded)
+    assert data["summary"]["star_snapshot"] == "2026-10-28"
+    assert data["summary"]["covered"] >= 18
+
+
+def test_adapter_factory_reuses_ingest_connectors_for_new_types():
+    from app.services.adapters import AdapterFactory
+
+    adapter = AdapterFactory.create(
+        "anythingllm",
+        {"api_endpoint": "http://localhost:3001", "api_key": "k"},
+    )
+    assert adapter.connector.display_name == "AnythingLLM"
+
+    adapter = AdapterFactory.create(
+        "pageindex",
+        {"api_endpoint": "https://api.pageindex.ai", "api_key": "k"},
+    )
+    assert adapter.connector.display_name == "PageIndex"
+

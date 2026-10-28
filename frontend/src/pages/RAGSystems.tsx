@@ -2,13 +2,19 @@ import React, { useEffect, useState } from 'react'
 import { Card, Table, Button, Tag, Modal, Form, Input, Select, Switch, message, Popconfirm, Spin, List } from 'antd'
 import { PlusOutlined, MessageOutlined, SendOutlined, CloudUploadOutlined } from '@ant-design/icons'
 import { formatDate } from '@/utils/format'
-import { getRAGSystems, createRAGSystem, updateRAGSystem, deleteRAGSystem, testRAGSystem, queryRAGSystem, getLLMModels } from '@/api'
+import { getRAGSystems, createRAGSystem, updateRAGSystem, deleteRAGSystem, testRAGSystem, queryRAGSystem, getLLMModels, getIngestTypes } from '@/api'
+import type { IngestConnectorType } from '@/api'
 import type { RAGSystem } from '@/types'
 import ApiIngestModal from '@/components/ApiIngestModal'
 
 const INGEST_TYPES = new Set([
   'ragflow', 'dify', 'fastgpt', 'coze', 'custom', 'generic',
   'pageindex', 'llm_wiki',
+  // 开源 RAG / 知识库系统
+  'anythingllm', 'open_webui', 'maxkb', 'lightrag', 'langchain_chatchat',
+  'qanything', 'privategpt', 'docsgpt', 'r2r', 'khoj',
+  'flowise', 'dbgpt', 'langflow',
+  // 云平台
   'baidu_qianfan', 'aliyun_bailian', 'tencent_hunyuan', 'tencent_yuanqi',
   'volcengine_ark', 'xfyun_spark', 'openai_compatible',
 ])
@@ -38,6 +44,8 @@ const RAGSystems: React.FC = () => {
   // LLM模型列表（用于直连LLM类型）
   const [llmModels, setLLMModels] = useState<LLMModel[]>([])
   const [selectedSystemType, setSelectedSystemType] = useState<string>('dify')
+  // 后端 /ingest-types 是接入类型的单一数据源：新增开源连接器不需要再改前端常量
+  const [connectorTypes, setConnectorTypes] = useState<IngestConnectorType[]>([])
 
   // 聊天状态
   const [chatModalVisible, setChatModalVisible] = useState(false)
@@ -71,6 +79,11 @@ const RAGSystems: React.FC = () => {
 
   useEffect(() => {
     fetchSystems()
+    getIngestTypes()
+      .then(setConnectorTypes)
+      .catch(() => {
+        // 接口失败时保留内置静态选项，不影响原有系统的新增/编辑
+      })
   }, [])
 
   const showCreateDialog = () => {
@@ -103,6 +116,10 @@ const RAGSystems: React.FC = () => {
       dataset_id: config.dataset_id || '',
       space_id: config.space_id || '',
       app_id: config.app_id || '',
+      application_id: config.application_id || '',
+      chatflow_id: config.chatflow_id || '',
+      flow_id: config.flow_id || '',
+      user_id: config.user_id || '',
       model: config.model || '',
       pipeline_ids: Array.isArray(config.pipeline_ids) ? config.pipeline_ids.join(',') : (config.pipeline_ids || ''),
       ingest_profile: config.ingest_profile ? JSON.stringify(config.ingest_profile, null, 2) : '',
@@ -169,6 +186,10 @@ const RAGSystems: React.FC = () => {
           ...(values.dataset_id ? { dataset_id: values.dataset_id } : {}),
           ...(values.space_id ? { space_id: values.space_id } : {}),
           ...(values.app_id ? { app_id: values.app_id } : {}),
+          ...(values.application_id ? { application_id: values.application_id } : {}),
+          ...(values.chatflow_id ? { chatflow_id: values.chatflow_id } : {}),
+          ...(values.flow_id ? { flow_id: values.flow_id } : {}),
+          ...(values.user_id ? { user_id: values.user_id } : {}),
           ...(values.model ? { model: values.model } : {}),
           ...(pipelineIds && pipelineIds.length ? { pipeline_ids: pipelineIds } : {}),
           ...(ingestProfile ? { ingest_profile: ingestProfile } : {}),
@@ -303,7 +324,7 @@ const RAGSystems: React.FC = () => {
       key: 'action',
       render: (_: unknown, record: RAGSystem) => (
         <>
-          {INGEST_TYPES.has(record.system_type) && (
+          {(INGEST_TYPES.has(record.system_type) || connectorTypes.some(t => t.system_type === record.system_type)) && (
             <Button
               type="link"
               size="small"
@@ -339,6 +360,19 @@ const RAGSystems: React.FC = () => {
     { value: 'coze', label: 'Coze / 扣子' },
     { value: 'pageindex', label: 'PageIndex（树索引，无向量）' },
     { value: 'llm_wiki', label: 'LLM Wiki（本地桌面版 API）' },
+    { value: 'anythingllm', label: 'AnythingLLM' },
+    { value: 'open_webui', label: 'Open WebUI' },
+    { value: 'maxkb', label: 'MaxKB' },
+    { value: 'lightrag', label: 'LightRAG' },
+    { value: 'langchain_chatchat', label: 'Langchain-Chatchat' },
+    { value: 'qanything', label: 'QAnything' },
+    { value: 'privategpt', label: 'PrivateGPT' },
+    { value: 'docsgpt', label: 'DocsGPT' },
+    { value: 'r2r', label: 'R2R' },
+    { value: 'khoj', label: 'Khoj' },
+    { value: 'flowise', label: 'Flowise（已归档）' },
+    { value: 'dbgpt', label: 'DB-GPT' },
+    { value: 'langflow', label: 'Langflow（流程编排）' },
     { value: 'baidu_qianfan', label: '百度千帆 AppBuilder' },
     { value: 'aliyun_bailian', label: '阿里云百炼' },
     { value: 'tencent_hunyuan', label: '腾讯混元' },
@@ -350,7 +384,12 @@ const RAGSystems: React.FC = () => {
     { value: 'custom', label: '自定义' },
     { value: 'generic', label: '通用 HTTP（自定义 profile）' },
     { value: 'direct_llm', label: '直连LLM' },
-  ]
+    // 后端接入清单里的新类型自动出现，避免新增连接器还要改前端
+    ...connectorTypes.map(t => ({
+      value: t.system_type,
+      label: `${t.display_name}${t.archived ? '（已归档）' : ''}`,
+    })),
+  ].filter((item, index, arr) => arr.findIndex(x => x.value === item.value) === index)
 
   const providerOptions = [
     { value: 'openai', label: 'OpenAI' },
@@ -400,6 +439,19 @@ const RAGSystems: React.FC = () => {
                 const defaults: Record<string, string> = {
                   pageindex: 'https://api.pageindex.ai',
                   llm_wiki: 'http://127.0.0.1:19828',
+                  anythingllm: 'http://localhost:3001',
+                  open_webui: 'http://localhost:3000',
+                  maxkb: 'http://localhost:8080',
+                  lightrag: 'http://localhost:9621',
+                  langchain_chatchat: 'http://localhost:7861',
+                  qanything: 'http://localhost:8777',
+                  privategpt: 'http://localhost:8001',
+                  docsgpt: 'http://localhost:5001',
+                  r2r: 'http://localhost:7272',
+                  khoj: 'http://localhost:42110',
+                  flowise: 'http://localhost:3000',
+                  dbgpt: 'http://localhost:5670',
+                  langflow: 'http://localhost:7860',
                 }
                 if (defaults[value] && !form.getFieldValue('api_endpoint')) {
                   form.setFieldValue('api_endpoint', defaults[value])
@@ -468,23 +520,23 @@ const RAGSystems: React.FC = () => {
                 />
               </Form.Item>
 
-              {(selectedSystemType === 'dify' || selectedSystemType === 'fastgpt') && (
+              {(selectedSystemType === 'dify' || selectedSystemType === 'fastgpt' || selectedSystemType === 'maxkb') && (
                 <Form.Item
                   name="dataset_api_key"
                   label="知识库 Key"
-                  tooltip="Dify/FastGPT 的知识库维护与应用问答是两把 key；留空则复用上面的 API Key"
+                  tooltip="Dify/FastGPT/MaxKB 的知识库维护与应用问答是两把 key；留空则复用上面的 API Key"
                 >
                   <Input.Password placeholder="dataset-xxx / 知识库 API Key" />
                 </Form.Item>
               )}
 
-              {(selectedSystemType === 'ragflow' || selectedSystemType === 'fastgpt') && (
+              {(selectedSystemType === 'ragflow' || selectedSystemType === 'fastgpt' || selectedSystemType === 'anythingllm' || selectedSystemType === 'open_webui') && (
                 <Form.Item
                   name="chat_id"
-                  label="会话 ID"
-                  tooltip="RAGFlow 需填 / 或由入库任务自动创建；FastGPT 填应用 chatId"
+                  label="会话 / 知识库 ID"
+                  tooltip="RAGFlow 填会话 ID（可由入库任务自动创建）；FastGPT 填应用 chatId；AnythingLLM 填 workspace slug；Open WebUI 填 knowledge collection ID"
                 >
-                  <Input placeholder="可选" />
+                  <Input placeholder="可选；入库后也可回填" />
                 </Form.Item>
               )}
 
@@ -508,9 +560,37 @@ const RAGSystems: React.FC = () => {
                 </Form.Item>
               )}
 
-              {['baidu_qianfan', 'aliyun_bailian', 'tencent_hunyuan', 'volcengine_ark', 'xfyun_spark', 'openai_compatible'].includes(selectedSystemType) && (
-                <Form.Item name="model" label="模型 / Bot ID" rules={[{ required: true }]}>
-                  <Input placeholder="例如 qwen-plus / doubao-xxx / Bot ID" />
+              {selectedSystemType === 'maxkb' && (
+                <Form.Item name="application_id" label="应用 ID" rules={[{ required: true }]}>
+                  <Input placeholder="MaxKB 应用 ID（用于问答）" />
+                </Form.Item>
+              )}
+
+              {selectedSystemType === 'flowise' && (
+                <Form.Item name="chatflow_id" label="Chatflow ID" rules={[{ required: true }]}>
+                  <Input placeholder="Flowise 聊天流 ID" />
+                </Form.Item>
+              )}
+
+              {selectedSystemType === 'langflow' && (
+                <Form.Item name="flow_id" label="Flow ID" rules={[{ required: true }]}>
+                  <Input placeholder="Langflow flow ID" />
+                </Form.Item>
+              )}
+
+              {selectedSystemType === 'qanything' && (
+                <Form.Item name="user_id" label="User ID" tooltip="QAnything 用 user_id + kb_id 隔离文档；留空默认 jq-eval">
+                  <Input placeholder="jq-eval" />
+                </Form.Item>
+              )}
+
+              {['baidu_qianfan', 'aliyun_bailian', 'tencent_hunyuan', 'volcengine_ark', 'xfyun_spark', 'openai_compatible', 'open_webui', 'privategpt', 'r2r', 'dbgpt', 'langchain_chatchat'].includes(selectedSystemType) && (
+                <Form.Item
+                  name="model"
+                  label="模型 / Bot ID"
+                  rules={selectedSystemType === 'open_webui' ? [{ required: true, message: 'Open WebUI 问答必须指定模型 ID' }] : undefined}
+                >
+                  <Input placeholder="例如 qwen-plus / doubao-xxx / qwen2.5:7b" />
                 </Form.Item>
               )}
 

@@ -212,6 +212,11 @@ export interface IngestConnectorType {
   api_doc_url: string
   default_endpoint: string
   capabilities: IngestCapabilities
+  stars?: number
+  repo_url?: string
+  archived?: boolean
+  coverage?: string
+  integration?: string
 }
 
 export interface ApiIngestTask {

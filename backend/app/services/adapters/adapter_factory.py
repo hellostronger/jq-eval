@@ -31,6 +31,14 @@ class AdapterFactory:
     def create(system_type: str, config: Dict[str, Any]) -> BaseRAGAdapter:
         """创建适配器实例"""
         if system_type not in ADAPTER_REGISTRY:
+            # 新增的开源连接器（AnythingLLM / Open WebUI / LightRAG 等）与
+            # pageindex / llm_wiki 不需要单独适配器：统一复用 api_ingest 的 ask。
+            from app.services.api_ingest import supports_api_ingest
+
+            if supports_api_ingest(system_type):
+                from .connector_adapter import ConnectorAdapter
+
+                return ConnectorAdapter(config, system_type=system_type)
             raise ValueError(f"不支持的系统类型: {system_type}")
 
         # 动态导入适配器类

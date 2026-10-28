@@ -209,6 +209,14 @@ async def get_ingest_types():
     return list_connector_types()
 
 
+@router.get("/ingest-catalog")
+async def get_ingest_catalog():
+    """获取 >1k star 开源方案覆盖清单（含排除原因与 star 快照）"""
+    from ...services.api_ingest import list_catalog
+
+    return list_catalog()
+
+
 @router.get("/{system_id}/ingest/capabilities")
 async def get_ingest_capabilities(
     system_id: UUID,

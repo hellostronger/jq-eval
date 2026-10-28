@@ -1,10 +1,14 @@
 # API 全链路入库接入
 
-> 状态：核心实现完成，离线契约测试通过（`tests/test_api_ingest.py`，23 例）。
+> 状态：核心实现完成，离线契约测试通过（`tests/test_api_ingest.py`，35 例）。
 > RAGFlow 已在本地 v1.0.0-rc2 用真实 embedding + 真实 LLM 跑通
 > 建库→上传→解析→分片→向量检索→问答全链路（见 4.1）。
 > PageIndex / LLM Wiki 已按官方接口实现（见 4.2），**尚未实机验证**；
+> 2026-10 新增的 AnythingLLM / Open WebUI / MaxKB / LightRAG / Langchain-Chatchat /
+> QAnything / PrivateGPT / DocsGPT / R2R / Khoj 均按官方 API 实现，**尚未逐一实机联调**；
 > 云端平台（百度/阿里/腾讯/字节/讯飞）均按官方文档实现，**尚未用真实账号验证**，见能力矩阵的「验证状态」。
+> 「>1k star 开源方案」的纳入/排除口径见 4.3，机器可读清单见
+> `GET /api/v1/rag-systems/ingest-catalog`。
 
 ## 1. 为什么有这条链路
 
@@ -34,6 +38,7 @@ Recall@K / MRR / 引用命中才有真实对照物。
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/v1/rag-systems/ingest-types` | 支持的系统类型与能力清单 |
+| GET | `/api/v1/rag-systems/ingest-catalog` | >1k star 开源方案覆盖清单（含排除原因、star 快照） |
 | GET | `/api/v1/rag-systems/{id}/ingest/capabilities` | 单个连接的能力与连通性 |
 | GET | `/api/v1/rag-systems/{id}/knowledge-bases` | 远端知识库列表 |
 | POST | `/api/v1/rag-systems/{id}/knowledge-bases` | 新建远端知识库（body: `name`/`description`/`space_id`） |
@@ -61,11 +66,13 @@ Recall@K / MRR / 引用命中才有真实对照物。
 | --- | --- | --- |
 | `api_endpoint` | 全部 | 系统根地址，可带或不带 `/api/v1`、`/v1` |
 | `api_key` | 全部 | 默认 Bearer；Dify/FastGPT 下作为应用 key |
-| `dataset_api_key` | Dify / FastGPT | 知识库维护 key（Dify 为 `dataset-xxx`） |
-| `chat_id` | RAGFlow / FastGPT | 已有会话助手/应用 chatId；RAGFlow 不填会自动建 |
+| `dataset_api_key` | Dify / FastGPT / MaxKB | 知识库维护 key（Dify 为 `dataset-xxx`，MaxKB 为知识库 API Key） |
+| `chat_id` | RAGFlow / FastGPT / AnythingLLM / Open WebUI | 会话助手 / 应用 chatId / workspace slug / knowledge collection ID |
 | `dataset_id` / `space_id` | Coze | 已有知识库 ID / 空间 ID |
-| `bot_id` / `app_id` | Coze / 百炼 / 元器 | Bot 或应用标识 |
-| `model` | 通用 profile | OpenAI 兼容接口的模型/Bot ID |
+| `bot_id` / `app_id` / `application_id` | Coze / 百炼 / 元器 / MaxKB | Bot、应用或 MaxKB 应用标识 |
+| `chatflow_id` / `flow_id` | Flowise / Langflow | 编排平台里的聊天流/流程 ID |
+| `user_id` | QAnything | 文档隔离用户，默认 `jq-eval` |
+| `model` | 通用 profile / Open WebUI / PrivateGPT / R2R / DB-GPT / Chatchat | 模型 ID；Open WebUI 必填 |
 | `ingest_profile` | generic 及云平台覆盖 | JSON，覆盖内置请求/响应路径 |
 | `llm_timeout` | 全部 | 问答超时秒数 |
 
@@ -81,6 +88,19 @@ Recall@K / MRR / 引用命中才有真实对照物。
 | Coze（扣子） | — | ✓ | ✓ | 自动 | — | ✓ | 未联调（无真实 key） |
 | PageIndex | ✓（账号文档库） | — | ✓ | 自动建树 | ✓（树节点） | ✓ | 按官方 API 实现，未验证（云端无 key） |
 | LLM Wiki | ✓（项目） | — | ✓（写 wiki 页） | 自动 embed | — | ✓ | 按官方本地 API 实现，未验证（需桌面端运行） |
+| AnythingLLM | ✓（workspace） | ✓ | ✓ | 上传即嵌入 | — | ✓ | 按官方 API 实现，未联调 |
+| Open WebUI | ✓（knowledge） | ✓ | ✓ | 加入知识库即嵌入 | — | ✓ | 按官方 API 实现，未联调；问答需 `model` |
+| MaxKB | ✓ | ✓ | ✓ | 自动 | ✓（paragraph） | ✓ | 按官方 API 实现，未联调；知识库/应用两把 Key |
+| LightRAG | ✓（虚拟库） | — | ✓ | 自动建图/向量 | ✓（/chunks） | ✓ | 按 lightrag-server 实现，未联调 |
+| Langchain-Chatchat | ✓ | ✓ | ✓ | 上传即写向量库 | — | ✓ | 按 API Server 实现，未联调 |
+| QAnything | ✓ | ✓ | ✓ | 自动 | — | ✓ | 按本地 API 实现，未联调 |
+| PrivateGPT | ✓（虚拟库） | — | ✓ | 自动 | — | ✓ | 按官方 API 实现，未联调 |
+| DocsGPT | ✓（虚拟库） | — | ✓ | 自动 | — | ✓ | 按官方 API 实现，未联调 |
+| R2R | ✓（虚拟库） | — | ✓ | 自动 | ✓ | ✓ | 按 v3 契约实现，未联调；仓库近一年未更新 |
+| Khoj | ✓（虚拟库） | — | ✓ | 自动 | — | ✓ | 按官方 API 实现，未联调 |
+| Flowise（已归档） | — | — | — | — | — | ✓ | 仅 prediction 问答；需 `chatflow_id` |
+| DB-GPT | — | — | — | — | — | ✓ | OpenAI 兼容问答；知识库在 DB-GPT 内配置 |
+| Langflow | — | — | — | — | — | ✓ | 仅流程问答；需 `flow_id` |
 | 百度千帆 AppBuilder | 按 profile | 按 profile | — | — | — | ✓ | 按文档，未验证 |
 | 阿里云百炼 | — | — | — | — | — | ✓ | 按文档，未验证（知识库为 AK/SK 签名） |
 | 腾讯混元 | — | — | — | — | — | ✓ | 按文档，未验证 |
@@ -172,6 +192,32 @@ Settings → API + MCP 生成，默认只监听本机）：
 
 两者均未在本地部署验证：PageIndex 云端需要 key，LLM Wiki 需要桌面应用常驻。
 
+### 4.3 >1k star 开源方案覆盖口径（2026-10-28 快照）
+
+「覆盖」不等于「每个仓库都写一个连接器」：RAG 生态里大量项目是框架/库、向量库、
+解析器或聊天 UI，它们没有「独立部署 + 知识库 HTTP API」这个被测对象。为避免
+「没接 = 漏了」的误解，清单分四类，机器可读版本在 `GET /ingest-catalog`：
+
+| 类别 | 数量 | 含义 |
+| --- | --- | --- |
+| native | 15 | 原生连接器，含建库/上传/状态/分片/问答中的全部或大部分能力 |
+| profile | 3 | 通过通用 profile 接入（Flowise / DB-GPT / Langflow），默认只接问答 |
+| gateway | 3 | API 契约不稳定或管理接口需管理员权限（Quivr / Onyx / BISHENG），建议先自建网关 |
+| excluded | 10 | 框架/库/向量库/聊天 UI/已归档且无稳定 API，明确不计入 |
+
+纳入规则：
+
+1. 面向最终用户的 RAG / 知识库应用，且提供可调用的 HTTP API；
+2. 纯框架/库（LangChain、LlamaIndex、Haystack、GraphRAG、RAG-Anything、MiniRAG）、
+   向量数据库（Milvus/Qdrant/Weaviate/Chroma）、解析器（Docling/MinerU）、
+   评测库（Ragas/DeepEval）、记忆层（Mem0/Cognee/Zep/Letta）不计入；
+3. 纯聊天 UI（LibreChat/LobeChat）如果没有稳定的知识库管理 API，也不计入；
+4. 已归档仓库仍然列出：能跑就接，不能跑就写明原因，不能静默消失。
+
+覆盖清单中的 `verified=False` 表示「按官方 API/源码实现、契约测试通过，但未在本机
+实机联调」。RAGFlow 是唯一已完成本地全链路实测的系统；新增连接器不要因为
+离线测试通过就改成已验证。
+
 ## 5. 官方文档
 
 - RAGFlow HTTP API：https://ragflow.io/docs/dev/http_api_reference
@@ -188,6 +234,19 @@ Settings → API + MCP 生成，默认只监听本机）：
 - LLM Wiki 本地 HTTP API：https://github.com/nashsu/llm_wiki#local-http-api--mcp-server--ai-agent-skill
 - LLM Wiki 配套 skill / API 客户端：https://github.com/nashsu/llm_wiki_skill
 - Karpathy LLM Wiki 模式（原始 gist）：https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f
+- AnythingLLM API：https://docs.anythingllm.com/
+- Open WebUI API / 源码：https://docs.openwebui.com/、https://github.com/open-webui/open-webui/tree/main/backend/open_webui/routers
+- MaxKB API：https://docs.fit2cloud.com/maxkb/
+- LightRAG Server：https://github.com/HKUDS/LightRAG
+- Langchain-Chatchat API Server：https://github.com/chatchat-space/Langchain-Chatchat
+- QAnything API：https://github.com/netease-youdao/QAnything
+- PrivateGPT API：https://docs.privategpt.dev/
+- DocsGPT API：https://docs.docsgpt.cloud/
+- R2R API：https://r2r-docs.sciphi.ai/
+- Khoj API：https://docs.khoj.dev/
+- Flowise API：https://docs.flowiseai.com/
+- DB-GPT：https://docs.dbgpt.cn/
+- Langflow API：https://docs.langflow.org/
 - 百度千帆：https://cloud.baidu.com/doc/qianfan-api/s/tm7wzq8ek
 - 阿里云百炼知识库：https://help.aliyun.com/zh/model-studio/rag-knowledge-base-api-guide
 - 腾讯元器：https://yuanqi.tencent.com/guide/publish-agent-api-documentation
@@ -206,6 +265,9 @@ cd backend
 
 覆盖：RAGFlow 建库/上传/触发解析/轮询/分片/问答（含 v1.0 与 0.x 双形状回退）、
 Dify 双 key 与 401 提示、FastGPT `{code,data}` 信封与 collection 状态、
-Coze 建库/上传/非流式轮询、通用 profile 覆盖。
+Coze 建库/上传/非流式轮询、通用 profile 覆盖；
+AnythingLLM / Open WebUI / MaxKB / LightRAG / Langchain-Chatchat / QAnything /
+PrivateGPT / DocsGPT / R2R / Khoj 的请求形状与响应解析；
+以及「注册表里的每个已接入类型都能在 >1k star 清单里找到 star/repo/说明」。
 
 实机联调记录应写入本文档「验证状态」列，未跑通前不要改成已验证。

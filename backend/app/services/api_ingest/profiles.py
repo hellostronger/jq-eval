@@ -156,4 +156,59 @@ PROFILES: Dict[str, Dict[str, Any]] = {
         "notes": "任意 OpenAI 兼容网关；知识库步骤请配置 ingest_profile 或手动完成。",
         "profile": {"ask": _openai_ask()},
     },
+    # ------------------------------------------------------ 编排 / 旧版平台
+    "flowise": {
+        "display_name": "Flowise（已归档）",
+        "api_endpoint": "http://localhost:3000",
+        "api_doc_url": "https://docs.flowiseai.com/",
+        "verified": False,
+        "notes": (
+            "仓库已归档。默认只接 prediction 问答，需要 chatflow_id；"
+            "知识库走 Document Store，接口随版本变化，建议在 Flowise 页面完成入库。"
+        ),
+        "profile": {
+            "ask": {
+                "method": "POST",
+                "path": "/api/v1/prediction/{{chatflow_id}}",
+                "body": {"question": "{{question}}"},
+                "answer_path": "text",
+                "contexts_path": "sourceDocuments",
+                "contexts_content_path": "pageContent",
+            },
+        },
+    },
+    "dbgpt": {
+        "display_name": "DB-GPT",
+        "api_endpoint": "http://localhost:5670",
+        "api_doc_url": "https://docs.dbgpt.cn/",
+        "verified": False,
+        "notes": (
+            "OpenAI 兼容 /api/v1/chat/completions；知识库/数据源在 DB-GPT 内配置，"
+            "默认只接问答。不同版本的鉴权与 conv_uid 要求不同，可用 ingest_profile 覆盖。"
+        ),
+        "profile": {"ask": _openai_ask("/api/v1/chat/completions")},
+    },
+    "langflow": {
+        "display_name": "Langflow（流程编排）",
+        "api_endpoint": "http://localhost:7860",
+        "api_doc_url": "https://docs.langflow.org/",
+        "verified": False,
+        "notes": (
+            "可视化编排平台，不是知识库；RAG 逻辑在 flow 内。需要 flow_id，"
+            "默认调用 /api/v1/run/{flow_id} 并取 chat 输出。"
+        ),
+        "profile": {
+            "ask": {
+                "method": "POST",
+                "path": "/api/v1/run/{{flow_id}}",
+                "params": {"stream": "false"},
+                "body": {
+                    "input_value": "{{question}}",
+                    "input_type": "chat",
+                    "output_type": "chat",
+                },
+                "answer_path": "outputs.0.outputs.0.results.message.text",
+            },
+        },
+    },
 }
