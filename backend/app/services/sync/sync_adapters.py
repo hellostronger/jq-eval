@@ -1,4 +1,9 @@
 # 数据同步适配器实现
+#
+# ⚠️ 已废弃（deprecated）：数据库直连同步只做"离线拷贝"，不会触发被测系统解析，
+# 也拿不到标准答案与远端 chunk 的对应关系，评测结果容易与实际检索漂移。
+# 新接入请使用 app/services/api_ingest（API 全链路入库）。
+# 本模块暂时保留，仅用于兼容历史数据源，后续版本会移除。
 import asyncpg
 import json
 import re

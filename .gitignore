@@ -88,3 +88,6 @@ tmp_*.webp
 
 # Reference files
 reference/
+
+# 本地部署的被测系统（RAGFlow/Dify 等），不入库
+.local/

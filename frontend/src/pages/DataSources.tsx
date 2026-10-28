@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Button, Tag, Modal, Form, Input, Select, message, Popconfirm } from 'antd'
+import { Alert, Card, Table, Button, Tag, Modal, Form, Input, Select, message, Popconfirm } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { formatDate } from '@/utils/format'
 import { getDataSources, createDataSource, testDataSourceConnection, deleteDataSource } from '@/api'
@@ -120,6 +120,13 @@ const DataSources: React.FC = () => {
         </Button>
       }
     >
+      <Alert
+        type="warning"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="数据库同步模式已废弃"
+        description="该模式只是离线拷贝一份数据，不会触发被测系统解析，也拿不到标准答案与远端分片的对应关系，评测结果容易与实际检索漂移。新接入请到「RAG系统」页使用「API 全链路入库」。历史数据源暂时保留，可继续查看和删除。"
+      />
       <Table dataSource={dataSources} columns={columns} rowKey="id" loading={loading} />
 
       <Modal

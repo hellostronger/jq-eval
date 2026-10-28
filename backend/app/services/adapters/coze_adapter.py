@@ -1,4 +1,5 @@
 # Coze 适配器
+import asyncio
 import httpx
 import time
 import json
@@ -30,16 +31,22 @@ class CozeAdapter(BaseRAGAdapter):
         conversation_id: Optional[str] = None,
         **kwargs
     ) -> RAGResponse:
-        """查询Coze Bot"""
+        """查询Coze Bot
+
+        Coze v3 的非流式 /chat 只返回 chat 元数据，回答要再调
+        /chat/retrieve 轮询到 completed，然后 /chat/message/list 取 answer。
+        直接读 data.messages 会永远拿到空回答。
+        """
         start_time = time.time()
 
         try:
             headers = {
                 "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                # 网关按字符串解析大整数，避免 chat_id 精度丢失
+                "Agw-Js-Conv": "str",
             }
 
-            # Coze v3 API
             payload = {
                 "bot_id": self.bot_id,
                 "user_id": kwargs.get("user_id", "eval-user"),
@@ -53,44 +60,74 @@ class CozeAdapter(BaseRAGAdapter):
                     }
                 ]
             }
-
             if conversation_id:
                 payload["conversation_id"] = conversation_id
 
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(timeout=self.llm_timeout) as client:
                 response = await client.post(
                     f"{self.api_url}/chat",
                     headers=headers,
+                    params={"conversation_id": conversation_id} if conversation_id else None,
                     json=payload
                 )
                 response.raise_for_status()
                 data = response.json()
 
+                if data.get("code") not in (None, 0):
+                    raise RuntimeError(f"Coze 返回 code={data.get('code')}: {data.get('msg')}")
+
+                chat_data = data.get("data", {}) or {}
+                chat_id = chat_data.get("id")
+                conv_id = chat_data.get("conversation_id") or conversation_id
+                status = str(chat_data.get("status") or "").lower()
+
+                deadline = time.time() + float(self.config.get("poll_timeout") or 180.0)
+                while chat_id and status not in ("completed", "failed", "canceled", "required_action"):
+                    if time.time() >= deadline:
+                        raise TimeoutError(
+                            f"Coze 对话轮询超时，最后状态: {status or 'unknown'}"
+                        )
+                    await asyncio.sleep(float(self.config.get("poll_interval") or 1.0))
+                    retrieved = await client.get(
+                        f"{self.api_url}/chat/retrieve",
+                        headers=headers,
+                        params={"conversation_id": conv_id, "chat_id": chat_id},
+                    )
+                    retrieved.raise_for_status()
+                    status = str(
+                        (retrieved.json().get("data") or {}).get("status") or status
+                    ).lower()
+
+                messages: List[Dict[str, Any]] = []
+                if chat_id:
+                    listed = await client.get(
+                        f"{self.api_url}/chat/message/list",
+                        headers=headers,
+                        params={"conversation_id": conv_id, "chat_id": chat_id},
+                    )
+                    listed.raise_for_status()
+                    messages = listed.json().get("data") or []
+
             response_time = time.time() - start_time
-
-            # 解析响应
             answer = ""
-            contexts = []
-
-            if data.get("data"):
-                chat_data = data["data"]
-                # 获取Bot回复
-                for message in chat_data.get("messages", []):
-                    if message.get("role") == "assistant" and message.get("type") == "answer":
-                        answer = message.get("content", "")
-                        break
-
-                # 获取检索的文档
-                for message in chat_data.get("messages", []):
-                    if message.get("type") == "knowledge":
-                        contexts.append(message.get("content", ""))
+            ref_contexts: List[str] = []
+            for message in messages:
+                if message.get("type") == "answer" and message.get("content"):
+                    answer = message["content"]
+                elif message.get("type") == "knowledge" and message.get("content"):
+                    ref_contexts.append(message["content"])
 
             return RAGResponse(
                 answer=answer,
-                contexts=contexts,
+                contexts=ref_contexts,
                 response_time=response_time,
-                metadata=data,
-                success=True
+                metadata={"status": status, "messages": messages},
+                success=status not in ("failed", "canceled"),
+                error=(
+                    None
+                    if status not in ("failed", "canceled")
+                    else f"Coze 对话状态: {status}"
+                ),
             )
 
         except Exception as e:

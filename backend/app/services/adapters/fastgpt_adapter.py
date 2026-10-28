@@ -75,7 +75,15 @@ class FastGPTAdapter(BaseRAGAdapter):
                 message = choices[0].get("message", {})
                 answer = message.get("content", "")
 
-                # FastGPT返回引用信息
+                # 新版 FastGPT 引用在 responseData[].quoteList[]（q 为分片文本），
+                # 旧版在 annotations.references[]；两处都收，避免升级后指标静默归零
+                for ref in (choices[0].get("responseData") or [{}])[0].get("quoteList", []) or []:
+                    content = ref.get("q") or ref.get("content", "")
+                    if content:
+                        contexts.append(content)
+                    if ref.get("id"):
+                        retrieval_ids.append(ref.get("id"))
+
                 if "annotations" in choices[0]:
                     annotations = choices[0]["annotations"]
                     if "references" in annotations:

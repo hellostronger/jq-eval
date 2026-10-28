@@ -8,6 +8,7 @@ from .model import Model
 from .model_log import ModelRequestLog
 from .model_mapping import ModelMapping
 from .rag_system import RAGSystem, RAGSystemType
+from .api_ingest import ApiIngestTask
 from .metric import MetricDefinition, Tag, EntityTag
 from .sync import DataSource, SyncTask, SchemaMapping, DataSourceType
 from .hot_news import HotNewsSource, HotArticle
@@ -50,6 +51,7 @@ __all__ = [
     "ModelMapping",
     "RAGSystem",
     "RAGSystemType",
+    "ApiIngestTask",
     "MetricDefinition",
     "Tag",
     "EntityTag",

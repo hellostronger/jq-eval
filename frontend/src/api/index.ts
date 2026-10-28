@@ -192,6 +192,83 @@ export const getLLMModels = () => {
   return request.get<{ id: string; name: string; provider?: string; model_name?: string; endpoint?: string; has_api_key: boolean }[]>('/rag-systems/llm-models')
 }
 
+// API 全链路入库
+export interface IngestCapabilities {
+  list_knowledge_bases: boolean
+  create_knowledge_base: boolean
+  upload_documents: boolean
+  parse_documents: boolean
+  list_chunks: boolean
+  create_chat: boolean
+  ask: boolean
+  verified: boolean
+  docs_url: string
+  notes: string
+}
+
+export interface IngestConnectorType {
+  system_type: string
+  display_name: string
+  api_doc_url: string
+  default_endpoint: string
+  capabilities: IngestCapabilities
+}
+
+export interface ApiIngestTask {
+  id: string
+  rag_system_id: string
+  dataset_id?: string
+  remote_kb_id?: string
+  remote_kb_name?: string
+  remote_chat_id?: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  stage?: string
+  progress: number
+  error?: string
+  total_files: number
+  processed_files: number
+  files: { name: string; size?: number; status?: string; error?: string; chunk_count?: number }[]
+  config: Record<string, any>
+  created_at?: string
+  started_at?: string
+  completed_at?: string
+}
+
+export const getIngestTypes = () => {
+  return request.get<IngestConnectorType[]>('/rag-systems/ingest-types')
+}
+
+export const getIngestCapabilities = (id: string) => {
+  return request.get<{ system_type: string; display_name: string; api_doc_url: string; capabilities: IngestCapabilities }>(
+    `/rag-systems/${id}/ingest/capabilities`
+  )
+}
+
+export const getRemoteKnowledgeBases = (id: string) => {
+  return request.get<{ items: { id: string; name: string }[]; capabilities: IngestCapabilities }>(
+    `/rag-systems/${id}/knowledge-bases`
+  )
+}
+
+export const createRemoteKnowledgeBase = (id: string, data: { name: string; description?: string; space_id?: string }) => {
+  return request.post<{ id: string; name: string }>(`/rag-systems/${id}/knowledge-bases`, data)
+}
+
+export const startApiIngest = (id: string, formData: FormData) => {
+  return request.post<ApiIngestTask>(`/rag-systems/${id}/ingest`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 300000,
+  })
+}
+
+export const getApiIngestTask = (taskId: string) => {
+  return request.get<ApiIngestTask>(`/rag-systems/ingest-tasks/${taskId}`)
+}
+
+export const getApiIngestTasks = (systemId: string) => {
+  return request.get<ApiIngestTask[]>(`/rag-systems/${systemId}/ingest-tasks`)
+}
+
 // 数据集API
 export const getDatasets = () => {
   return request.get<Dataset[]>('/datasets')

@@ -1,9 +1,17 @@
 import React, { useEffect, useState } from 'react'
 import { Card, Table, Button, Tag, Modal, Form, Input, Select, Switch, message, Popconfirm, Spin, List } from 'antd'
-import { PlusOutlined, MessageOutlined, SendOutlined } from '@ant-design/icons'
+import { PlusOutlined, MessageOutlined, SendOutlined, CloudUploadOutlined } from '@ant-design/icons'
 import { formatDate } from '@/utils/format'
 import { getRAGSystems, createRAGSystem, updateRAGSystem, deleteRAGSystem, testRAGSystem, queryRAGSystem, getLLMModels } from '@/api'
 import type { RAGSystem } from '@/types'
+import ApiIngestModal from '@/components/ApiIngestModal'
+
+const INGEST_TYPES = new Set([
+  'ragflow', 'dify', 'fastgpt', 'coze', 'custom', 'generic',
+  'pageindex', 'llm_wiki',
+  'baidu_qianfan', 'aliyun_bailian', 'tencent_hunyuan', 'tencent_yuanqi',
+  'volcengine_ark', 'xfyun_spark', 'openai_compatible',
+])
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -37,6 +45,10 @@ const RAGSystems: React.FC = () => {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
+
+  // API 全链路入库
+  const [ingestOpen, setIngestOpen] = useState(false)
+  const [ingestSystem, setIngestSystem] = useState<RAGSystem | null>(null)
 
   const fetchSystems = async () => {
     setLoading(true)
@@ -85,6 +97,15 @@ const RAGSystems: React.FC = () => {
       system_type: system.system_type,
       api_endpoint: config.api_endpoint || '',
       api_key: config.api_key || '',
+      dataset_api_key: config.dataset_api_key || '',
+      chat_id: config.chat_id || '',
+      bot_id: config.bot_id || '',
+      dataset_id: config.dataset_id || '',
+      space_id: config.space_id || '',
+      app_id: config.app_id || '',
+      model: config.model || '',
+      pipeline_ids: Array.isArray(config.pipeline_ids) ? config.pipeline_ids.join(',') : (config.pipeline_ids || ''),
+      ingest_profile: config.ingest_profile ? JSON.stringify(config.ingest_profile, null, 2) : '',
       llm_model_id: config.llm_model_id || '',
       model_name: config.model_name || '',
       provider: config.provider || 'openai',
@@ -123,12 +144,34 @@ const RAGSystems: React.FC = () => {
           }
         }
       } else {
-        // 其他系统类型
+        // 其他系统类型：保留各家的可选连接字段（知识库 key / bot / space / profile）
+        let ingestProfile: Record<string, any> | undefined
+        if (values.ingest_profile) {
+          try {
+            ingestProfile = JSON.parse(values.ingest_profile)
+          } catch {
+            message.error('ingest_profile 不是合法 JSON')
+            return
+          }
+        }
+        const pipelineIds = typeof values.pipeline_ids === 'string'
+          ? values.pipeline_ids.split(',').map((item: string) => item.trim()).filter(Boolean)
+          : values.pipeline_ids
+
         connectionConfig = {
           api_endpoint: values.api_endpoint,
           api_key: values.api_key,
           display_name: values.display_name,
           is_active: values.is_active,
+          ...(values.dataset_api_key ? { dataset_api_key: values.dataset_api_key } : {}),
+          ...(values.chat_id ? { chat_id: values.chat_id } : {}),
+          ...(values.bot_id ? { bot_id: values.bot_id } : {}),
+          ...(values.dataset_id ? { dataset_id: values.dataset_id } : {}),
+          ...(values.space_id ? { space_id: values.space_id } : {}),
+          ...(values.app_id ? { app_id: values.app_id } : {}),
+          ...(values.model ? { model: values.model } : {}),
+          ...(pipelineIds && pipelineIds.length ? { pipeline_ids: pipelineIds } : {}),
+          ...(ingestProfile ? { ingest_profile: ingestProfile } : {}),
           ...(values.llm_timeout ? { llm_timeout: Number(values.llm_timeout) } : {}),
         }
       }
@@ -260,6 +303,16 @@ const RAGSystems: React.FC = () => {
       key: 'action',
       render: (_: unknown, record: RAGSystem) => (
         <>
+          {INGEST_TYPES.has(record.system_type) && (
+            <Button
+              type="link"
+              size="small"
+              icon={<CloudUploadOutlined />}
+              onClick={() => { setIngestSystem(record); setIngestOpen(true) }}
+            >
+              API入库
+            </Button>
+          )}
           <Button type="link" size="small" icon={<MessageOutlined />} onClick={() => openChat(record)}>
             聊天
           </Button>
@@ -281,10 +334,21 @@ const RAGSystems: React.FC = () => {
 
   const systemTypes = [
     { value: 'dify', label: 'Dify' },
-    { value: 'coze', label: 'Coze' },
+    { value: 'ragflow', label: 'RAGFlow' },
     { value: 'fastgpt', label: 'FastGPT' },
+    { value: 'coze', label: 'Coze / 扣子' },
+    { value: 'pageindex', label: 'PageIndex（树索引，无向量）' },
+    { value: 'llm_wiki', label: 'LLM Wiki（本地桌面版 API）' },
+    { value: 'baidu_qianfan', label: '百度千帆 AppBuilder' },
+    { value: 'aliyun_bailian', label: '阿里云百炼' },
+    { value: 'tencent_hunyuan', label: '腾讯混元' },
+    { value: 'tencent_yuanqi', label: '腾讯元器' },
+    { value: 'volcengine_ark', label: '火山引擎方舟' },
+    { value: 'xfyun_spark', label: '讯飞星火' },
+    { value: 'openai_compatible', label: 'OpenAI 兼容 RAG' },
     { value: 'n8n', label: 'n8n' },
     { value: 'custom', label: '自定义' },
+    { value: 'generic', label: '通用 HTTP（自定义 profile）' },
     { value: 'direct_llm', label: '直连LLM' },
   ]
 
@@ -332,6 +396,14 @@ const RAGSystems: React.FC = () => {
                 if (value === 'direct_llm') {
                   fetchLLMModels()
                 }
+                // 新形态系统给一个可直接改的默认地址，避免用户填错协议/端口
+                const defaults: Record<string, string> = {
+                  pageindex: 'https://api.pageindex.ai',
+                  llm_wiki: 'http://127.0.0.1:19828',
+                }
+                if (defaults[value] && !form.getFieldValue('api_endpoint')) {
+                  form.setFieldValue('api_endpoint', defaults[value])
+                }
               }}
             />
           </Form.Item>
@@ -372,10 +444,98 @@ const RAGSystems: React.FC = () => {
           {selectedSystemType !== 'direct_llm' && (
             <>
               <Form.Item name="api_endpoint" label="API地址" rules={[{ required: true }]}>
-                <Input placeholder="API Endpoint URL" />
+                <Input placeholder="API Endpoint URL（Dify 填到 /v1，RAGFlow 填到主机:端口，PageIndex 填 https://api.pageindex.ai，LLM Wiki 填 http://127.0.0.1:19828）" />
               </Form.Item>
-              <Form.Item name="api_key" label="API Key" rules={[{ required: true }]}>
-                <Input.Password placeholder="API Key" />
+              <Form.Item
+                name="api_key"
+                label={
+                  selectedSystemType === 'coze'
+                    ? 'Access Token'
+                    : selectedSystemType === 'llm_wiki'
+                      ? '本地 API Token'
+                      : 'API Key'
+                }
+                rules={[{ required: true }]}
+              >
+                <Input.Password
+                  placeholder={
+                    selectedSystemType === 'coze'
+                      ? 'pat_xxx'
+                      : selectedSystemType === 'llm_wiki'
+                        ? 'Settings → API + MCP 里生成的 token'
+                        : 'API Key'
+                  }
+                />
+              </Form.Item>
+
+              {(selectedSystemType === 'dify' || selectedSystemType === 'fastgpt') && (
+                <Form.Item
+                  name="dataset_api_key"
+                  label="知识库 Key"
+                  tooltip="Dify/FastGPT 的知识库维护与应用问答是两把 key；留空则复用上面的 API Key"
+                >
+                  <Input.Password placeholder="dataset-xxx / 知识库 API Key" />
+                </Form.Item>
+              )}
+
+              {(selectedSystemType === 'ragflow' || selectedSystemType === 'fastgpt') && (
+                <Form.Item
+                  name="chat_id"
+                  label="会话 ID"
+                  tooltip="RAGFlow 需填 / 或由入库任务自动创建；FastGPT 填应用 chatId"
+                >
+                  <Input placeholder="可选" />
+                </Form.Item>
+              )}
+
+              {selectedSystemType === 'coze' && (
+                <>
+                  <Form.Item name="bot_id" label="Bot ID" rules={[{ required: true }]}>
+                    <Input placeholder="智能体 ID" />
+                  </Form.Item>
+                  <Form.Item name="dataset_id" label="知识库 ID" tooltip="Coze 无列库接口；可在此填写，或用入库弹窗新建">
+                    <Input placeholder="dataset_id" />
+                  </Form.Item>
+                  <Form.Item name="space_id" label="Space ID" tooltip="新建知识库时必填">
+                    <Input placeholder="空间 URL /w/{space_id}" />
+                  </Form.Item>
+                </>
+              )}
+
+              {['aliyun_bailian', 'tencent_yuanqi'].includes(selectedSystemType) && (
+                <Form.Item name="app_id" label="应用 ID" rules={[{ required: true }]}>
+                  <Input placeholder="百炼 APP_ID / 元器 assistant_id" />
+                </Form.Item>
+              )}
+
+              {['baidu_qianfan', 'aliyun_bailian', 'tencent_hunyuan', 'volcengine_ark', 'xfyun_spark', 'openai_compatible'].includes(selectedSystemType) && (
+                <Form.Item name="model" label="模型 / Bot ID" rules={[{ required: true }]}>
+                  <Input placeholder="例如 qwen-plus / doubao-xxx / Bot ID" />
+                </Form.Item>
+              )}
+
+              {selectedSystemType === 'aliyun_bailian' && (
+                <Form.Item name="pipeline_ids" label="知识库 ID" tooltip="多个用英文逗号分隔，作为 rag_options.pipeline_ids">
+                  <Input placeholder="pipeline_id1,pipeline_id2" />
+                </Form.Item>
+              )}
+
+              {selectedSystemType === 'generic' && (
+                <Form.Item
+                  name="ingest_profile"
+                  label="接入 Profile"
+                  tooltip="JSON 描述建库/上传/解析/分片/问答的请求与响应路径；结构见后端 api_ingest/generic.py"
+                >
+                  <Input.TextArea rows={6} placeholder='{"ask":{"method":"POST","path":"/v1/chat","body":{"question":"{{question}}"},"answer_path":"answer"}}' />
+                </Form.Item>
+              )}
+
+              <Form.Item
+                name="llm_timeout"
+                label="请求超时（秒）"
+                tooltip="思考型模型单次生成可能超过默认的 300 秒；留空使用默认值。"
+              >
+                <Input type="number" placeholder="300" min={1} />
               </Form.Item>
             </>
           )}
@@ -445,6 +605,13 @@ const RAGSystems: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      <ApiIngestModal
+        system={ingestSystem}
+        open={ingestOpen}
+        onClose={() => setIngestOpen(false)}
+        onCompleted={fetchSystems}
+      />
     </Card>
   )
 }

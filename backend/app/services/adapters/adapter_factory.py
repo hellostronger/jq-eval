@@ -6,11 +6,21 @@ from .base import BaseRAGAdapter
 # 适配器注册表（延迟导入）
 ADAPTER_REGISTRY: Dict[str, str] = {
     "dify": "app.services.adapters.dify_adapter.DifyAdapter",
+    "ragflow": "app.services.adapters.ragflow_adapter.RAGFlowAdapter",
     "coze": "app.services.adapters.coze_adapter.CozeAdapter",
     "fastgpt": "app.services.adapters.fastgpt_adapter.FastGPTAdapter",
     "n8n": "app.services.adapters.n8n_adapter.N8nAdapter",
     "custom": "app.services.adapters.custom_adapter.CustomAdapter",
     "direct_llm": "app.services.adapters.direct_llm_adapter.DirectLLMAdapter",
+    # 大厂 / 通用 profile：入库与评测共用 api_ingest 的 profile 配置
+    "baidu_qianfan": "app.services.adapters.profile_adapter.BaiduQianfanAdapter",
+    "aliyun_bailian": "app.services.adapters.profile_adapter.AliyunBailianAdapter",
+    "tencent_hunyuan": "app.services.adapters.profile_adapter.TencentHunyuanAdapter",
+    "tencent_yuanqi": "app.services.adapters.profile_adapter.TencentYuanqiAdapter",
+    "volcengine_ark": "app.services.adapters.profile_adapter.VolcengineArkAdapter",
+    "xfyun_spark": "app.services.adapters.profile_adapter.XfyunSparkAdapter",
+    "openai_compatible": "app.services.adapters.profile_adapter.OpenAICompatibleAdapter",
+    "generic": "app.services.adapters.profile_adapter.ProfileAdapter",
 }
 
 

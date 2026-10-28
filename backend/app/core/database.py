@@ -51,7 +51,7 @@ async def init_db():
             model, model_log, model_mapping, rag_system, metric, sync,
             hot_news, load_test, prompt, vibe_agent, doc_parse,
             training_data_eval, open_source_dataset, training_data_profile,
-            eval_set_profile,
+            eval_set_profile, api_ingest,
         )
 
         # 创建所有表

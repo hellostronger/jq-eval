@@ -49,8 +49,14 @@ class SyncRequest(BaseModel):
 
 @router.get("/supported-systems")
 async def get_supported_systems():
-    """获取支持的数据源系统列表"""
-    return [
+    """获取支持的数据源系统列表
+
+    数据库同步模式已废弃（deprecated）：
+    它是"离线拷贝一份数据"，既无法触发解析、也没有标准答案/远端分片对齐，
+    评测结果与被测系统实际检索行为会漂移。请改用 RAG 系统页的「API 全链路入库」。
+    代码暂时保留一个版本，仅用于兼容历史数据。
+    """
+    systems = [
         {
             "system_type": "dify",
             "display_name": "Dify",
@@ -80,6 +86,13 @@ async def get_supported_systems():
             "description": "自定义数据库同步，需配置字段映射"
         }
     ]
+    for item in systems:
+        item["deprecated"] = True
+        item["deprecated_message"] = (
+            "数据库同步模式已废弃：请改用 RAG 系统页的「API 全链路入库」，"
+            "以便对齐被测系统实际解析出的分片。"
+        )
+    return systems
 
 
 @router.post("", response_model=DataSourceResponse)
