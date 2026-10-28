@@ -1,6 +1,7 @@
 # Embedding训练数据评估指标
 from typing import Optional, List
 import logging
+import math
 import numpy as np
 from .base import BaseTrainingDataMetric, TrainingDataMetricResult
 from .reranker_metrics import _EmbedMixin
@@ -388,6 +389,212 @@ class EmbeddingNoiseDetectionMetric(BaseTrainingDataMetric):
         )
 
 
+class EmbeddingPairQualityMetric(_EmbedMixin, BaseTrainingDataMetric):
+    """Embedding正负例质量指标（检索三元组标签正确性）"""
+
+    name = "embedding_pair_quality"
+    display_name = "Embedding正负例质量"
+    description = "检查正例是否比 hardest negative 更接近 query（检索标签正确性）"
+    category = "quality"
+    data_types = ["embedding"]
+    requires_embedding = True
+    default_threshold = 0.5
+    threshold_type = "min"
+
+    @staticmethod
+    def _bigrams(text: str):
+        t = (text or "").lower().strip().replace(" ", "")
+        if len(t) < 2:
+            return set(t)
+        return {t[i:i + 2] for i in range(len(t) - 1)}
+
+    @staticmethod
+    def _sim(qg, dg) -> float:
+        return len(qg & dg) / max(len(qg), 1)
+
+    async def compute(
+        self,
+        question: str,
+        answer: str,
+        contexts: Optional[List[str]] = None,
+        ground_truth: Optional[str] = None,
+        **kwargs
+    ) -> TrainingDataMetricResult:
+        """正例相似度 - 最硬负例相似度；>0 才通过。"""
+        positive = kwargs.get("positive_doc") or kwargs.get("positive")
+        negatives = kwargs.get("negative_docs") or kwargs.get("negatives")
+        if not positive and contexts:
+            positive = contexts[0]
+        if negatives is None and contexts and len(contexts) > 1:
+            negatives = contexts[1:]
+        if isinstance(negatives, str):
+            negatives = [negatives]
+        negatives = [n for n in (negatives or []) if n and n.strip()]
+
+        if not question or not positive or not negatives:
+            return TrainingDataMetricResult(
+                score=0.0, passed=False,
+                error="需要 question + positive + 至少一个 negative"
+            )
+
+        embedding_model = kwargs.get("embedding_model")
+        method = "char_bigram"
+        pos_sim = 0.0
+        neg_sims = []
+        try:
+            if embedding_model:
+                qv = await self._embed(embedding_model, question)
+                pv = await self._embed(embedding_model, positive)
+                pos_sim = self._cosine(qv, pv)
+                for n in negatives:
+                    nv = await self._embed(embedding_model, n)
+                    neg_sims.append(self._cosine(qv, nv))
+                method = "embedding_cosine"
+            else:
+                qg = self._bigrams(question)
+                pos_sim = self._sim(qg, self._bigrams(positive))
+                neg_sims = [self._sim(qg, self._bigrams(n)) for n in negatives]
+        except Exception as exc:
+            # embedding 服务抖动时退回字符 bigram，不能把指标算成 0
+            qg = self._bigrams(question)
+            pos_sim = self._sim(qg, self._bigrams(positive))
+            neg_sims = [self._sim(qg, self._bigrams(n)) for n in negatives]
+            method = f"char_bigram_fallback({type(exc).__name__})"
+
+        hardest = max(neg_sims) if neg_sims else 0.0
+        margin = pos_sim - hardest
+        # 0-1 分：margin=0 -> 0.5；margin>0 -> >0.5
+        score = 1.0 / (1.0 + math.exp(-margin / 0.1))
+        suggestions = []
+        if margin <= 0:
+            suggestions.append(
+                f"hardest negative 比正例更接近 query（margin={margin:.4f}），"
+                "建议检查/重采负例"
+            )
+        return TrainingDataMetricResult(
+            score=score,
+            passed=self.check_threshold(score),
+            details={
+                "pos_sim": round(float(pos_sim), 4),
+                "max_neg_sim": round(float(hardest), 4),
+                "margin": round(float(margin), 4),
+                "n_neg": len(negatives),
+                "method": method,
+            },
+            suggestions=suggestions,
+        )
+
+
+class EmbeddingLLMPairQualityMetric(BaseTrainingDataMetric):
+    """Embedding LLM正负例标注（用 LLM 判断标签正确性）"""
+
+    name = "embedding_llm_pair_quality"
+    display_name = "Embedding LLM正负例标注"
+    description = "用 LLM 判断 gold 是否相关、每个负例是否确实不相关"
+    category = "quality"
+    data_types = ["embedding"]
+    requires_llm = True
+    default_threshold = 0.8
+    threshold_type = "min"
+
+    async def compute(
+        self,
+        question: str,
+        answer: str,
+        contexts: Optional[List[str]] = None,
+        ground_truth: Optional[str] = None,
+        **kwargs
+    ) -> TrainingDataMetricResult:
+        llm = kwargs.get("llm")
+        if not llm:
+            return TrainingDataMetricResult(
+                score=0.0, passed=False, error="需要LLM模型进行标注"
+            )
+        positive = kwargs.get("positive_doc") or kwargs.get("positive")
+        negatives = kwargs.get("negative_docs") or kwargs.get("negatives")
+        if not positive and contexts:
+            positive = contexts[0]
+        if negatives is None and contexts and len(contexts) > 1:
+            negatives = contexts[1:]
+        if isinstance(negatives, str):
+            negatives = [negatives]
+        negatives = [n for n in (negatives or []) if n and n.strip()]
+        if not question or not positive or not negatives:
+            return TrainingDataMetricResult(
+                score=0.0, passed=False,
+                error="需要 question + positive + 至少一个 negative"
+            )
+
+        neg_block = "\n".join(
+            f"[{i}] {n[:800]}" for i, n in enumerate(negatives))
+        prompt = f"""你是法律检索数据标注员。给定一个检索 query、一个 gold 文档、若干 negative 文档。
+判断：
+1) gold 是否与 query 相关（能回答 query）；
+2) 每个 negative 是否确实与 query 不相关（不能回答 query）。
+
+只输出 JSON，不要解释，不要 markdown：
+{{"gold_relevant": true或false, "negatives": [{{"index": 0, "relevant": true或false}}, ...]}}
+
+query:
+{question[:800]}
+
+gold:
+{positive[:800]}
+
+negatives:
+{neg_block}
+
+请输出 JSON："""
+        try:
+            response = await llm.generate(prompt)
+            import json as _json
+            import re as _re
+            text = response.strip()
+            fence = _re.search(r"```(?:json)?\s*(.*?)```", text, _re.S)
+            if fence:
+                text = fence.group(1).strip()
+            m = _re.search(r"\{.*\}", text, _re.S)
+            if not m:
+                return TrainingDataMetricResult(
+                    score=0.0, passed=False,
+                    error=f"LLM 未返回 JSON: {text[:200]}"
+                )
+            data = _json.loads(m.group(0))
+            gold_relevant = bool(data.get("gold_relevant"))
+            labels = data.get("negatives") or []
+            by_idx = {}
+            for x in labels:
+                try:
+                    by_idx[int(x.get("index"))] = bool(x.get("relevant"))
+                except Exception:
+                    continue
+            # 缺 label 视为“相关”（保守：不放过潜在错标）
+            neg_rel = [by_idx.get(i, True) for i in range(len(negatives))]
+            correct = (1 if gold_relevant else 0) + sum(1 for r in neg_rel if not r)
+            score = correct / (1 + len(negatives))
+            suggestions = []
+            if not gold_relevant:
+                suggestions.append("LLM 判定 gold 与 query 不相关，建议人工复核/替换")
+            bad_neg = [i for i, r in enumerate(neg_rel) if r]
+            if bad_neg:
+                suggestions.append(f"LLM 判定负例 {bad_neg} 与 query 相关，建议重采")
+            return TrainingDataMetricResult(
+                score=score,
+                passed=self.check_threshold(score),
+                details={
+                    "gold_relevant": gold_relevant,
+                    "negatives_relevant": neg_rel,
+                    "n_neg": len(negatives),
+                    "llm_response": text[:500],
+                },
+                suggestions=suggestions,
+            )
+        except Exception as e:
+            return TrainingDataMetricResult(
+                score=0.0, passed=False, error=format_error(e)
+            )
+
+
 # Embedding训练数据评估指标注册表
 EMBEDDING_METRICS = {
     "embedding_quality": EmbeddingQualityMetric,
@@ -396,4 +603,6 @@ EMBEDDING_METRICS = {
     "embedding_text_length": EmbeddingTextLengthMetric,
     "embedding_consistency": EmbeddingConsistencyMetric,
     "embedding_noise_detection": EmbeddingNoiseDetectionMetric,
+    "embedding_pair_quality": EmbeddingPairQualityMetric,
+    "embedding_llm_pair_quality": EmbeddingLLMPairQualityMetric,
 }
