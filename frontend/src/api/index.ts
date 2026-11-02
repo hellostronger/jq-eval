@@ -501,8 +501,9 @@ export const getMetrics = (params?: { scope?: MetricScope; data_type?: string })
   return request.get<MetricDefinition[]>('/metrics', { params })
 }
 
-export const getMetricCategories = () => {
-  return request.get<string[]>('/metrics/categories')
+// 分类清单随 scope 变化：两套体系用的分类集合不同（rag 与 training_data 对不上）
+export const getMetricCategories = (scope?: MetricScope) => {
+  return request.get<string[]>('/metrics/categories', { params: scope ? { scope } : undefined })
 }
 
 export const getMetricsByCategory = (category: string, scope?: MetricScope) => {

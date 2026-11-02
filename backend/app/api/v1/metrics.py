@@ -105,10 +105,54 @@ async def list_metrics(
     return [MetricResponse.model_validate(m) for m in metrics]
 
 
+# 库里没有可用指标时的兜底清单（首次启动、同步失败），按作用域分别给，
+# 避免切到 training_data 后拿到的仍是 RAG 那五个对不上的分类
+_FALLBACK_CATEGORIES = {
+    "rag": ["retrieval", "generation", "quality", "performance", "custom"],
+    "training_data": ["quality", "safety", "diversity", "completeness", "consistency"],
+}
+
+# 已知分类的展示顺序；清单本身由库里实际数据推导，这里只决定排序
+_CATEGORY_PRIORITY = {
+    "retrieval": 0,
+    "generation": 1,
+    "quality": 2,
+    "performance": 3,
+    "custom": 4,
+    "safety": 5,
+    "diversity": 6,
+    "completeness": 7,
+    "consistency": 8,
+}
+
+
 @router.get("/categories")
-async def get_categories(db: AsyncSession = Depends(get_db)):
-    """获取指标分类列表"""
-    return ["retrieval", "generation", "quality", "performance", "custom"]
+async def get_categories(scope: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """获取指标分类列表
+
+    分类必须按 scope 从库里真实数据推导：两套指标体系的分类集合并不相同
+    （rag 是 retrieval/generation/...，training_data 是 quality/safety/diversity/...），
+    返回固定清单会让另一套体系下的分类标签点不出任何数据。
+    """
+    query = (
+        select(MetricDefinition.category)
+        .where(
+            MetricDefinition.is_active == True,
+            MetricDefinition.is_public == True,
+            MetricDefinition.category.isnot(None),
+        )
+        .distinct()
+    )
+    if scope:
+        query = query.where(MetricDefinition.scope == scope)
+
+    cats = [c for c in (await db.execute(query)).scalars().all() if c]
+    if not cats:
+        if scope:
+            return _FALLBACK_CATEGORIES.get(scope, [])
+        return sorted(set(sum(_FALLBACK_CATEGORIES.values(), [])))
+
+    return sorted(cats, key=lambda c: (_CATEGORY_PRIORITY.get(c, 99), c))
 
 
 @router.get("/eval-stages")

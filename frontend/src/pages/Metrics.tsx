@@ -28,10 +28,13 @@ const Metrics: React.FC = () => {
     }
   }
 
-  const fetchCategories = async () => {
+  const fetchCategories = async (s: MetricScope | null) => {
     try {
-      const data = await getMetricCategories()
+      const data = await getMetricCategories(s || undefined)
       setCategories(data)
+      // 切到另一套体系后，原分类可能已不存在：标签会消失而 activeKey 仍指向它，
+      // 表格于是永远空着且点不回「全部」
+      setActiveCategory(prev => (prev === 'all' || data.includes(prev) ? prev : 'all'))
     } catch (e) {
       // 错误已在拦截器处理
     }
@@ -51,9 +54,11 @@ const Metrics: React.FC = () => {
     }
   }
 
+  // 分类清单跟着作用域走，scope 变了要重新取（否则一直显示另一套体系的分类）
   useEffect(() => {
-    fetchCategories()
-  }, [])
+    fetchCategories(scope)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope])
 
   // 作用域与分类是同一个查询的两个过滤条件，任一变化都要重新取数
   useEffect(() => {
