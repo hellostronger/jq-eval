@@ -97,9 +97,10 @@ class RAGFlowConnector(BaseApiIngestConnector):
 
     # -------------------------------------------------------------- 知识库
     async def list_knowledge_bases(self) -> List[KnowledgeBase]:
+        # RAGFlow 0.27 起 page_size 上限 100，传 1000 会 code=101 直接拒绝
         data = await self._get_json(
             "/datasets",
-            params={"page": 1, "page_size": 1000, "orderby": "create_time", "desc": True},
+            params={"page": 1, "page_size": 100, "orderby": "create_time", "desc": True},
         )
         # v1.0 直接返回 list；个别版本返回 {"datasets": [...]}
         items = data if isinstance(data, list) else (dig(data, "datasets", []) or [])
@@ -215,9 +216,10 @@ class RAGFlowConnector(BaseApiIngestConnector):
         await self._post_json(f"/datasets/{kb_id}/chunks", {"document_ids": document_ids})
 
     async def list_documents(self, kb_id: str) -> List[RemoteDocument]:
+        # 同上：page_size 必须 ≤100
         data = await self._get_json(
             f"/datasets/{kb_id}/documents",
-            params={"page": 1, "page_size": 1000, "orderby": "create_time", "desc": True},
+            params={"page": 1, "page_size": 100, "orderby": "create_time", "desc": True},
         )
         items = data.get("docs", []) if isinstance(data, dict) else (data or [])
         documents: List[RemoteDocument] = []
