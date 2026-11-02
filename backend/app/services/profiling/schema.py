@@ -82,6 +82,50 @@ class ValueKind:
     OBJECT = "object"
 
 
+# 同级列选项形态：CEval/CMMLU 等把选项铺成 A/B/C/D 四个平级字段，
+# 不做成数组。这类结构很常见，漏识别会让选择题集完全丢失选项画像。
+CHOICE_SIBLING_KEYS = ("A", "B", "C", "D", "E", "F", "G", "H")
+SIBLING_CHOICES_FIELD = "__sibling_choices__"
+
+
+def _detect_sibling_choices(sample: List[Dict[str, Any]]) -> bool:
+    """判断数据集是否为 A/B/C/D 同级列形态。
+
+    要求：多数记录的 A..H 至少命中 3 个且值都是标量。
+    只有 1-2 个（例如正文里恰好有个 A 字段）不判定，避免误报。
+    """
+    hits = 0
+    checked = 0
+    for record in sample[:100]:
+        checked += 1
+        present = [
+            k for k in CHOICE_SIBLING_KEYS
+            if isinstance(record.get(k), (str, int, float))
+            and str(record.get(k)).strip() != ""
+        ]
+        # 必须是连续的前缀（A,B,C,D）才像选项编号
+        contiguous = 0
+        for k in CHOICE_SIBLING_KEYS:
+            if k in present:
+                contiguous += 1
+            else:
+                break
+        if contiguous >= 3:
+            hits += 1
+    return checked > 0 and hits / checked >= 0.6
+
+
+def extract_sibling_choices(record: Dict[str, Any]) -> List[Any]:
+    """从 A/B/C/D 同级列取值组成选项列表（非连续即视为非选项形态）。"""
+    out: List[Any] = []
+    for k in CHOICE_SIBLING_KEYS:
+        v = record.get(k)
+        if v is None or str(v).strip() == "":
+            break
+        out.append(v)
+    return out if len(out) >= 2 else []
+
+
 class FieldInfo:
     """单个字段的探测结果"""
     __slots__ = ("name", "kind", "roles", "coverage", "samples")
@@ -301,6 +345,18 @@ def detect_schema(
     for info in fields.values():
         if info.kind == ValueKind.CONVERSATION and ROLE_CONVERSATION not in info.roles:
             info.roles.insert(0, ROLE_CONVERSATION)
+
+    # A/B/C/D 同级列选项形态：合成一个虚拟的 choices 字段，
+    # 让选择题集与数组形态的选项集走同一条统计路径
+    if not any(ROLE_CHOICES in info.roles for info in fields.values()):
+        if _detect_sibling_choices(sample):
+            fields[SIBLING_CHOICES_FIELD] = FieldInfo(
+                name=SIBLING_CHOICES_FIELD,
+                kind=ValueKind.LIST_SCALAR,
+                roles=[ROLE_CHOICES],
+                coverage=1.0,
+                samples=total,
+            )
 
     return Schema(fields)
 

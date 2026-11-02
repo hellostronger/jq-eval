@@ -26,6 +26,9 @@ from .normalize import (
     normalize_for_hash,
 )
 
+# 通用层：与训练数据画像共用 schema 探测与可插拔统计器
+from ..profiling.profilers import run_profilers
+
 # 截断上限（与训练画像保持同量级，避免画像 JSON 过大）
 PAYLOAD_PROFILE_LIMIT = 1000
 SAMPLE_PREVIEW_LIMIT = 5
@@ -564,6 +567,23 @@ def build_profile(
     tags = [task_profile["primary_format_label"]]
     tags += [s["label"] for s in (capability.get("subjects") or [])[:3]]
     tags += [capability["languages"][0]["label"]] if capability.get("languages") else []
+
+    generic = run_profilers([p for p in payloads if isinstance(p, dict)])
+
+    # ---- 通用层：与训练数据画像共用同一套 schema 探测与统计器 ----
+    # 两套画像的能力口径必须一致：同一份数据，无论按训练集还是评测集导入，
+    # 探测出的「有没有对话结构/选项结构/正负例」应当是同一结论。
+    #
+    # 挂在 capability 下而非新增顶层字段：EvalSetProfile 没有 generic 列，
+    # 顶层 key 会在 run_profile 写库时被静默丢弃（实测踩过）。
+    # 嵌套后随 capability 一起持久化，且与训练数据侧 classification.generic 对称。
+    capability["generic"] = {
+        "schema": generic["schema"],
+        "capabilities": generic["capabilities"],
+        "applied": generic["applied"],
+        "skipped": generic["skipped"],
+        "dimensions": generic["dimensions"],
+    }
 
     return {
         "model_type": model_type,

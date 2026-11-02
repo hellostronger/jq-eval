@@ -27,6 +27,8 @@ from .schema import (
     count_rounds,
     detect_schema,
     extract_conversation,
+    extract_sibling_choices,
+    SIBLING_CHOICES_FIELD,
 )
 
 # 轮次分桶（对数式：轮次跨度大，等距分桶会让「1 轮」挤成一根柱子）
@@ -150,8 +152,12 @@ def profile_choices(records: List[Dict[str, Any]], schema: Schema) -> Dict[str, 
         return {}
     counts = Counter()
     n = 0
+    sibling = field == SIBLING_CHOICES_FIELD
     for record in records:
-        choices = record.get(field)
+        if sibling:
+            choices = extract_sibling_choices(record)
+        else:
+            choices = record.get(field)
         if isinstance(choices, (list, tuple)) and len(choices) >= 2:
             counts[len(choices)] += 1
             n += 1

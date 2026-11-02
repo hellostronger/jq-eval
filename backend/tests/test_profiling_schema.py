@@ -20,6 +20,7 @@ from app.services.profiling.schema import (
     ROLE_CONVERSATION,
     ROLE_SCORE,
     ROLE_SUBJECT,
+    SIBLING_CHOICES_FIELD,
     count_rounds,
     detect_schema,
     extract_conversation,
@@ -215,3 +216,45 @@ def test_all_single_turn_produces_observation():
 
 def test_profile_conversation_returns_empty_without_field():
     assert profile_conversation([{"text": "x"}], detect_schema([{"text": "x"}])) == {}
+
+
+# ---------------------------------------------------------------------------
+# 同级列选项形态（CEval/CMMLU：A/B/C/D 平级字段，非数组）
+# ---------------------------------------------------------------------------
+def test_detects_sibling_column_choices():
+    """CEval 把选项铺成 A/B/C/D 四个平级字段，不做成数组。
+
+    回归：漏识别会让整个选择题集的选项画像消失。
+    """
+    records = [{"question": "q", "A": "a", "B": "b", "C": "c", "D": "d", "answer": "B"}] * 5
+    s = detect_schema(records)
+    assert s.field_for(ROLE_CHOICES) == SIBLING_CHOICES_FIELD
+    assert CAP_HAS_CHOICES in s.capabilities
+
+
+def test_sibling_choices_profiler_runs():
+    records = [{"question": "q", "A": "a", "B": "b", "C": "c", "D": "d", "answer": "B"}] * 6
+    r = run_profilers(records)
+    assert "choices" in r["applied"]
+    dist = r["dimensions"]["choices"]["choice_count_dist"]
+    assert dist[0]["count"] == 4
+    assert dist[0]["ratio"] == 1.0
+
+
+def test_sibling_choices_variants():
+    """ARC 常见 3 选项 / 5 选项，都应识别为选项结构。"""
+    three = [{"question": "q", "A": "a", "B": "b", "C": "c", "answer": "A"}] * 4
+    five = [{"question": "q", "A": "a", "B": "b", "C": "c", "D": "d",
+             "E": "e", "answer": "A"}] * 4
+    for recs, expected in ((three, 3), (five, 5)):
+        r = run_profilers(recs)
+        assert "choices" in r["applied"], f"{expected} 选项形态未识别"
+        assert r["dimensions"]["choices"]["choice_count_dist"][0]["count"] == expected
+
+
+def test_stray_single_letter_field_is_not_choices():
+    """只有 A 一个平级字段不该误判为选项结构。"""
+    records = [{"title": "A教程", "text": "内容"}] * 6
+    s = detect_schema(records)
+    assert s.field_for(ROLE_CHOICES) != SIBLING_CHOICES_FIELD
+    assert CAP_HAS_CHOICES not in s.capabilities
