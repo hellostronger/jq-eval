@@ -156,7 +156,7 @@ class MineruBatchClient:
     async def _get_via_doh(client: httpx.AsyncClient, url: str) -> httpx.Response:
         """用阿里 DoH 解析真实 IP 后固定连接请求（SNI/Host 保持原域名，证书校验不变）"""
         u = httpx.URL(url)
-        async with httpx.AsyncClient(timeout=30) as doh_client:
+        async with httpx.AsyncClient(timeout=30, trust_env=False) as doh_client:
             doh_resp = await doh_client.get(
                 DOH_URL, params={"name": u.host, "type": "A"},
                 headers={"accept": "application/dns-json"},
@@ -246,7 +246,7 @@ async def _parse_mineru_self(
     files = {"files": (filename, io.BytesIO(file_content))}
 
     try:
-        async with httpx.AsyncClient(timeout=600, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=600, follow_redirects=True, trust_env=False) as client:
             resp = await client.post(url, data=data, files=files)
     except httpx.ConnectError as e:
         raise DocParseError(f"无法连接解析服务 {url}: {e}")
@@ -293,7 +293,7 @@ async def parse_batch_mineru_official(
     results: List[Dict[str, Any]] = []
 
     client = MineruBatchClient(api_key)
-    async with httpx.AsyncClient(timeout=120, follow_redirects=True) as http:
+    async with httpx.AsyncClient(timeout=120, follow_redirects=True, trust_env=False) as http:
         batch_id = await client.submit(http, files, params)
         items = await client.poll(
             http, batch_id,

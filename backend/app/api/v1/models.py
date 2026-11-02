@@ -257,8 +257,10 @@ async def test_model(
             }
 
         logger.info(f"发送请求到 {request_data['url']}...")
-        # trust_env=True：遵循 HTTP(S)_PROXY/系统代理（国内环境访问 mineru.net 通常需要代理）
-        async with httpx.AsyncClient(timeout=300.0, trust_env=True) as client:
+        # MinerU 走直连：系统代理的 https:// 条目会让 httpx 对明文代理端口做 TLS 握手而失败
+        async with httpx.AsyncClient(
+            timeout=300.0, trust_env=model.model_type != "doc_parser"
+        ) as client:
             if request_data.get("method") == "GET":
                 response = await client.get(request_data["url"], headers=request_data["headers"])
                 logger.info(f"收到响应: status={response.status_code}")
