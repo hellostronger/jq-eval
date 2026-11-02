@@ -35,6 +35,9 @@ motor==3.7.1
 
 # Evaluation Frameworks
 # ragas 0.4.3 传递依赖已覆盖 langchain-community/tiktoken/nest-asyncio/appdirs 等，无需单独声明
+# rapidfuzz：ragas 0.4.3 未在 install_requires 里声明，但 testset 生成的默认 transform 链
+# 会实例化 OverlapScoreBuilder，其 __post_init__ 硬性 import rapidfuzz，缺了直接 ImportError
+rapidfuzz==3.14.5
 ragas==0.4.3
 datasets==4.2.0
 openai==1.109.1
