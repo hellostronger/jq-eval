@@ -407,17 +407,27 @@ interface EvaluationResultsResponse {
 
 export const getEvaluationResults = (
   id: string,
-  params?: { skip?: number; limit?: number; metric?: string; min_score?: number; max_score?: number; only_errors?: boolean },
+  params?: { skip?: number; limit?: number; metric?: string; min_score?: number; max_score?: number; only_errors?: boolean; attribution?: string },
 ) => {
   return request.get<EvaluationResultsResponse>(`/evaluations/${id}/results`, { params })
+}
+
+interface EvaluationAttribution {
+  total: number
+  counts: Record<string, number>
+  ratios: Record<string, number>
+  retrieval_miss_rate: number
+  call_failed_rate: number
 }
 
 interface EvaluationAnalysis {
   metric_means: Record<string, number>
   retrieval_analysis: { average: number | null; metrics: Record<string, number> }
   generation_analysis: { average: number | null; metrics: Record<string, number> }
+  // 逐环归因分布：RAG 系统没回传检索轨迹时 retrieval_miss 等桶全为 0
+  attribution?: EvaluationAttribution
   weak_metrics: string[]
-  root_cause: { stage: string; confidence: string }
+  root_cause: { stage: string; confidence: string; evidence?: string }
   recommendations: string[]
 }
 

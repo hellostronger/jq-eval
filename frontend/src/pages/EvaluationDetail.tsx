@@ -22,6 +22,7 @@ interface EvalResult {
   retrieval_ids?: string[]
   contexts_count?: number | null
   gold_hit?: boolean | null
+  attribution?: string
   invocation_error?: string | null
   created_at?: string
 }
@@ -42,6 +43,17 @@ interface Summary {
   total_records?: number
 }
 
+// 后端归因分桶 → 中文标签。口径与 app/api/v1/evaluations.py:ATTRIBUTION_BUCKETS 一致，
+// 改一边必须同步另一边，否则筛选下拉和列里的标签会指不同的样本集。
+const ATTRIBUTION_LABELS: Record<string, { text: string; color: string }> = {
+  call_failed: { text: '调用失败', color: 'volcano' },
+  retrieval_miss: { text: '检索漏召', color: 'red' },
+  retrieved_but_answer_weak: { text: '召回了没答好', color: 'orange' },
+  retrieved_ok: { text: '链路正常', color: 'green' },
+  no_retrieval_trace: { text: '无检索轨迹', color: 'default' },
+  no_gold: { text: '缺 gold 分片', color: 'default' },
+}
+
 const EvaluationDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null)
@@ -59,6 +71,8 @@ const EvaluationDetail: React.FC = () => {
   // badcase 视图：按指标低分阈值筛样本（默认阈值与根因分析里的 0.6 一致）
   const [badcaseMetric, setBadcaseMetric] = useState<string>('')
   const [badcaseMax, setBadcaseMax] = useState<number | null>(null)
+  // 按环节筛 badcase：检索漏召 / 召回了没答好 是两类完全不同的修法
+  const [badcaseAttribution, setBadcaseAttribution] = useState<string>('')
 
   // 返回取到的状态，供轮询判断"是否刚刚跑完"（闭包里的 evaluation 是旧值，不能用）
   const fetchEvaluation = async (): Promise<string | undefined> => {
@@ -82,6 +96,9 @@ const EvaluationDetail: React.FC = () => {
       if (badcaseMetric && badcaseMax != null) {
         filters.metric = badcaseMetric
         filters.max_score = badcaseMax
+      }
+      if (badcaseAttribution) {
+        filters.attribution = badcaseAttribution
       }
       const data = await getEvaluationResults(id, filters)
       // 后端返回 { results: [...], total, summary }，提取 results 数组和 summary
@@ -149,6 +166,14 @@ const EvaluationDetail: React.FC = () => {
     fetchResults()
   }, [id])
 
+  // 归因分桶是后端筛的，换桶必须重新拉：否则页面上还是上一个桶的样本
+  useEffect(() => {
+    if (!evaluation) return
+    setResultPage(1)
+    fetchResults(1, resultPageSize)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [badcaseAttribution])
+
   // 运行中轮询：否则停在详情页时状态和进度永远不更新，
   // 任务跑完了也看不到结果，只能手动刷新。
   // 用 fetchEvaluation 返回的状态判断是否刚跑完（不能用闭包里的旧 evaluation）
@@ -213,14 +238,17 @@ const EvaluationDetail: React.FC = () => {
       title: '低分归因',
       key: 'attribution',
       width: 170,
-      // 一眼区分"检索没召回"和"召回了没答好"，不必再翻调用结果
+      // 一眼区分"检索没召回"和"召回了没答好"，不必再翻调用结果。
+      // 后端没给 attribution（旧评估）时退回 gold_hit 判断
       render: (record: EvalResult) => {
-        if (record.invocation_error) {
-          return <Tag color="volcano" title={record.invocation_error}>调用失败</Tag>
-        }
-        if (record.gold_hit === true) return <Tag color="green">检索命中</Tag>
-        if (record.gold_hit === false) return <Tag color="red">检索漏召</Tag>
-        return <Tag color="default">无检索轨迹</Tag>
+        const key = record.attribution || (
+          record.invocation_error ? 'call_failed'
+            : record.gold_hit === true ? 'retrieved_ok'
+              : record.gold_hit === false ? 'retrieval_miss'
+                : 'no_retrieval_trace'
+        )
+        const label = ATTRIBUTION_LABELS[key] || { text: key, color: 'default' }
+        return <Tag color={label.color} title={record.invocation_error || undefined}>{label.text}</Tag>
       },
     },
     {
@@ -352,18 +380,48 @@ const EvaluationDetail: React.FC = () => {
               <span>
                 瓶颈环节：
                 <Tag color={analysis.root_cause.stage === 'none' ? 'green' : 'volcano'}>
-                  {{ retrieval: '检索', generation: '生成', knowledge: '知识覆盖', none: '无明显瓶颈' }[analysis.root_cause.stage] || analysis.root_cause.stage}
+                  {{
+                    retrieval: '检索', generation: '生成', knowledge: '知识覆盖',
+                    invocation: '上游调用', unknown: '无法判定', none: '无明显瓶颈',
+                  }[analysis.root_cause.stage] || analysis.root_cause.stage}
                 </Tag>
                 置信度：
                 <Tag color={{ high: 'red', medium: 'orange' }[analysis.root_cause.confidence] || 'default'}>
                   {{ high: '高', medium: '中', low: '低' }[analysis.root_cause.confidence] || analysis.root_cause.confidence}
                 </Tag>
               </span>
+              {analysis.root_cause.evidence && (
+                <span style={{ color: '#888' }}>判定依据：{analysis.root_cause.evidence}</span>
+              )}
               <span>
                 阶段均值：
                 <Tag>检索 {analysis.retrieval_analysis.average ?? '-'}</Tag>
                 <Tag>生成 {analysis.generation_analysis.average ?? '-'}</Tag>
               </span>
+              {/* 逐环归因分布：均值好看但一半样本漏召时，这里才是真相 */}
+              {analysis.attribution && analysis.attribution.total > 0 && (
+                <Space wrap size={4}>
+                  <span>逐环分布：</span>
+                  {Object.entries(analysis.attribution.counts)
+                    .filter(([, n]) => n > 0)
+                    .map(([k, n]) => {
+                      const label = ATTRIBUTION_LABELS[k] || { text: k, color: 'default' }
+                      return (
+                        <Tag
+                          key={k}
+                          color={label.color}
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => {
+                            setBadcaseAttribution(k)
+                            setResultPage(1)
+                          }}
+                        >
+                          {label.text} {n}（{(analysis.attribution!.ratios[k] * 100).toFixed(0)}%）
+                        </Tag>
+                      )
+                    })}
+                </Space>
+              )}
               {analysis.weak_metrics.length > 0 && (
                 <span>
                   未达标指标：
@@ -420,6 +478,19 @@ const EvaluationDetail: React.FC = () => {
             <Tooltip title="不选指标时展示全部样本；选中指标并给出分数上限后，后端按该阈值筛选，total 与翻页同步收窄">
               <span style={{ color: '#888' }}>低分阈值默认 0.6，与根因分析口径一致</span>
             </Tooltip>
+            <span>按环节：</span>
+            <Select
+              size="small"
+              style={{ width: 150 }}
+              placeholder="归因分桶"
+              allowClear
+              value={badcaseAttribution || undefined}
+              options={Object.keys(ATTRIBUTION_LABELS).map(k => ({ label: ATTRIBUTION_LABELS[k].text, value: k }))}
+              onChange={(v?: string) => {
+                setBadcaseAttribution(v || '')
+                setResultPage(1)
+              }}
+            />
           </Space>
           <Table
             dataSource={results}

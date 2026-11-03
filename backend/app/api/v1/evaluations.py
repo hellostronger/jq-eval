@@ -315,17 +315,115 @@ async def get_evaluation_status(
 # 根因分析阈值：低于该均值视为该指标"不达标"
 ANALYSIS_WEAK_THRESHOLD = 0.6
 
+# 逐条归因分桶：一条低分样本先要判断"断在哪一步"，再看具体指标
+ATTRIBUTION_BUCKETS = (
+    "call_failed", "retrieval_miss", "retrieved_but_answer_weak",
+    "retrieved_ok", "no_gold", "no_retrieval_trace",
+)
+
+
+def classify_attribution(item: Dict[str, Any]) -> str:
+    """把一条评估结果归到 RAG 链路的某一环，用于 badcase 分步定位。
+
+    顺序即诊断顺序：上游调用没成功，后面所有分数都不必再看；
+    gold 没进检索轨迹，低分出在召回而不是生成；召回对了才轮到生成。
+    """
+    if item.get("invocation_error"):
+        return "call_failed"
+    scores = item.get("metric_scores") or {}
+    gen = [
+        float(v["score"]) for k, v in scores.items()
+        if isinstance(v, dict) and v.get("score") is not None and not v.get("error")
+        and (str(k).startswith("answer_") or k == "faithfulness")
+    ]
+    gen_avg = sum(gen) / len(gen) if gen else None
+    gold_weak = gen_avg is not None and gen_avg < ANALYSIS_WEAK_THRESHOLD
+    if item.get("gold_hit") is None:
+        return "no_retrieval_trace" if item.get("target_chunk_ids") else "no_gold"
+    if not item["gold_hit"]:
+        return "retrieval_miss"
+    return "retrieved_but_answer_weak" if gold_weak else "retrieved_ok"
+
+
+def attribution_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """按环统计样本数与占比，占比最高的问题环即聚合层根因。"""
+    counts = {b: 0 for b in ATTRIBUTION_BUCKETS}
+    for item in items:
+        counts[classify_attribution(item)] += 1
+    n = len(items) or 1
+    return {
+        "total": len(items),
+        "counts": counts,
+        "ratios": {k: round(v / n, 4) for k, v in counts.items()},
+        # 检索漏召占全部样本的比例，用来判断"根因在召回"这一结论的强度
+        "retrieval_miss_rate": round(counts["retrieval_miss"] / n, 4),
+        "call_failed_rate": round(counts["call_failed"] / n, 4),
+    }
+
+
+async def _result_items(db: AsyncSession, eval_id: UUID) -> List[Dict[str, Any]]:
+    """评估结果 + 逐条归因字段（gold / 检索轨迹 / 上游调用错误）。
+
+    /results 与 /analysis 共用：归因要看的字段只存在于 InvocationResult 和
+    QARecord 上，任何一处单独拼都会和另一处口径不一致。
+    """
+    rows = (await db.execute(
+        select(EvalResult, QARecord)
+        .join(QARecord, EvalResult.qa_record_id == QARecord.id)
+        .where(EvalResult.eval_id == eval_id)
+        .order_by(EvalResult.id)
+    )).all()
+
+    # 关联的调用结果：retrieval_ids / invocation_error 只存在这张表上
+    inv_map = {}
+    inv_ids = [er.invocation_result_id for er, _ in rows if er.invocation_result_id]
+    if inv_ids:
+        inv_rows = await db.execute(
+            select(InvocationResult).where(InvocationResult.id.in_(inv_ids))
+        )
+        inv_map = {str(ir.id): ir for ir in inv_rows.scalars().all()}
+
+    items = []
+    for er, qr in rows:
+        ir = inv_map.get(str(er.invocation_result_id)) if er.invocation_result_id else None
+        retrieval_ids = list(ir.retrieval_ids or []) if ir else []
+        gold_ids = [str(g) for g in (qr.target_chunk_ids or [])]
+        items.append({
+            "id": str(er.id),
+            "qa_record_id": str(er.qa_record_id),
+            "question": qr.question,
+            "answer": qr.answer,
+            "ground_truth": qr.ground_truth,
+            "metric_scores": er.scores or {},
+            "details": er.details,
+            # —— 逐条归因字段 ——
+            "target_chunk_ids": gold_ids,
+            "retrieval_ids": retrieval_ids,
+            "contexts_count": len(ir.contexts or []) if ir else None,
+            # gold 是否被召回：false 说明这条低分出在检索阶段，不是生成阶段。
+            # 只有在拿得到检索轨迹时才判定——ir 为空或 retrieval_ids 为 None
+            # （老系统不回传 id）时给 None，表示"无从判断"而不是"没召回"。
+            "gold_hit": (
+                bool(set(gold_ids) & {str(r) for r in retrieval_ids})
+                if gold_ids and ir is not None and ir.retrieval_ids is not None
+                else None
+            ),
+            "invocation_error": ir.error if ir else None,
+            "created_at": er.created_at.isoformat() if er.created_at else None,
+        })
+    return items
+
 
 @router.get("/{eval_id}/analysis")
 async def get_evaluation_analysis(
     eval_id: UUID,
     db: AsyncSession = Depends(get_db)
 ):
-    """根因分析：按 检索(process/retrieval) / 生成(result) 两阶段聚合各指标均分，
-    依据两阶段的相对强弱定位瓶颈环节并给出调参建议。
+    """根因分析：指标均值（检索/生成两阶段）+ 逐条分步归因分布。
 
     规则（RAG 评估的标准诊断链路）：
-    - 检索阶段弱 → 根因在召回：上下文本身没找对，生成再好也没用
+    - 上游调用失败占比最高 → 根因在接入层，指标均值不可信
+    - gold 漏召占比最高 → 根因在召回：上下文本身没找对，生成再好也没用
     - 检索强 + faithfulness 弱 → 生成阶段没照着上下文答（幻觉/自由发挥）
     - faithfulness 强 + answer_relevancy 弱 → 答非所问（问题理解偏差）
     - 两阶段都强 + correctness 弱 → 知识覆盖缺口（语料缺内容）
@@ -333,21 +431,18 @@ async def get_evaluation_analysis(
     # 仅做存在性校验（404），后续只读结果表
     await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
 
-    rows = await db.execute(
-        select(EvalResult.scores).where(EvalResult.eval_id == eval_id)
-    )
-    all_scores = [r[0] for r in rows.all() if r[0]]
-    if not all_scores:
+    items = await _result_items(db, eval_id)
+    if not items:
         raise HTTPException(status_code=400, detail="评估尚无结果，无法分析")
 
     from ...services.metrics.engine import METRIC_REGISTRY
 
     # 逐指标求均值（跳过 error 样本）
     metric_values: Dict[str, List[float]] = {}
-    for scores in all_scores:
-        for name, item in scores.items():
-            if isinstance(item, dict) and item.get("score") is not None and not item.get("error"):
-                metric_values.setdefault(name, []).append(float(item["score"]))
+    for item in items:
+        for name, entry in (item["metric_scores"] or {}).items():
+            if isinstance(entry, dict) and entry.get("score") is not None and not entry.get("error"):
+                metric_values.setdefault(name, []).append(float(entry["score"]))
     metric_means = {
         name: sum(vals) / len(vals)
         for name, vals in metric_values.items()
@@ -373,32 +468,73 @@ async def get_evaluation_analysis(
         key=lambda n: metric_means[n]
     )
 
-    # 根因定位
+    # 根因定位：先看逐条归因（哪一环断的样本最多），再用指标均值兜底
+    attribution = attribution_summary(items)
+    buckets = attribution["counts"]
+    diagnosable = (buckets["retrieval_miss"] + buckets["retrieved_but_answer_weak"]
+                   + buckets["retrieved_ok"])
     root_cause: Dict[str, Any] = {}
     recommendations: List[str] = []
 
-    if retrieval_avg is not None and retrieval_avg < ANALYSIS_WEAK_THRESHOLD:
-        root_cause = {"stage": "retrieval", "confidence": "high" if retrieval_avg < 0.4 else "medium"}
+    if attribution["call_failed_rate"] >= 0.3:
+        root_cause = {
+            "stage": "invocation", "confidence": "high",
+            "evidence": f"{buckets['call_failed']}/{attribution['total']} 条上游调用失败",
+        }
+        recommendations.append("先修接入层：调用失败样本的检索/生成指标都是空值，均值不可用于诊断")
+        recommendations.append("在调用批次详情按失败原因重试，或换 request_timeout 更大的系统配置后重跑")
+    elif diagnosable and buckets["retrieval_miss"] / diagnosable >= 0.5:
+        root_cause = {
+            "stage": "retrieval", "confidence": "high",
+            "evidence": (f"有检索轨迹的 {diagnosable} 条里 {buckets['retrieval_miss']} 条 "
+                         f"gold 分片未被召回"),
+        }
+        recommendations.append("低分主因是召回漏召，不是生成：先动检索侧（分片、top-k、重排、索引类型）")
+        recommendations.append("按 /results?metric=recall_k&max_score=0 导出漏召样本，核对其 gold 分片是否真的存在于知识库")
+    elif diagnosable and diagnosable - buckets["retrieval_miss"] >= buckets["retrieval_miss"] \
+            and buckets["retrieved_but_answer_weak"] > 0 \
+            and buckets["retrieved_but_answer_weak"] / (diagnosable - buckets["retrieval_miss"]) >= 0.5:
+        root_cause = {
+            "stage": "generation", "confidence": "high",
+            "evidence": (f"gold 已召回的样本里 {buckets['retrieved_but_answer_weak']} 条"
+                         f"生成指标仍不达标"),
+        }
+        recommendations.append("上下文里有答案但没答对：检查提示词是否要求仅依据资料作答、答案是否被上下文长度预算截断（见 details.context_budget）")
+    elif retrieval_avg is not None and retrieval_avg < ANALYSIS_WEAK_THRESHOLD:
+        root_cause = {
+            "stage": "retrieval",
+            "confidence": "high" if retrieval_avg < 0.4 else "medium",
+            "evidence": f"检索类指标均值 {round(retrieval_avg, 3)}",
+        }
         recommendations.append("检索阶段是瓶颈：检查分片策略（chunk 大小/重叠）与向量模型是否匹配语料领域")
         recommendations.append("尝试提高召回 top-k 并用 reranker 重排，观察 context_precision 是否回升")
         if "context_recall" in retrieval_scores and \
            retrieval_scores["context_recall"] < ANALYSIS_WEAK_THRESHOLD:
             recommendations.append("context_recall 偏低说明知识库缺少相关内容，建议补充同步数据源文档")
+    elif buckets["no_retrieval_trace"] == attribution["total"]:
+        root_cause = {
+            "stage": "unknown", "confidence": "low",
+            "evidence": "所有样本都没有检索轨迹（retrieval_ids 为空）",
+        }
+        recommendations.append("被评估的 RAG 系统未回传命中的分片 id，无法做逐环归因：在接入层补齐 retrieval_ids（或改用带分片 id 的返回格式）")
     else:
         faith = metric_means.get("faithfulness")
         relev = metric_means.get("answer_relevancy")
         correct = metric_means.get("answer_correctness") or metric_means.get("exact_match")
         if faith is not None and faith < ANALYSIS_WEAK_THRESHOLD:
-            root_cause = {"stage": "generation", "confidence": "high"}
+            root_cause = {"stage": "generation", "confidence": "high",
+                          "evidence": f"faithfulness 均值 {round(faith, 3)}"}
             recommendations.append("上下文召回尚可但生成未遵循上下文（疑似幻觉）：在提示词中强制\"仅依据给定资料回答\"，并降低 temperature")
         elif relev is not None and relev < ANALYSIS_WEAK_THRESHOLD:
-            root_cause = {"stage": "generation", "confidence": "medium"}
+            root_cause = {"stage": "generation", "confidence": "medium",
+                          "evidence": f"answer_relevancy 均值 {round(relev, 3)}"}
             recommendations.append("答案忠实但偏离问题：建议增加 query 改写/分解步骤，或在系统提示中强调切题")
         elif correct is not None and correct < ANALYSIS_WEAK_THRESHOLD:
-            root_cause = {"stage": "knowledge", "confidence": "medium"}
+            root_cause = {"stage": "knowledge", "confidence": "medium",
+                          "evidence": f"answer_correctness 均值 {round(correct, 3)}"}
             recommendations.append("流程指标健康但正确性不足：知识库内容缺口，建议核对数据集 ground truth 覆盖并补充语料")
         else:
-            root_cause = {"stage": "none", "confidence": "high"}
+            root_cause = {"stage": "none", "confidence": "high", "evidence": "各阶段指标均达标"}
             recommendations.append("各阶段指标均达标，当前配置可作为基线；可扩测更多困难样本（multi_context/reasoning 类）验证上限")
 
     return {
@@ -413,6 +549,8 @@ async def get_evaluation_analysis(
                 "average": round(generation_avg, 4) if generation_avg is not None else None,
                 "metrics": {k: round(v, 4) for k, v in generation_scores.items()},
             },
+            # 逐环归因：接入了检索轨迹的评估才能给出"断在哪一步"的分布
+            "attribution": attribution,
             "weak_metrics": weak_metrics,
             "root_cause": root_cause,
             "recommendations": recommendations,
@@ -429,6 +567,9 @@ async def get_evaluation_results(
     min_score: Optional[float] = Query(None, ge=0, le=1),
     max_score: Optional[float] = Query(None, ge=0, le=1),
     only_errors: bool = Query(False, description="只看打分失败或上游调用失败的样本"),
+    attribution: Optional[str] = Query(
+        None, enum=list(ATTRIBUTION_BUCKETS),
+        description="只看归到该环的样本，如 retrieval_miss=gold 未召回"),
     db: AsyncSession = Depends(get_db)
 ):
     """获取评估结果，包含每条 QA 记录的详细信息和得分
@@ -438,52 +579,9 @@ async def get_evaluation_results(
     低分样本只能看到"分数低"，判断不了是检索没召回、还是召回了没答好。
     """
     evaluation = await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
-
-    rows = (await db.execute(
-        select(EvalResult, QARecord)
-        .join(QARecord, EvalResult.qa_record_id == QARecord.id)
-        .where(EvalResult.eval_id == eval_id)
-        .order_by(EvalResult.id)
-    )).all()
-
-    # 关联的调用结果：retrieval_ids / invocation_error 只存在这张表上
-    inv_map = {}
-    inv_ids = [er.invocation_result_id for er, _ in rows if er.invocation_result_id]
-    if inv_ids:
-        inv_rows = await db.execute(
-            select(InvocationResult).where(InvocationResult.id.in_(inv_ids))
-        )
-        inv_map = {str(ir.id): ir for ir in inv_rows.scalars().all()}
-
-    items = []
-    for er, qr in rows:
-        ir = inv_map.get(str(er.invocation_result_id)) if er.invocation_result_id else None
-        retrieval_ids = list(ir.retrieval_ids or []) if ir else []
-        gold_ids = [str(g) for g in (qr.target_chunk_ids or [])]
-        scores = er.scores or {}
-        items.append({
-            "id": str(er.id),
-            "qa_record_id": str(er.qa_record_id),
-            "question": qr.question,
-            "answer": qr.answer,
-            "ground_truth": qr.ground_truth,
-            "metric_scores": scores,
-            "details": er.details,
-            # —— 逐条归因字段 ——
-            "target_chunk_ids": gold_ids,
-            "retrieval_ids": retrieval_ids,
-            "contexts_count": len(ir.contexts or []) if ir else None,
-            # gold 是否被召回：false 说明这条低分出在检索阶段，不是生成阶段。
-            # 只有在拿得到检索轨迹时才判定——ir 为空或 retrieval_ids 为 None
-            # （老系统不回传 id）时给 None，表示"无从判断"而不是"没召回"。
-            "gold_hit": (
-                bool(set(gold_ids) & {str(r) for r in retrieval_ids})
-                if gold_ids and ir is not None and ir.retrieval_ids is not None
-                else None
-            ),
-            "invocation_error": ir.error if ir else None,
-            "created_at": er.created_at.isoformat() if er.created_at else None,
-        })
+    items = await _result_items(db, eval_id)
+    for item in items:
+        item["attribution"] = classify_attribution(item)
 
     def _score_of(item: Dict[str, Any]) -> Optional[float]:
         entry = item["metric_scores"].get(metric)
@@ -495,9 +593,11 @@ async def get_evaluation_results(
 
     # 过滤在内存完成：score 存在 JSON 列里，跨方言（PG JSONB / SQLite JSON）
     # 取 JSON path 再比大小的写法不通用，而单批次评估样本量本就有限。
-    if metric or only_errors:
+    if metric or only_errors or attribution:
         filtered = []
         for item in items:
+            if attribution and item["attribution"] != attribution:
+                continue
             if only_errors:
                 has_metric_error = any(
                     isinstance(v, dict) and v.get("error")
