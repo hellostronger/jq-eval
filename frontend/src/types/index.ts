@@ -87,6 +87,8 @@ export interface Evaluation {
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
   progress?: number  // 0-100，运行中由后端上报
   error?: string     // 失败原因（failed 时由后端返回）
+  // 协作式取消已置位但 worker 没动 → 页面需要给出「强制取消」入口
+  cancel_requested?: boolean
   started_at?: string
   completed_at?: string
   summary?: Record<string, any>

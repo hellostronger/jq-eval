@@ -456,8 +456,10 @@ export const retryEvaluationWithOption = (id: string, reuseInvocation: boolean =
   )
 }
 
-export const cancelEvaluation = (id: string) => {
-  return request.post<{ message: string; eval_id: string }>(`/evaluations/${id}/cancel`)
+export const cancelEvaluation = (id: string, force = false) => {
+  return request.post<{ message: string; eval_id: string; forced?: boolean }>(
+    `/evaluations/${id}/cancel`, null, { params: { force } }
+  )
 }
 
 // 调用批次API

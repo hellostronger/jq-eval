@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional, Dict, Any
 from uuid import UUID
+from datetime import datetime
 from pydantic import BaseModel
 from celery.result import AsyncResult
 
@@ -48,6 +49,9 @@ class EvaluationResponse(BaseModel):
     # 失败原因：/status 一直有返回，但详情响应里没有，
     # 导致评估详情页对 failed 任务什么也显示不出来
     error: Optional[str] = None
+    # 协作式取消标志：详情页要靠它判断"取消请求已经发过了但 worker 没动"，
+    # 没有这个字段就没法给出强制取消入口（孤儿 running 只能人工改库）
+    cancel_requested: Optional[bool] = False
     started_at: Optional[UTCDatetime] = None
     completed_at: Optional[UTCDatetime] = None
     summary: Optional[Dict[str, Any]] = None
@@ -681,6 +685,7 @@ async def get_task_status(task_id: str):
 async def cancel_evaluation(
     eval_id: UUID,
     task_id: Optional[str] = None,
+    force: bool = Query(False, description="worker 不在运行时直接把库里的孤儿任务落成 cancelled"),
     db: AsyncSession = Depends(get_db)
 ):
     """取消评估任务
@@ -689,11 +694,23 @@ async def cancel_evaluation(
         eval_id: 评估任务ID
         task_id: 保留参数（旧客户端兼容）。不再 SIGKILL worker——硬杀会让
             DB 状态永久停留 running；统一走协作式取消，由 worker 落库 cancelled
+        force: 协作式取消依赖 worker 还活着。broker/Redis 抖动时任务可能压根
+            没被领取（实测：worker 报 "Couldn't ack" 后再没有 evaluation_task
+            日志），此时置标志等于什么都没发生，状态永远停在 running，
+            retry 又只收 failed/cancelled → 只能人工改库。force 走纯库侧终结。
     """
     evaluation = await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
 
     if evaluation.status != "running":
         raise HTTPException(status_code=400, detail="评估任务未在运行中，无法取消")
+
+    if force:
+        evaluation.status = "cancelled"
+        evaluation.error = "评估已被用户强制取消（worker 未领取或未在运行）"
+        evaluation.cancel_requested = False
+        evaluation.completed_at = datetime.utcnow()
+        await db.commit()
+        return {"message": "评估任务已强制取消", "eval_id": str(eval_id), "forced": True}
 
     # 协作式取消：worker 在批次边界检测到该标志后停止并落库 cancelled。
     # 此前"只改库不杀任务"是假取消——任务继续跑完并把状态覆写回 completed

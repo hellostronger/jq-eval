@@ -57,6 +57,50 @@ async def test_cancel_non_running_returns_400(
 
 
 @pytest.mark.asyncio
+async def test_force_cancel_lands_orphaned_running_evaluation(
+    client: AsyncClient, db_session: AsyncSession, sample_dataset: Dataset
+):
+    """孤儿 running：worker 没领取（实测 "Couldn't ack" 后再无 evaluation_task 日志），
+
+    置标志等于什么都没做，状态永远停在 running，而 retry 只收 failed/cancelled
+    → 只能人工改库。force 走纯库侧终结，把状态直接落成 cancelled。
+    """
+    ev = await _running_eval(db_session, sample_dataset)
+    # 已经点过一次协作式取消，但没人读这个标志
+    ev.cancel_requested = True
+    await db_session.commit()
+
+    resp = await client.post(f"/api/v1/evaluations/{ev.id}/cancel?force=true")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["forced"] is True
+    assert "强制" in body["message"]
+
+    await db_session.refresh(ev)
+    assert ev.status == EvaluationStatus.CANCELLED
+    # 终态必须自带原因，否则页面上只显示"已取消"，看不出是 worker 丢了任务
+    assert ev.error and "worker" in ev.error
+    assert ev.cancel_requested is False, "终态后取消标志要清掉，避免重试后又显示取消中"
+    assert ev.completed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_force_cancel_non_running_still_rejected(
+    client: AsyncClient, db_session: AsyncSession, sample_dataset: Dataset
+):
+    """force 只解决"卡在 running"，不能把已完成/已失败的评估改写成 cancelled"""
+    ev = Evaluation(name="done-eval", dataset_id=sample_dataset.id,
+                    metrics=["bleu"], status=EvaluationStatus.COMPLETED, batch_size=2)
+    db_session.add(ev)
+    await db_session.commit()
+
+    resp = await client.post(f"/api/v1/evaluations/{ev.id}/cancel?force=true")
+    assert resp.status_code == 400
+    await db_session.refresh(ev)
+    assert ev.status == EvaluationStatus.COMPLETED
+
+
+@pytest.mark.asyncio
 async def test_engine_raises_when_cancel_requested(db_session: AsyncSession, sample_dataset: Dataset):
     """worker 批次边界检查：cancel_requested 置位后 evaluate_batch 抛 TaskCancelled"""
     from app.services.metrics.engine import MetricEngine

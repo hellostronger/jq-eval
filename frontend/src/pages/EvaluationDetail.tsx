@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Descriptions, Table, Tag, Tabs, Row, Col, Statistic, Button, message, Space, Modal, Switch, Alert, Select, InputNumber, Tooltip } from 'antd'
+import { Card, Descriptions, Table, Tag, Tabs, Row, Col, Statistic, Button, message, Space, Modal, Switch, Alert, Select, InputNumber, Tooltip, Popconfirm } from 'antd'
 import { useParams } from 'react-router-dom'
 import { ReloadOutlined, StopOutlined } from '@ant-design/icons'
 import { formatShortTime, formatTime } from '@/utils/format'
@@ -127,14 +127,20 @@ const EvaluationDetail: React.FC = () => {
     setReuseInvocation(evaluation.reuse_invocation ?? true)
   }
 
-  const handleCancel = async () => {
+  const handleCancel = async (force = false) => {
     if (!id) return
     setCancelling(true)
     try {
-      const res = await cancelEvaluation(id)
+      const res = await cancelEvaluation(id, force)
       message.success(res?.message || '取消请求已提交')
-      // 协作式取消：worker 在批次边界停止后状态才变 cancelled，稍后轮询刷新
-      setTimeout(() => fetchEvaluation(), 3000)
+      if (force) {
+        // 强制取消是纯库侧终结，状态已经落成 cancelled，立刻刷新
+        await fetchEvaluation()
+      } else {
+        // 协作式取消：worker 在批次边界停止后状态才变 cancelled，稍后轮询刷新
+        setEvaluation((prev) => (prev ? { ...prev, cancel_requested: true } : prev))
+        setTimeout(() => fetchEvaluation(), 3000)
+      }
     } catch (e) {
       // 错误已在拦截器处理
     } finally {
@@ -544,14 +550,34 @@ const EvaluationDetail: React.FC = () => {
       extra={
         <Space>
           {evaluation?.status === 'running' && (
-            <Button
-              danger
-              icon={<StopOutlined />}
-              loading={cancelling}
-              onClick={handleCancel}
+            <Popconfirm
+              title="取消该评估任务"
+              description="评估在当前这条样本跑完后停止，并把状态落成已取消。"
+              onConfirm={() => handleCancel(false)}
+              disabled={evaluation?.cancel_requested}
             >
-              取消
-            </Button>
+              <Button
+                danger
+                icon={<StopOutlined />}
+                loading={cancelling}
+                disabled={evaluation?.cancel_requested}
+              >
+                {evaluation?.cancel_requested ? '取消中…' : '取消'}
+              </Button>
+            </Popconfirm>
+          )}
+          {/* worker 没领取（broker 抖动后 "Couldn't ack"）时取消标志没人读，
+              状态会永久停在 running，而重试只收 failed/cancelled → 必须给库侧出口 */}
+          {evaluation?.status === 'running' && evaluation?.cancel_requested && (
+            <Popconfirm
+              title="强制取消"
+              description="worker 不在运行时取消标志没人读，评估会永远停在 running 并挡死重试。确认后立即落库 cancelled。"
+              onConfirm={() => handleCancel(true)}
+            >
+              <Button danger type="primary" icon={<StopOutlined />} loading={cancelling}>
+                强制取消
+              </Button>
+            </Popconfirm>
           )}
           {(evaluation?.status === 'failed' || evaluation?.status === 'cancelled') && (
             <Button
