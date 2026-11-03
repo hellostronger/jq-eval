@@ -15,6 +15,7 @@ from app.models.dataset import Dataset, QARecord
 from app.models.model import Model
 from app.models.invocation import InvocationResult
 from app.services.metrics import MetricEngine, get_metric_engine, METRIC_REGISTRY
+from app.services.metrics.context_budget import apply_context_budget
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +181,15 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
                     }
                 eval_data.append(eval_item)
 
+            # 喂给指标前套上下文预算（不改库里的原始 contexts）。
+            # 整页式 RAG 单条能返回 15 万字符，直接拼 prompt 会让上游
+            # 超上下文报错或单条耗时数分钟，整批评估失败。
+            # 截断统计随样本带着，落库时写进 details。
+            for item in eval_data:
+                budgeted, stats = apply_context_budget(item.get("contexts"))
+                item["contexts"] = budgeted
+                item["context_budget"] = stats
+
             # 执行评估
             progress_callback = make_progress_callback(task)
 
@@ -209,17 +219,21 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
                         "details": metric_result.details,
                         "error": metric_result.error
                     }
+                # 明细：上游调用失败原因 + 上下文截断统计。
+                # 两者都是"这条分数为什么不可信"的线索，丢了就只能看到
+                # 一个孤立低分，分不清是 RAG 挂了、还是证据被裁短了。
+                detail_info = {}
+                if eval_item.get("invocation_error"):
+                    detail_info["invocation_error"] = eval_item["invocation_error"]
+                if eval_item.get("context_budget"):
+                    detail_info["context_budget"] = eval_item["context_budget"]
+
                 eval_result = EvalResult(
                     eval_id=evaluation_id,
                     qa_record_id=eval_item["id"],
                     invocation_result_id=eval_item.get("invocation_result_id"),
                     scores=scores_dict,
-                    # 把上游调用失败原因留在明细里，评估详情页可据此归因
-                    details=(
-                        {"invocation_error": eval_item["invocation_error"]}
-                        if eval_item.get("invocation_error")
-                        else None
-                    ),
+                    details=detail_info or None,
                 )
                 db.add(eval_result)
 

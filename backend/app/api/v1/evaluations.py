@@ -11,7 +11,7 @@ from ...core.database import get_db, get_db_context
 from ._common import get_or_404, delete_or_404, start_task
 from ...core.utc_datetime import UTCDatetime
 from ...core.celery_app import celery_app
-from ...models import Evaluation, EvalResult, Dataset, QARecord
+from ...models import Evaluation, EvalResult, Dataset, QARecord, InvocationResult
 from ...tasks.evaluation_tasks import evaluation_task
 
 router = APIRouter()
@@ -425,42 +425,103 @@ async def get_evaluation_results(
     eval_id: UUID,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
+    metric: Optional[str] = Query(None, description="按该指标筛 badcase，配合 min_score/max_score"),
+    min_score: Optional[float] = Query(None, ge=0, le=1),
+    max_score: Optional[float] = Query(None, ge=0, le=1),
+    only_errors: bool = Query(False, description="只看打分失败或上游调用失败的样本"),
     db: AsyncSession = Depends(get_db)
 ):
-    """获取评估结果，包含每条 QA 记录的详细信息和得分"""
+    """获取评估结果，包含每条 QA 记录的详细信息和得分
+
+    badcase 归因所需字段一并返回：gold 分片（target_chunk_ids）、实际命中的
+    分片（retrieval_ids）、是否命中（gold_hit）与上游调用失败原因。缺了这些，
+    低分样本只能看到"分数低"，判断不了是检索没召回、还是召回了没答好。
+    """
     evaluation = await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
 
-    base_query = (
+    rows = (await db.execute(
         select(EvalResult, QARecord)
         .join(QARecord, EvalResult.qa_record_id == QARecord.id)
         .where(EvalResult.eval_id == eval_id)
-    )
-    total = ((await db.execute(
-        select(func.count(EvalResult.id)).where(EvalResult.eval_id == eval_id)
-    )).scalar()) or 0
+        .order_by(EvalResult.id)
+    )).all()
 
-    # JOIN QARecord 表获取问题内容（稳定排序，防翻页重复/漏行）
-    results = await db.execute(
-        base_query.order_by(EvalResult.id).offset(skip).limit(limit)
-    )
+    # 关联的调用结果：retrieval_ids / invocation_error 只存在这张表上
+    inv_map = {}
+    inv_ids = [er.invocation_result_id for er, _ in rows if er.invocation_result_id]
+    if inv_ids:
+        inv_rows = await db.execute(
+            select(InvocationResult).where(InvocationResult.id.in_(inv_ids))
+        )
+        inv_map = {str(ir.id): ir for ir in inv_rows.scalars().all()}
 
+    items = []
+    for er, qr in rows:
+        ir = inv_map.get(str(er.invocation_result_id)) if er.invocation_result_id else None
+        retrieval_ids = list(ir.retrieval_ids or []) if ir else []
+        gold_ids = [str(g) for g in (qr.target_chunk_ids or [])]
+        scores = er.scores or {}
+        items.append({
+            "id": str(er.id),
+            "qa_record_id": str(er.qa_record_id),
+            "question": qr.question,
+            "answer": qr.answer,
+            "ground_truth": qr.ground_truth,
+            "metric_scores": scores,
+            "details": er.details,
+            # —— 逐条归因字段 ——
+            "target_chunk_ids": gold_ids,
+            "retrieval_ids": retrieval_ids,
+            "contexts_count": len(ir.contexts or []) if ir else None,
+            # gold 是否被召回：false 说明这条低分出在检索阶段，不是生成阶段。
+            # 只有在拿得到检索轨迹时才判定——ir 为空或 retrieval_ids 为 None
+            # （老系统不回传 id）时给 None，表示"无从判断"而不是"没召回"。
+            "gold_hit": (
+                bool(set(gold_ids) & {str(r) for r in retrieval_ids})
+                if gold_ids and ir is not None and ir.retrieval_ids is not None
+                else None
+            ),
+            "invocation_error": ir.error if ir else None,
+            "created_at": er.created_at.isoformat() if er.created_at else None,
+        })
+
+    def _score_of(item: Dict[str, Any]) -> Optional[float]:
+        entry = item["metric_scores"].get(metric)
+        if isinstance(entry, dict):
+            return entry.get("score")
+        if isinstance(entry, (int, float)):
+            return float(entry)
+        return None
+
+    # 过滤在内存完成：score 存在 JSON 列里，跨方言（PG JSONB / SQLite JSON）
+    # 取 JSON path 再比大小的写法不通用，而单批次评估样本量本就有限。
+    if metric or only_errors:
+        filtered = []
+        for item in items:
+            if only_errors:
+                has_metric_error = any(
+                    isinstance(v, dict) and v.get("error")
+                    for v in (item["metric_scores"] or {}).values()
+                )
+                if not (has_metric_error or item["invocation_error"]):
+                    continue
+            if metric:
+                s = _score_of(item)
+                if s is None:
+                    continue
+                if min_score is not None and s < min_score:
+                    continue
+                if max_score is not None and s > max_score:
+                    continue
+            filtered.append(item)
+        items = filtered
+
+    total = len(items)
     return {
         "eval_id": str(eval_id),
         "summary": evaluation.summary,
         "total": total,
-        "results": [
-            {
-                "id": str(er.id),
-                "qa_record_id": str(er.qa_record_id),
-                "question": qr.question,
-                "answer": qr.answer,
-                "ground_truth": qr.ground_truth,
-                "metric_scores": er.scores,
-                "details": er.details,
-                "created_at": er.created_at.isoformat() if er.created_at else None,
-            }
-            for er, qr in results.all()
-        ]
+        "results": items[skip:skip + limit],
     }
 
 
