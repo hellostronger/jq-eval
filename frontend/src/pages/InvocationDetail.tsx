@@ -116,14 +116,15 @@ const InvocationDetail: React.FC = () => {
     }
   }
 
-  const handleCancel = async () => {
+  const handleCancel = async (force = false) => {
     if (!id) return
     try {
-      const res = await cancelInvocationBatch(id)
+      const res = await cancelInvocationBatch(id, force)
       // 协作式取消：置标志后 worker 要在下一条 QA 边界才停，
       // 单条可能 8min+，提示语必须说清"不是立刻停"，否则用户会反复点
-      message.success(res.message || '取消请求已提交，将在当前这条问答结束后停止')
-      setBatch((prev) => (prev ? { ...prev, cancel_requested: true } : prev))
+      message.success(res.message || '取消请求已提交')
+      if (force) fetchData()
+      else setBatch((prev) => (prev ? { ...prev, cancel_requested: true } : prev))
     } catch (e) {
       fetchData()
     }
@@ -322,12 +323,21 @@ const InvocationDetail: React.FC = () => {
             <Popconfirm
               title="取消该调用批次"
               description="已完成的调用结果会保留；批次在当前这条问答结束后停止。"
-              onConfirm={handleCancel}
+              onConfirm={() => handleCancel(false)}
               disabled={batch.cancel_requested}
             >
               <Button danger icon={<StopOutlined />} disabled={batch.cancel_requested}>
                 {batch.cancel_requested ? '取消中…' : '取消批次'}
               </Button>
+            </Popconfirm>
+          )}
+          {batch.status === 'running' && batch.cancel_requested && (
+            <Popconfirm
+              title="强制取消"
+              description="worker 进程已不在跑时，取消标志没人读，批次会永远停在 running 并挡死重试。确认后立即落库 cancelled。"
+              onConfirm={() => handleCancel(true)}
+            >
+              <Button danger type="primary" icon={<StopOutlined />}>强制取消</Button>
             </Popconfirm>
           )}
           {batch.failed_count > 0 && (

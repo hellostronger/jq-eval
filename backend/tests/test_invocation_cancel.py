@@ -52,6 +52,22 @@ async def test_cancel_rejects_batch_not_running(
 
 
 @pytest.mark.asyncio
+async def test_force_cancel_finalizes_orphan_batch(
+    client: AsyncClient, db_session: AsyncSession, sample_dataset: Dataset, sample_rag_system
+):
+    """worker 被杀后的残留 running 批次：协作式取消没人读标志，必须能强制收尾，
+    否则 batch_in_flight 一直判"在飞"，重试与删除都被挡死"""
+    batch = await _running_batch(db_session, sample_dataset, sample_rag_system)
+
+    resp = await client.post(f"/api/v1/invocations/{batch.id}/cancel?force=true")
+    assert resp.status_code == 200, resp.text
+
+    await db_session.refresh(batch)
+    assert batch.status == "cancelled"
+    assert batch.cancel_requested is False
+
+
+@pytest.mark.asyncio
 async def test_worker_stops_at_next_item_when_flag_set(
     db_session: AsyncSession, sample_dataset: Dataset, sample_rag_system
 ):

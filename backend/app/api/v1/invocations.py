@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional
+from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel
 
@@ -154,6 +155,7 @@ async def run_invocation_batch(
 @router.post("/{batch_id}/cancel")
 async def cancel_invocation_batch(
     batch_id: UUID,
+    force: bool = Query(False, description="worker 已不在跑（进程被杀/掉线）时立即落库 cancelled"),
     db: AsyncSession = Depends(get_db)
 ):
     """取消运行中的调用批次（协作式）
@@ -162,19 +164,30 @@ async def cancel_invocation_batch(
     批次状态永久停在 running：既不能重试（"正在执行中"），也无法判定结果，
     还占着队列。改为置标志位，由 worker 在下一条 QA 边界停下并落库 cancelled，
     已完成的每条结果保留（每次调用都是真实的 token 开销，不该丢）。
+
+    force：协作式取消依赖 worker 还活着。进程被杀/机器重启后标志没人读，
+    批次会永远停在 running 且挡死重试（batch_in_flight 按"还有没跑完的条目"
+    判定在飞）。这种残留状态由用户显式 force 收尾。
     """
     batch = await get_or_404(db, InvocationBatch, batch_id, "调用批次不存在")
 
-    if batch.status != "running":
+    if batch.status not in ("running", "pending"):
         raise HTTPException(status_code=400, detail="调用批次未在运行中，无法取消")
 
-    batch.cancel_requested = True
-    await db.commit()
+    if not force:
+        batch.cancel_requested = True
+        await db.commit()
+        return {
+            "message": "取消请求已提交，批次将在当前这条问答结束后停止",
+            "batch_id": str(batch_id),
+        }
 
-    return {
-        "message": "取消请求已提交，批次将在当前这条问答结束后停止",
-        "batch_id": str(batch_id),
-    }
+    batch.status = "cancelled"
+    batch.error = "批次已被用户强制取消（worker 不在运行）"
+    batch.cancel_requested = False
+    batch.completed_at = datetime.utcnow()
+    await db.commit()
+    return {"message": "批次已强制取消", "batch_id": str(batch_id)}
 
 
 @router.post("/{batch_id}/retry")
