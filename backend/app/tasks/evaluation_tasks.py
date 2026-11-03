@@ -196,6 +196,17 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
 
             expected_count = len(eval_data)
 
+            # 进入长时间打分之前先把事务收掉。
+            # 上面的准备逻辑已经在 db 上开了一个事务，而 evaluate_batch 单批能跑
+            # 十几分钟：连接挂着 idle-in-transaction 不放，期间不产出、不释放锁，
+            # 实测后果有两处——
+            #   1) 远端 PG 的 DDL 被这些空事务永久挡住（ALTER TABLE 直接
+            #      LockNotAvailableError，加列/建索引都做不了）；
+            #   2) 跨公网的连接常在 idle 期间被服务端/防火墙掐断，等要落库时才发现
+            #      连接没了（就是那次 622s 的 ConnectionDoesNotExistError）。
+            # 分数落库本来就走独立短 session，这里 commit 只是让旧事务早点结束。
+            await db.commit()
+
             # 执行评估
             progress_callback = make_progress_callback(task)
 

@@ -6,13 +6,38 @@ from sqlalchemy.orm import declarative_base
 
 from .config import settings
 
+# 空转事务的上限。
+# worker 被 SIGKILL、开发机断网重连、reload 重启都会留下"本地已经没有 socket、
+# PG 侧却还挂着 idle in transaction"的幽灵连接：asyncpg 走的是纯 TCP，默认不开
+# keepalive，服务端永远等不到 FIN，于是这些连接带着表锁一直留在 pg_stat_activity
+# 里（实测最长 70 分钟），把后面的 ALTER TABLE 全部挡成 LockNotAvailableError。
+# 设了这个 GUC，被遗弃的事务最多存活 15 分钟就会被 PG 自己回收。
+# 取 15 分钟而不是更短：慢速 RAG 单条调用 8 分钟以上很常见，任务里的读事务必须
+# 能撑过一次外部调用，否则正常流程会被服务端主动掐断。
+IDLE_TRANSACTION_CAP_MS = 900_000
+
+
+def server_settings(application_name: str) -> dict:
+    """两个引擎共用的 asyncpg server_settings。
+
+    共用一份是为了避免"改了 API 引擎忘了 worker 引擎"：worker 才是真正会留下
+    幽灵连接的那个，两个引擎的口径必须一致。
+    """
+    return {
+        # 分清连接来自 API 还是 worker：排障时 pg_stat_activity 一眼能看出该找谁
+        "application_name": application_name,
+        "idle_in_transaction_session_timeout": str(IDLE_TRANSACTION_CAP_MS),
+    }
+
+
 # 异步引擎
 async_engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.APP_DEBUG,
     pool_pre_ping=True,
     pool_size=10,
-    max_overflow=20
+    max_overflow=20,
+    connect_args={"server_settings": server_settings("jq_eval_api")},
 )
 
 # 异步会话工厂
@@ -389,9 +414,7 @@ def _create_celery_engine():
             connect_args={
                 "timeout": 10,  # 建连超时（秒）
                 "command_timeout": None,  # 语句执行不额外限时（长事务由任务层控制）
-                "server_settings": {
-                    "application_name": "jq_eval_celery",
-                },
+                "server_settings": server_settings("jq_eval_celery"),
             },
         )
         CeleryAsyncSessionLocal = async_sessionmaker(
