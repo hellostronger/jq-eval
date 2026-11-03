@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...core.database import get_db
 from ...core.exceptions import format_error
 from ...core.utc_datetime import UTCDatetime
-from ...models import Dataset, EvalSetProfile, EvalSetRecord
+from ...models import Dataset, EvalSetProfile, EvalSetRecord, QARecord
 from ...services.evalset import samples as samples_service
 from ...services.evalset.compare import compare_profiles
 from ...services.evalset.normalize import MODEL_TYPES
@@ -43,6 +43,42 @@ class ProfileCreate(BaseModel):
     description: Optional[str] = None
     model_type: str = "llm"
     benchmark_key: Optional[str] = None
+
+
+async def backfill_eval_records(db: AsyncSession, dataset_id, model_type: str) -> int:
+    """把外部导入的 QARecord 回填成 EvalSetRecord（画像统计口径）。
+
+    只在该数据集尚无 EvalSetRecord 时调用；qa_metadata.extra 里的原始字段
+    （gold_pages / positive_ids / question_type 等）会一并还原，避免画像
+    只剩 question/answer 两根骨架。
+    """
+    result = await db.execute(
+        select(QARecord)
+        .where(QARecord.dataset_id == dataset_id)
+        .order_by(QARecord.id)
+        .limit(SYNC_PROFILE_LIMIT)
+    )
+    rows = result.scalars().all()
+    records: List[Dict[str, Any]] = []
+    for row in rows:
+        item: Dict[str, Any] = {
+            "question": row.question,
+            "answer": row.answer,
+            "ground_truth": row.ground_truth,
+            "question_type": row.question_type,
+        }
+        snapshot = row.snapshot if isinstance(row.snapshot, dict) else {}
+        if snapshot.get("contexts"):
+            item["contexts"] = snapshot["contexts"]
+        extra = (row.qa_metadata or {}).get("extra") or {}
+        for key, value in extra.items():
+            item.setdefault(key, value)
+        records.append(item)
+    if not records:
+        return 0
+    saved = await import_records(db, dataset_id, records, model_type=model_type)
+    logger.info(f"评测集 {dataset_id} 从 QARecord 回填 {saved} 条 EvalSetRecord")
+    return saved
 
 
 class ProfileResponse(BaseModel):
@@ -241,12 +277,18 @@ async def create_profile(
     data: ProfileCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    """为已存在的数据集生成评测集画像"""
+    """为已存在的数据集生成评测集画像
+
+    外部导入的数据集（/datasets/{id}/import）只落 QARecord；画像统计读的是
+    EvalSetRecord，因此这里按需回填，保证任意开源评测集都能生成画像。
+    """
     if data.model_type not in MODEL_TYPES:
         raise HTTPException(status_code=400, detail=f"model_type 只能是 {'/'.join(MODEL_TYPES)}")
 
     dataset = await get_or_404(db, Dataset, data.dataset_id, "数据集不存在")
     total = await count_records(db, dataset.id)
+    if total == 0:
+        total = await backfill_eval_records(db, dataset.id, data.model_type)
     if total == 0:
         raise HTTPException(
             status_code=400,
