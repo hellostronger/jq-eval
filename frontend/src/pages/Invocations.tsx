@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Button, Tag, Modal, Form, Input, Select, message, Space, Progress, Popconfirm } from 'antd'
+import { Card, Table, Button, Tag, Modal, Form, Input, InputNumber, Select, message, Space, Progress, Popconfirm, Tooltip } from 'antd'
 import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, ReloadOutlined, FileSearchOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { formatTime } from '@/utils/format'
@@ -141,11 +141,18 @@ const Invocations: React.FC = () => {
         const percent = record.total_count > 0
           ? Math.round((record.completed_count + record.failed_count) / record.total_count * 100)
           : 0
+        // 分母是取样条数而不是数据集大小，得标出来，否则"40/40 完成"会被读成整库跑完
+        const scoped = (record.qa_limit ?? null) !== null || (record.qa_offset ?? null) !== null
         return (
           <Space>
             <Progress percent={percent} size="small" style={{ width: 100 }} />
             <span>{record.completed_count}/{record.total_count}</span>
             {record.failed_count > 0 && <Tag color="error">{record.failed_count} 失败</Tag>}
+            {scoped && (
+              <Tooltip title={`本批只跑取样范围：起点 ${record.qa_offset ?? 0}，条数 ${record.qa_limit ?? '到结尾'}`}>
+                <Tag color="warning">取样</Tag>
+              </Tooltip>
+            )}
           </Space>
         )
       },
@@ -248,6 +255,22 @@ const Invocations: React.FC = () => {
               getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
               options={ragSystems.map(r => ({ value: r.id, label: r.name }))}
             />
+          </Form.Item>
+          {/* 取样范围：大语料（几千题、单题几分钟）先跑一小段验证链路，
+              不必为此复制一个小数据集——副本一多，各批次的评估口径就对不上了 */}
+          <Form.Item
+            name="qa_limit"
+            label="取样条数"
+            tooltip="按题目创建顺序只跑前 N 条。留空＝跑整个数据集（原有行为）。"
+          >
+            <InputNumber min={1} precision={0} placeholder="留空＝整个数据集" style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item
+            name="qa_offset"
+            label="取样起点"
+            tooltip="跳过前 M 条，配合取样条数分页试点：跑第 41–80 题就是起点 40、条数 40。"
+          >
+            <InputNumber min={0} precision={0} placeholder="0（从头开始）" style={{ width: '100%' }} />
           </Form.Item>
         </Form>
       </Modal>

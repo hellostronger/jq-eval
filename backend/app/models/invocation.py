@@ -19,6 +19,13 @@ class InvocationBatch(BaseModel):
     completed_count = Column(Integer, default=0)
     failed_count = Column(Integer, default=0)
     error = Column(Text, nullable=True)
+
+    # 取样范围：批次默认把整个数据集跑一遍，而大语料（MultiHop 2556 题、
+    # UltraData 每题几分钟）根本没法"先试 40 题"。原先只能再建一个小数据集绕开，
+    # 于是同一份语料在库里出现 N 份副本，评估口径还各不相同。
+    # 这两列让批次自己决定跑哪一段，进度/重试/终态反推都以它为准。
+    qa_limit = Column(Integer, nullable=True)    # 只跑前 N 条（按 created_at 排序）
+    qa_offset = Column(Integer, nullable=True)   # 跳过前 M 条，配合 qa_limit 分页试点
     # 协作式取消标志：跑一个批次要几十分钟（慢速 RAG 单条 8min+），
     # 之前只能 SIGKILL worker，批次永远停在 running，既不能重试也无法判定。
     cancel_requested = Column(Boolean, nullable=False, default=False)

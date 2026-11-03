@@ -108,6 +108,9 @@ export interface InvocationBatch {
   error?: string
   // 取消请求已提交（worker 在下一条 QA 边界才真正停下，界面据此提示）
   cancel_requested?: boolean
+  // 取样范围：非空表示这批只跑数据集中的一段，进度分母也随之变小
+  qa_limit?: number | null
+  qa_offset?: number | null
   started_at?: string
   completed_at?: string
   created_at: string

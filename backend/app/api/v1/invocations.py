@@ -5,9 +5,10 @@ from sqlalchemy import select, func
 from typing import List, Optional
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ...core.database import get_db
+from ...services.dataset.qa_scope import missing_qa_in_scope
 from ._common import get_or_404, start_task, batch_in_flight
 from ...core.utc_datetime import UTCDatetime
 from ...models import InvocationBatch, InvocationResult, Dataset, QARecord, RAGSystem
@@ -20,6 +21,10 @@ class InvocationBatchCreate(BaseModel):
     name: str
     dataset_id: UUID
     rag_system_id: UUID
+    # 取样范围：大语料（MultiHop 2556 题、UltraData 每题几分钟）先跑一小段试点，
+    # 不用为此再建一个重复数据集。留空＝沿用旧行为，跑整个数据集
+    qa_limit: Optional[int] = Field(None, ge=1, description="只跑前 N 条（按创建时间排序）")
+    qa_offset: Optional[int] = Field(None, ge=0, description="跳过前 M 条，配合 qa_limit 分页试点")
 
 
 class InvocationBatchResponse(BaseModel):
@@ -34,6 +39,8 @@ class InvocationBatchResponse(BaseModel):
     error: Optional[str] = None
     # 取消请求是否已提交（界面据此把「取消」按钮置灰，避免重复点击以为没生效）
     cancel_requested: bool = False
+    qa_limit: Optional[int] = None
+    qa_offset: Optional[int] = None
     started_at: Optional[UTCDatetime] = None
     completed_at: Optional[UTCDatetime] = None
     created_at: Optional[UTCDatetime] = None
@@ -83,17 +90,42 @@ async def create_invocation_batch(
     if not rag_system:
         raise HTTPException(status_code=404, detail="RAG系统不存在")
 
-    # 获取QA记录数量
+    # 数据集里的总条数，取样范围要按它裁剪
     result = await db.execute(
         select(func.count(QARecord.id)).where(QARecord.dataset_id == data.dataset_id)
     )
-    total_count = result.scalar() or 0
+    dataset_count = result.scalar() or 0
+    if dataset_count == 0:
+        raise HTTPException(status_code=400, detail="数据集里没有问答记录，无法发起调用")
+
+    qa_limit = data.qa_limit
+    qa_offset = data.qa_offset or 0
+    if qa_limit is not None:
+        if qa_offset >= dataset_count:
+            raise HTTPException(
+                status_code=400,
+                detail=f"取样起点 {qa_offset} 已超出数据集条数 {dataset_count}，这一批不会有任何题目",
+            )
+        qa_limit = min(qa_limit, dataset_count - qa_offset)
+    elif qa_offset:
+        # 只给偏移不给条数＝从这一条起跑到结尾，同样不能越过末尾
+        if qa_offset >= dataset_count:
+            raise HTTPException(
+                status_code=400,
+                detail=f"取样起点 {qa_offset} 已超出数据集条数 {dataset_count}，这一批不会有任何题目",
+            )
+
+    # total_count 必须是"取样范围内的条数"，不是数据集总条数：
+    # 界面按它显示进度、终态按它判定跑完没有，口径不一致就会永远差一截
+    total_count = qa_limit if qa_limit is not None else dataset_count - qa_offset
 
     batch = InvocationBatch(
         name=data.name,
         dataset_id=data.dataset_id,
         rag_system_id=data.rag_system_id,
         total_count=total_count,
+        qa_limit=qa_limit,
+        qa_offset=qa_offset or None,
     )
     db.add(batch)
     await db.commit()
@@ -231,11 +263,9 @@ async def retry_invocation_batch(
                 select(InvocationResult.qa_record_id).where(InvocationResult.batch_id == batch_id)
             )
             covered = {r[0] for r in have.all()}
-            stmt = select(QARecord).where(QARecord.dataset_id == batch.dataset_id)
-            if covered:
-                stmt = stmt.where(QARecord.id.not_in(covered))
-            missing = await db.execute(stmt)
-            for qa in missing.scalars().all():
+            # 只在批次的取样范围内补齐：不带范围会给只跑 40 题的批次
+            # 补出整个数据集的占位行，total_count 与进度瞬间失真
+            for qa in await missing_qa_in_scope(db, batch, covered):
                 placeholder = InvocationResult(
                     batch_id=batch_id,
                     qa_record_id=qa.id,

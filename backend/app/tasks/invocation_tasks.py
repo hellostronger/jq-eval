@@ -16,6 +16,7 @@ from app.models.dataset import Dataset, QARecord
 from app.models.rag_system import RAGSystem
 from app.models.model import Model
 from app.services.adapters import AdapterFactory
+from app.services.dataset.qa_scope import apply_scope, count_in_scope
 from sqlalchemy import select, func
 
 logger = logging.getLogger(__name__)
@@ -92,9 +93,9 @@ async def _reconcile_terminal_state(batch_id: UUID, error: str = None, attempts:
         )
         by_status = dict(counts.all())
         done = sum(by_status.values())
-        expected = batch.total_count or await db.scalar(
-            select(func.count(QARecord.id)).where(QARecord.dataset_id == batch.dataset_id)
-        ) or 0
+        # total_count 缺失时回退到"批次取样范围内的条数"，不是整个数据集：
+        # 只跑 40 题的批次按 2556 题判未完成，会永远落在 failed 且重试补不完
+        expected = batch.total_count or await count_in_scope(db, batch) or 0
         batch.completed_count = by_status.get("success", 0)
         batch.failed_count = by_status.get("failed", 0)
 
@@ -379,10 +380,14 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
             # 获取QA记录。用 ORM 查询而非 text() 裸 SQL：text() 不走类型
             # 转换，PostgreSQL 能隐式接受 UUID 字符串，SQLite 却不认，
             # 会直接抛 "Error binding parameter 0 - probably unsupported type"。
+            # 取样范围（qa_limit/qa_offset）决定这次真跑多少条
             qa_result = await db.execute(
-                select(QARecord.id, QARecord.question)
-                .where(QARecord.dataset_id == dataset.id)
-                .order_by(QARecord.created_at)
+                apply_scope(
+                    select(QARecord.id, QARecord.question)
+                    .where(QARecord.dataset_id == dataset.id)
+                    .order_by(QARecord.created_at),
+                    batch,
+                )
             )
             qa_list = [{"id": r.id, "question": r.question} for r in qa_result.all()]
             batch.total_count = len(qa_list)
