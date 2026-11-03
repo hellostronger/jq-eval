@@ -47,6 +47,7 @@ class InvocationResultResponse(BaseModel):
     question: str
     answer: Optional[str] = None
     contexts: Optional[List[str]] = None
+    retrieval_ids: Optional[List[str]] = None  # 检索命中的 chunk/page id，检索指标与 badcase 归因都靠它
     latency: Optional[float] = None
     status: str
     error: Optional[str] = None
@@ -268,6 +269,7 @@ async def get_invocation_results(
             "question": inv_result.question,
             "answer": inv_result.answer,
             "contexts": inv_result.contexts,
+            "retrieval_ids": inv_result.retrieval_ids,
             "latency": inv_result.latency,
             "status": inv_result.status,
             "error": inv_result.error,
