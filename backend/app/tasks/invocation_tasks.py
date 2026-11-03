@@ -9,6 +9,7 @@ from uuid import UUID
 from app.core.celery_app import celery_app
 from app.core.exceptions import TaskCancelled
 from app.tasks._common import run_async, format_error
+from app.tasks.persistence import commit_with_retry
 from app.core.database import get_db_context
 from app.models.invocation import InvocationBatch, InvocationResult
 from app.models.dataset import Dataset, QARecord
@@ -58,21 +59,16 @@ async def _commit_with_retry(apply, batch_id: UUID = None, attempts: int = 3) ->
     一次 RAG 调用要两三分钟，而远端 PG 随时可能掐线（实际反复踩到
     asyncpg ConnectionDoesNotExistError）。用调用方那条长 session 提交，
     断了就是整条回滚——几分钟的 Token 白花。换新 session 重试一次通常就过去了。
+
+    get_db_context 在调用时按本模块命名空间解析，测试可以就地替换。
     """
-    last_exc = None
-    for attempt in range(attempts):
-        try:
-            async with get_db_context() as db:
-                await apply(db)
-                await db.commit()
-            return
-        except Exception as exc:
-            last_exc = exc
-            logger.warning(
-                f"写入调用结果失败（第 {attempt + 1}/{attempts} 次）batch_id={batch_id}: {exc}"
-            )
-            await asyncio.sleep(1.5 * (attempt + 1))
-    raise last_exc
+    await commit_with_retry(
+        apply,
+        get_session=get_db_context,
+        label="写入调用结果",
+        context=f"batch_id={batch_id}",
+        attempts=attempts,
+    )
 
 
 async def _reconcile_terminal_state(batch_id: UUID, error: str = None, attempts: int = 3) -> str:
@@ -84,48 +80,49 @@ async def _reconcile_terminal_state(batch_id: UUID, error: str = None, attempts:
     所以终态不靠内存里的计数，而是回查结果表：全部样本都有结果就按 completed 落，
     原始异常只作为 error 记录，不推翻已经真实完成的工作。
     """
-    last_exc = None
-    for attempt in range(attempts):
-        try:
-            async with get_db_context() as db:
-                batch = await db.get(InvocationBatch, batch_id)
-                if not batch:
-                    return "missing"
+    async def apply(db):
+        batch = await db.get(InvocationBatch, batch_id)
+        if not batch:
+            return "missing"
 
-                counts = await db.execute(
-                    select(InvocationResult.status, func.count(InvocationResult.id)).where(
-                        InvocationResult.batch_id == batch_id
-                    ).group_by(InvocationResult.status)
-                )
-                by_status = dict(counts.all())
-                done = sum(by_status.values())
-                expected = batch.total_count or await db.scalar(
-                    select(func.count(QARecord.id)).where(QARecord.dataset_id == batch.dataset_id)
-                ) or 0
-                batch.completed_count = by_status.get("success", 0)
-                batch.failed_count = by_status.get("failed", 0)
+        counts = await db.execute(
+            select(InvocationResult.status, func.count(InvocationResult.id)).where(
+                InvocationResult.batch_id == batch_id
+            ).group_by(InvocationResult.status)
+        )
+        by_status = dict(counts.all())
+        done = sum(by_status.values())
+        expected = batch.total_count or await db.scalar(
+            select(func.count(QARecord.id)).where(QARecord.dataset_id == batch.dataset_id)
+        ) or 0
+        batch.completed_count = by_status.get("success", 0)
+        batch.failed_count = by_status.get("failed", 0)
 
-                if batch.cancel_requested:
-                    batch.status = "cancelled"
-                    batch.error = error or "批次已被用户取消"
-                    batch.cancel_requested = False
-                elif expected and done >= expected:
-                    # 全部样本都有结果：跑完了就是跑完了，哪怕收尾时连接断了
-                    batch.status = "completed"
-                    batch.error = error
-                else:
-                    batch.status = "failed"
-                    batch.error = error or f"批次未完成（{done}/{expected}）"
-                batch.completed_at = datetime.utcnow()
-                await db.commit()
-                return batch.status
-        except Exception as exc:
-            last_exc = exc
-            logger.warning(f"写入批次终态失败（第 {attempt + 1}/{attempts} 次）batch_id={batch_id}: {exc}")
-            await asyncio.sleep(1.5 * (attempt + 1))
+        if batch.cancel_requested:
+            batch.status = "cancelled"
+            batch.error = error or "批次已被用户取消"
+            batch.cancel_requested = False
+        elif expected and done >= expected:
+            # 全部样本都有结果：跑完了就是跑完了，哪怕收尾时连接断了
+            batch.status = "completed"
+            batch.error = error
+        else:
+            batch.status = "failed"
+            batch.error = error or f"批次未完成（{done}/{expected}）"
+        batch.completed_at = datetime.utcnow()
+        return batch.status
 
-    logger.error(f"批次终态始终写不进去 batch_id={batch_id}: {last_exc}")
-    return "unknown"
+    try:
+        return await commit_with_retry(
+            apply,
+            get_session=get_db_context,
+            label="写入批次终态",
+            context=f"batch_id={batch_id}",
+            attempts=attempts,
+        )
+    except Exception as exc:
+        logger.error(f"批次终态始终写不进去 batch_id={batch_id}: {exc}")
+        return "unknown"
 
 
 async def _run_invocation_guarded(task, batch_id: UUID) -> Dict[str, Any]:

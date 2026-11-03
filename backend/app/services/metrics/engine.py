@@ -95,11 +95,17 @@ class MetricEngine:
         batch_size: int = 10,
         progress_callback=None,
         check_cancel=None,
+        on_batch=None,
     ) -> List[Dict[str, MetricResult]]:
         """批量评估
 
         check_cancel: 可选的异步回调，在每个批次边界被调用；
         检测到取消时抛 TaskCancelled（协作式取消，避免长任务只能 SIGKILL）。
+
+        on_batch: 可选回调 async on_batch(batch_results, start_index)，每跑完一批就
+        把这一批交出去落库。一批 ragas 要几分钟到十几分钟，全部跑完才落库时
+        任何一次收尾异常都会把这几十分钟的真实分数一起丢掉（实测 622s 后
+        死在一条取消标志查询的连接抖动上，5 条样本的分数全没保存）。
         """
         results = []
         total = len(qa_records)
@@ -126,6 +132,9 @@ class MetricEngine:
 
             batch_results = await asyncio.gather(*batch_tasks)
             results.extend(batch_results)
+
+            if on_batch:
+                await on_batch(list(batch_results), i)
 
             # 进度回调
             if progress_callback:

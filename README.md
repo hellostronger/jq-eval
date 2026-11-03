@@ -108,6 +108,8 @@ jq-eval/
 - **评估引擎**: Ragas + EvalScope + 自研指标
 - **根因分析**: 评估结果分析与调参建议
 - **badcase 分步归因**: 低分样本按链路环节分桶（调用失败 / gold 漏召 / 召回了没答好 / 链路正常 / 无检索轨迹 / 缺 gold 分片），`GET /evaluations/{id}/analysis` 直接给出各环节占比与瓶颈环，`GET /evaluations/{id}/results?attribution=retrieval_miss` 按环筛样本；跨系统对比（`POST /evaluations/compare`）逐题给出各系统归因，能看出同一道题在 A 系统漏召、在 B 系统答不好
+- **长任务落库韧性**: 远端 PG/Redis 抖动是常态（一次 RAG 调用或一批 ragas 要几分钟）。评估结果逐批落库、写失败换新 session 重试、终态按结果表重算（全部样本都有结果就 completed），调用批次同口径；取消标志读取失败只记日志、不推翻已算出的分数。`POST /evaluations/{id}/cancel?force=true` 给 worker 未领取的孤儿 running 任务一个库侧出口
+- **派发前置校验**: 所选指标含生成类（`requires_llm`）时，创建/运行/重试三处统一校验 LLM 模型是否配了 API Key 与 endpoint，缺凭据直接 400 并点名模型与被挡的指标，不再让任务进 worker 跑几分钟后回一段 langchain 内部报错
 - **快照机制**: 历史数据冻结，保证可追溯
 - **向量检索**: Milvus高性能向量检索
 - **调用与评估解耦**: 调用批次(Invocation)与评估(Evaluation)分离，支持复用调用结果重评（reuse_invocation），同一批对话可换指标/换模型反复评估

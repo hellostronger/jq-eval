@@ -3,12 +3,13 @@ import os
 from typing import Dict, List, Any
 from datetime import datetime
 import logging
-from sqlalchemy import text, select
+from sqlalchemy import text, select, delete, func
 from uuid import UUID
 
 from app.core.celery_app import celery_app
 from app.core.exceptions import TaskCancelled
-from app.tasks._common import run_async, make_progress_callback, mark_task_failed, format_error
+from app.tasks._common import run_async, make_progress_callback, format_error
+from app.tasks.persistence import commit_with_retry
 from app.core.database import get_db_context
 from app.models.evaluation import Evaluation, EvaluationStatus, EvalResult
 from app.models.dataset import Dataset, QARecord
@@ -50,6 +51,9 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
         evaluation.status = EvaluationStatus.RUNNING
         evaluation.started_at = datetime.utcnow()
         await db.commit()
+
+        # 本次要评的样本数。异常分支也要拿得到，所以先在 try 外初始化
+        expected_count = 0
 
         try:
             # 获取数据集和QA记录
@@ -190,52 +194,18 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
                 item["contexts"] = budgeted
                 item["context_budget"] = stats
 
+            expected_count = len(eval_data)
+
             # 执行评估
             progress_callback = make_progress_callback(task)
-
-            async def _check_cancel():
-                # 协作式取消：批次边界重读取消标志（独立短查询，不依赖当前事务对象）
-                flag = await db.execute(
-                    select(Evaluation.cancel_requested).where(Evaluation.id == evaluation_id)
-                )
-                if flag.scalar():
-                    raise TaskCancelled()
 
             results = await engine.evaluate_batch(
                 qa_records=eval_data,
                 batch_size=evaluation.batch_size or 10,
                 progress_callback=progress_callback,
-                check_cancel=_check_cancel,
+                check_cancel=_cancel_checker(evaluation_id),
+                on_batch=_batch_persister(evaluation_id, eval_data),
             )
-
-            # 保存结果 - 将 MetricResult 转换成字典
-            for i, result_dict in enumerate(results):
-                eval_item = eval_data[i]
-                # 转换 MetricResult 对象为可序列化的字典
-                scores_dict = {}
-                for metric_name, metric_result in result_dict.items():
-                    scores_dict[metric_name] = {
-                        "score": metric_result.score,
-                        "details": metric_result.details,
-                        "error": metric_result.error
-                    }
-                # 明细：上游调用失败原因 + 上下文截断统计。
-                # 两者都是"这条分数为什么不可信"的线索，丢了就只能看到
-                # 一个孤立低分，分不清是 RAG 挂了、还是证据被裁短了。
-                detail_info = {}
-                if eval_item.get("invocation_error"):
-                    detail_info["invocation_error"] = eval_item["invocation_error"]
-                if eval_item.get("context_budget"):
-                    detail_info["context_budget"] = eval_item["context_budget"]
-
-                eval_result = EvalResult(
-                    eval_id=evaluation_id,
-                    qa_record_id=eval_item["id"],
-                    invocation_result_id=eval_item.get("invocation_result_id"),
-                    scores=scores_dict,
-                    details=detail_info or None,
-                )
-                db.add(eval_result)
 
             # 计算汇总。
             # RAG 调用失败的记录必须排除在统计之外：rouge_l/exact_match 这类
@@ -261,35 +231,33 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
                         seen.add(e)
                         uniq.append(e)
                 summary["invocation_errors"] = uniq[:5]
-            evaluation.summary = summary
-            evaluation.status = EvaluationStatus.COMPLETED
-            evaluation.completed_at = datetime.utcnow()
-            await db.commit()
+            status = await _finalize(
+                evaluation_id, summary=summary, expected=len(eval_data)
+            )
 
             return {
                 "evaluation_id": evaluation_id,
-                "status": "completed",
+                "status": status,
                 "total_records": len(qa_list),
                 "summary": summary
             }
 
         except TaskCancelled:
-            # 用户协作式取消：丢弃未落库的部分批次结果（结果只在全部完成后保存），
-            # 状态标记 cancelled 并清除取消标志，供重试
+            # 用户协作式取消：已逐批落库的样本保留（结果本来就是分批写的），
+            # 状态标记 cancelled 并清除取消标志，供重试；重试会先清掉旧结果
             logger.info(f"评估任务 {evaluation_id} 已被用户取消")
             await db.rollback()
-            evaluation = await db.get(Evaluation, evaluation_id)
-            if evaluation:
-                evaluation.status = EvaluationStatus.CANCELLED
-                evaluation.error = "任务已被用户取消"
-                evaluation.cancel_requested = False
-                evaluation.completed_at = datetime.utcnow()
-                await db.commit()
+            await _finalize(evaluation_id, error="任务已被用户取消", force="cancelled")
             return {"evaluation_id": evaluation_id, "status": "cancelled"}
 
         except Exception as e:
-            await mark_task_failed(db, Evaluation, evaluation_id, format_error(e), logger)
-            return {"error": format_error(e)}
+            # 长 session 很可能就是断在这里，终态一律走独立 session 重试写入；
+            # 每条样本都已落库时按 completed 收敛，不推翻真实跑完的分数
+            await db.rollback()
+            status = await _finalize(
+                evaluation_id, error=format_error(e), expected=expected_count
+            )
+            return {"error": format_error(e), "status": status}
 
 
 @celery_app.task(bind=True, name="batch_evaluation_task")
@@ -304,6 +272,150 @@ def batch_evaluation_task(self, evaluation_ids: List[str]) -> Dict[str, Any]:
         result = evaluation_task(eval_id)
         results.append(result)
     return {"total": len(evaluation_ids), "results": results}
+
+
+def _cancel_checker(evaluation_id):
+    """批次边界读取消标志的回调。
+
+    必须用独立短 session 并容忍读取失败——远端 PG 会在一次十几分钟的评估中途掐线
+    （实测 622s 后 ConnectionDoesNotExistError 正好落在
+    SELECT evaluations.cancel_requested 上），一条"读标志"的抖动不该把
+    已经算出来的真实分数判成整批失败：取消是可选语义，分数才是这次任务的目的。
+    """
+    async def check_cancel():
+        try:
+            async with get_db_context() as session:
+                flag = await session.execute(
+                    select(Evaluation.cancel_requested).where(Evaluation.id == evaluation_id)
+                )
+                if flag.scalar():
+                    raise TaskCancelled()
+        except TaskCancelled:
+            raise
+        except Exception as exc:
+            logger.warning(f"读取取消标志失败，继续评估 {evaluation_id}: {exc}")
+    return check_cancel
+
+
+def _batch_persister(evaluation_id, eval_data: List[Dict[str, Any]]):
+    """返回"每批跑完立刻落库"的回调。
+
+    一批 ragas 要几分钟，原先全部批次跑完才写：中途任何异常（包括取消标志读取
+    抖动）都会让整段真实打分凭空消失，用户只能从头再烧一遍 token。逐批落库后，
+    最坏情况只丢当前这一批。
+    """
+    async def persist_batch(batch_results, start_index):
+        rows = [
+            _result_row(evaluation_id, eval_data[start_index + j], result_dict)
+            for j, result_dict in enumerate(batch_results)
+        ]
+        qa_ids = [row["qa_record_id"] for row in rows]
+
+        async def apply(session):
+            # 幂等：重试时上一轮可能其实已提交，先删同 qa_record 的旧行，
+            # 否则重复样本会把均值算歪（同一条问答被计入两次）
+            await session.execute(
+                delete(EvalResult).where(
+                    EvalResult.eval_id == evaluation_id,
+                    EvalResult.qa_record_id.in_(qa_ids),
+                )
+            )
+            session.add_all([EvalResult(**row) for row in rows])
+
+        await commit_with_retry(
+            apply,
+            get_session=get_db_context,
+            label="写入评估结果",
+            context=f"eval_id={evaluation_id} 自第 {start_index + 1} 条起 {len(rows)} 条",
+        )
+    return persist_batch
+
+
+async def _finalize(
+    evaluation_id,
+    *,
+    summary: Dict[str, Any] = None,
+    error: str = None,
+    expected: int = 0,
+    force: str = None,
+    attempts: int = 3,
+) -> str:
+    """用独立 session 重试写评估终态，正常收尾时按结果表重算而不是只信内存状态。
+
+    两条真实故障：
+    1. 远端 PG 在收尾一条 UPDATE 上掐线 → 已逐批落库的分数被记成 failed，
+       /analysis 与 compare 全部读不到，几分钟的 ragas token 白烧；
+    2. 异常发生在写终态这一步之前，长 session 已经不可用 → 状态永久停在 running。
+    所以终态回查 EvalResult 行数：每条样本都有结果就算 completed，
+    原始异常只作为 error 记录，不推翻已经真实完成的工作。
+    """
+    async def apply(db):
+        ev = await db.get(Evaluation, evaluation_id)
+        if not ev:
+            return "missing"
+        done = await db.scalar(
+            select(func.count(EvalResult.id)).where(EvalResult.eval_id == evaluation_id)
+        ) or 0
+
+        if force:
+            ev.status = force
+            ev.error = error
+            ev.cancel_requested = False
+        elif ev.cancel_requested:
+            ev.status = EvaluationStatus.CANCELLED
+            ev.error = error or "任务已被用户取消"
+            ev.cancel_requested = False
+        elif expected and done >= expected:
+            ev.status = EvaluationStatus.COMPLETED
+            ev.error = error
+            if summary is not None:
+                ev.summary = summary
+        else:
+            ev.status = EvaluationStatus.FAILED
+            ev.error = error or f"评估未完成（{done}/{expected}）"
+
+        ev.completed_at = datetime.utcnow()
+        return str(ev.status.value if hasattr(ev.status, "value") else ev.status)
+
+    try:
+        return await commit_with_retry(
+            apply,
+            get_session=get_db_context,
+            label="写入评估终态",
+            context=f"eval_id={evaluation_id}",
+            attempts=attempts,
+        )
+    except Exception as exc:
+        logger.error(f"评估终态始终写不进去 {evaluation_id}: {exc}")
+        return "unknown"
+
+
+def _result_row(evaluation_id, eval_item: Dict[str, Any], result_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """把一条样本的 MetricResult 集合转成 EvalResult 入库字段。
+
+    明细里必须带上上游调用失败原因与上下文截断统计：两者都是"这条分数为什么
+    不可信"的线索，丢了就只剩一个孤立低分，分不清是 RAG 挂了还是证据被裁短了。
+    """
+    scores_dict = {}
+    for metric_name, metric_result in result_dict.items():
+        scores_dict[metric_name] = {
+            "score": metric_result.score,
+            "details": metric_result.details,
+            "error": metric_result.error,
+        }
+    detail_info = {}
+    if eval_item.get("invocation_error"):
+        detail_info["invocation_error"] = eval_item["invocation_error"]
+    if eval_item.get("context_budget"):
+        detail_info["context_budget"] = eval_item["context_budget"]
+
+    return {
+        "eval_id": evaluation_id,
+        "qa_record_id": eval_item["id"],
+        "invocation_result_id": eval_item.get("invocation_result_id"),
+        "scores": scores_dict,
+        "details": detail_info or None,
+    }
 
 
 async def _init_model(model_config: Model) -> Any:
