@@ -315,6 +315,14 @@ async def _init_model(model_config: Model) -> Any:
     logger.info(f"模型配置详情: endpoint={model_config.endpoint}, model_name={model_config.model_name}, api_key={'已设置' if model_config.api_key_encrypted else '未设置'}")
 
     if model_type == "llm":
+        # 缺密钥时 ChatOpenAI 抛的是 langchain 自己的校验文本
+        # （"Did not find openai_api_key, please add an environment variable…"），
+        # 原样落库后用户在详情页读不懂。这里换成一句人话，接口层已有前置守卫，
+        # 走到这说明是老数据或绕过了接口直接派的任务。
+        if not (model_config.api_key_encrypted or "").strip():
+            raise ValueError(
+                f"LLM 模型「{model_config.name}」未配置 API Key，无法计算生成类指标；请到模型管理补填密钥后重试"
+            )
         from langchain_openai import ChatOpenAI
         llm = ChatOpenAI(
             model=model_config.model_name,

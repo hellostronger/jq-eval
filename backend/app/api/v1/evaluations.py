@@ -12,7 +12,7 @@ from ...core.database import get_db, get_db_context
 from ._common import get_or_404, delete_or_404, start_task
 from ...core.utc_datetime import UTCDatetime
 from ...core.celery_app import celery_app
-from ...models import Evaluation, EvalResult, Dataset, QARecord, InvocationResult
+from ...models import Evaluation, EvalResult, Dataset, QARecord, InvocationResult, Model
 from ...tasks.evaluation_tasks import evaluation_task
 
 router = APIRouter()
@@ -70,6 +70,47 @@ class MetricConfigCreate(BaseModel):
 
 class CompareRequest(BaseModel):
     eval_ids: List[UUID]
+
+
+def _llm_dependent_metrics(metrics: List[str]) -> List[str]:
+    """选中指标里需要真实调用 LLM 的那部分（ragas 生成类指标）。
+
+    以指标注册表的 requires_llm 为准，不在这里另列一份名单——两边口径不一致时，
+    守卫会放行算不出分的组合，或拦住本来能跑的纯检索评估。
+    """
+    from ...services.metrics import METRIC_REGISTRY
+    return [m for m in (metrics or []) if getattr(METRIC_REGISTRY.get(m), "requires_llm", False)]
+
+
+async def require_llm_credentials(db: AsyncSession, metrics: List[str], llm_model_id) -> None:
+    """派发前校验 LLM 依赖：缺模型/缺密钥/缺 endpoint 一律 400 拦在接口层。
+
+    此前只在 worker 里炸：ChatOpenAI 抛 langchain 内部校验文本
+    （"Did not find openai_api_key, please add an environment variable…"），
+    而此时评估已置 running、失败原因原样落库。用户在详情页看到的是一段
+    pydantic 报错，分不清是自己模型没配密钥还是评估系统坏了；5 分钟 token
+    预算和一次 worker 往返也白白花掉。实测：Qwen3.8-Flash-Next 未存密钥，
+    6 个指标里 4 个依赖 LLM，任务 7.8s 后 failed。
+    """
+    needed = _llm_dependent_metrics(metrics)
+    if not needed:
+        return
+    label = "、".join(needed)
+    if not llm_model_id:
+        raise HTTPException(status_code=400, detail=f"指标「{label}」需要 LLM，请先选择 LLM 模型")
+    model = await db.get(Model, llm_model_id)
+    if not model:
+        raise HTTPException(status_code=400, detail=f"LLM 模型 {llm_model_id} 不存在")
+    if not (model.api_key_encrypted or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail=f"LLM 模型「{model.name}」未配置 API Key，无法计算「{label}」；请到模型管理补填密钥后再发起",
+        )
+    if not (model.endpoint or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail=f"LLM 模型「{model.name}」未配置 endpoint，无法计算「{label}」",
+        )
 
 
 @router.post("/compare")
@@ -188,6 +229,9 @@ async def create_evaluation(
     if not dataset:
         raise HTTPException(status_code=404, detail="数据集不存在")
 
+    # 生成类指标的 LLM 依赖在创建时就校验，别等派发后在 worker 里炸
+    await require_llm_credentials(db, data.metrics, data.llm_model_id)
+
     evaluation = Evaluation(
         name=data.name,
         description=data.description,
@@ -303,6 +347,9 @@ async def run_evaluation(
 
     if evaluation.status == "running":
         raise HTTPException(status_code=400, detail="评估任务正在执行中")
+
+    # 创建之后密钥可能被删或改，派发前按当前库里的指标与模型再校验一次
+    await require_llm_credentials(db, evaluation.metrics, evaluation.llm_model_id)
 
     # 置运行中并派发；broker 不可达时状态自动回滚，不会永久卡在 running
     task = await start_task(db, evaluation, lambda: evaluation_task.delay(str(eval_id)))
@@ -749,6 +796,10 @@ async def retry_evaluation(
 
     # 更新 reuse_invocation 设置
     evaluation.reuse_invocation = reuse_invocation
+
+    # 重试同样先校验 LLM 依赖：上次失败很可能就是缺密钥，
+    # 不拦下来只会把任务再送进 worker 转一圈继续 failed
+    await require_llm_credentials(db, evaluation.metrics, evaluation.llm_model_id)
 
     # 清除之前的错误信息和时间
     evaluation.error = None
