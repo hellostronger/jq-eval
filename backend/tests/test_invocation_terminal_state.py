@@ -9,7 +9,11 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.tasks.invocation_tasks as mod
-from app.tasks.invocation_tasks import _reconcile_terminal_state
+from app.tasks.invocation_tasks import (
+    _commit_with_retry,
+    _reconcile_terminal_state,
+    _write,
+)
 from app.models import Dataset, QARecord, RAGSystem
 from app.models.invocation import InvocationBatch, InvocationResult
 
@@ -122,3 +126,78 @@ async def test_retries_on_transient_connection_error(
     status = await _reconcile_terminal_state(batch.id)
     assert flaky_db.n == 2
     assert status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_result_write_survives_dropped_connection(
+    db_session: AsyncSession, sample_dataset, sample_rag_system, monkeypatch
+):
+    """一条调用结果写不进去时换新 session 重做：几分钟的 RAG 调用不能白跑"""
+    batch = await _batch_with_results(db_session, sample_dataset, sample_rag_system, 1, 0)
+    qr = QARecord(dataset_id=sample_dataset.id, question="落库抖动", answer="a")
+    db_session.add(qr)
+    await db_session.commit()
+    await db_session.refresh(qr)
+
+    @asynccontextmanager
+    async def flaky_db():
+        flaky_db.n += 1
+        if flaky_db.n == 1:
+            raise ConnectionResetError("connection was closed in the middle of operation")
+        yield db_session
+    flaky_db.n = 0
+
+    monkeypatch.setattr(mod, "get_db_context", flaky_db)
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(mod.asyncio, "sleep", lambda *_: real_sleep(0))
+
+    await _commit_with_retry(_write(
+        batch_counters=(1, 0),
+        batch_id=batch.id,
+        qa_record_id=qr.id,
+        rag_system_id=sample_rag_system.id,
+        question=qr.question,
+        answer="ans",
+        contexts=["ctx"],
+        retrieval_ids=["doc:p0001"],
+        latency=250.0,
+        status="success",
+    ), batch.id)
+
+    assert flaky_db.n == 2
+    rows = (await db_session.execute(
+        InvocationResult.__table__.select().where(InvocationResult.batch_id == batch.id)
+    )).fetchall()
+    assert len(rows) == 1
+    assert rows[0]._mapping["status"] == "success"
+    await db_session.refresh(batch)
+    assert (batch.completed_count, batch.failed_count) == (1, 0)
+
+
+@pytest.mark.asyncio
+async def test_retry_write_replaces_old_row(
+    db_session: AsyncSession, sample_dataset, sample_rag_system, patched_db
+):
+    """重试是"删旧行 + 插新行"同事务：不能留下两条同 QA 的结果"""
+    batch = await _batch_with_results(db_session, sample_dataset, sample_rag_system, 1, 1)
+    old = (await db_session.execute(
+        InvocationResult.__table__.select().where(InvocationResult.batch_id == batch.id)
+    )).fetchone()
+    qr_id = old._mapping["qa_record_id"]
+
+    await _commit_with_retry(_write(
+        batch_id=batch.id,
+        qa_record_id=qr_id,
+        rag_system_id=sample_rag_system.id,
+        question="重试后的新问题",
+        answer="新答案",
+        status="success",
+        delete_result_id=old._mapping["id"],
+    ), batch.id)
+
+    rows = (await db_session.execute(
+        InvocationResult.__table__.select().where(InvocationResult.batch_id == batch.id)
+    )).fetchall()
+    assert len(rows) == 1
+    assert rows[0]._mapping["answer"] == "新答案"
+

@@ -33,6 +33,48 @@ async def _raise_if_cancelled(db, batch_id: UUID) -> None:
         raise TaskCancelled()
 
 
+def _write(batch_counters=None, **fields):
+    """构造"落一条调用结果"的写回调：可选先删旧行、再插新行、同事务更新批次计数。"""
+    from sqlalchemy import delete
+
+    delete_result_id = fields.pop("delete_result_id", None)
+
+    async def apply(db):
+        if delete_result_id:
+            await db.execute(
+                delete(InvocationResult).where(InvocationResult.id == delete_result_id)
+            )
+        db.add(InvocationResult(**fields))
+        if batch_counters is not None:
+            batch = await db.get(InvocationBatch, fields["batch_id"])
+            if batch:
+                batch.completed_count, batch.failed_count = batch_counters
+    return apply
+
+
+async def _commit_with_retry(apply, batch_id: UUID = None, attempts: int = 3) -> None:
+    """写一条调用结果；连接断了就换新 session 重做。
+
+    一次 RAG 调用要两三分钟，而远端 PG 随时可能掐线（实际反复踩到
+    asyncpg ConnectionDoesNotExistError）。用调用方那条长 session 提交，
+    断了就是整条回滚——几分钟的 Token 白花。换新 session 重试一次通常就过去了。
+    """
+    last_exc = None
+    for attempt in range(attempts):
+        try:
+            async with get_db_context() as db:
+                await apply(db)
+                await db.commit()
+            return
+        except Exception as exc:
+            last_exc = exc
+            logger.warning(
+                f"写入调用结果失败（第 {attempt + 1}/{attempts} 次）batch_id={batch_id}: {exc}"
+            )
+            await asyncio.sleep(1.5 * (attempt + 1))
+    raise last_exc
+
+
 async def _reconcile_terminal_state(batch_id: UUID, error: str = None, attempts: int = 3) -> str:
     """按结果表重算批次终态；连接抖动时换新 session 重试。
 
@@ -214,30 +256,32 @@ async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, 
         try:
             for inv_result in retry_results:
                 await _raise_if_cancelled(db, batch_id)
-                try:
-                    # 删除旧结果
-                    await db.delete(inv_result)
-                    await db.flush()
+                old_id = inv_result.id
+                qa_record = qa_map.get(inv_result.qa_record_id)
+                old_question = inv_result.question
+                # 同主流程：别把只读事务挂过整次 RAG 调用
+                await db.commit()
 
-                    # 获取原始问题
-                    qa_record = qa_map.get(inv_result.qa_record_id)
+                try:
                     if not qa_record:
-                        # 旧结果已被删除，若直接跳过，这条 QA 就会从批次里凭空消失：
-                        # 成功+失败永远凑不满 total，进度条卡住且再也无法重试。
-                        # 补一条写明原因的失败记录，保证"每条 QA 都有结果"。
-                        db.add(
-                            InvocationResult(
-                                batch_id=batch_id,
-                                qa_record_id=inv_result.qa_record_id,
-                                rag_system_id=rag_system.id,
-                                question=inv_result.question,
-                                status="failed",
-                                error="问题记录已不存在，无法重试",
-                            )
-                        )
+                        # 问题记录已不存在：补一条写明原因的失败记录，
+                        # 保证"每条 QA 都有结果"，否则 total 永远凑不满
+                        await _commit_with_retry(_write(
+                            batch_id=batch_id,
+                            qa_record_id=inv_result.qa_record_id,
+                            rag_system_id=rag_system.id,
+                            question=old_question,
+                            status="failed",
+                            error="问题记录已不存在，无法重试",
+                            delete_result_id=old_id,
+                        ))
                         fail_count += 1
                         continue
 
+                    # 先调用、后写库。旧写法是 delete + flush 开一个事务，然后在
+                    # 事务里 await adapter.query()：一次调用两三分钟，远端 PG 把这根
+                    # idle-in-transaction 的连接掐了，commit 时报 ConnectionDoesNotExist，
+                    # 删除和新增一起回滚——几分钟的真实调用成果原地丢失。
                     start_time = time.time()
                     response = await adapter.query(qa_record.question)
                     latency = time.time() - start_time
@@ -247,8 +291,7 @@ async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, 
                     contexts = response.contexts or []
                     retrieval_ids = response.retrieval_ids or []
 
-                    # 创建新结果。尊重 adapter 的 success 标志（同主流程）
-                    new_result = InvocationResult(
+                    await _commit_with_retry(_write(
                         batch_id=batch_id,
                         qa_record_id=qa_record.id,
                         rag_system_id=rag_system.id,
@@ -257,10 +300,11 @@ async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, 
                         contexts=contexts,
                         retrieval_ids=retrieval_ids,
                         latency=latency,
+                        # 尊重 adapter 的 success 标志（同主流程）
                         status="success" if response.success else "failed",
-                        error=None if response.success else (response.error or "RAG 调用失败")
-                    )
-                    db.add(new_result)
+                        error=None if response.success else (response.error or "RAG 调用失败"),
+                        delete_result_id=old_id,
+                    ))
                     if response.success:
                         success_count += 1
                     else:
@@ -268,19 +312,17 @@ async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, 
 
                 except Exception as e:
                     logger.error(f"重试调用 {inv_result.id} 失败: {e}")
-                    # 创建失败结果
-                    new_result = InvocationResult(
+                    # 失败也要留痕：删旧行 + 写失败行，一次短事务
+                    await _commit_with_retry(_write(
                         batch_id=batch_id,
                         qa_record_id=inv_result.qa_record_id,
                         rag_system_id=rag_system.id,
-                        question=inv_result.question,
+                        question=old_question,
                         status="failed",
-                        error=format_error(e)
-                    )
-                    db.add(new_result)
+                        error=format_error(e),
+                        delete_result_id=old_id,
+                    ), batch_id)
                     fail_count += 1
-
-                await db.commit()
 
             # 计数不再做增量加减（重试成功项会造成重复计数），直接按结果表重算
             await _reconcile_terminal_state(batch_id)
@@ -363,6 +405,9 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
             failed = 0
             for qa in qa_list:
                 await _raise_if_cancelled(db, batch_id)
+                # 关掉刚才那次只读查询开启的事务：长调用期间挂着 idle-in-transaction
+                # 的连接会被远端 PG/代理掐断，commit 时才炸，整条结果原地丢失
+                await db.commit()
                 try:
                     start_time = time.time()
                     # 调用RAG系统
@@ -374,10 +419,16 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
                     contexts = response.contexts or []
                     retrieval_ids = response.retrieval_ids or []
 
+                    if response.success:
+                        completed += 1
+                    else:
+                        failed += 1
+
                     # 存储结果。adapter 已用 success=False 表达"调用失败"
                     # （如空答案/超限截断）；此处必须尊重该标志，否则失败会被
                     # 记成 success，污染评估输入并让批次统计虚高。
-                    result = InvocationResult(
+                    await _commit_with_retry(_write(
+                        batch_counters=(completed, failed),
                         batch_id=batch_id,
                         qa_record_id=qa["id"],
                         rag_system_id=rag_system.id,
@@ -387,31 +438,22 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
                         retrieval_ids=retrieval_ids,
                         latency=latency,
                         status="success" if response.success else "failed",
-                        error=None if response.success else (response.error or "RAG 调用失败")
-                    )
-                    db.add(result)
-                    if response.success:
-                        completed += 1
-                    else:
-                        failed += 1
+                        error=None if response.success else (response.error or "RAG 调用失败"),
+                    ), batch_id)
 
                 except Exception as e:
                     logger.error(f"调用 QA {qa['id']} 失败: {e}")
-                    # 存储失败结果
-                    result = InvocationResult(
+                    failed += 1
+                    # 失败也要留痕，否则每条 QA 凑不满 total
+                    await _commit_with_retry(_write(
+                        batch_counters=(completed, failed),
                         batch_id=batch_id,
                         qa_record_id=qa["id"],
                         rag_system_id=rag_system.id,
                         question=qa["question"],
                         status="failed",
-                        error=format_error(e)
-                    )
-                    db.add(result)
-                    failed += 1
-
-                batch.completed_count = completed
-                batch.failed_count = failed
-                await db.commit()
+                        error=format_error(e),
+                    ), batch_id)
 
                 # 更新进度
                 progress = (completed + failed) / len(qa_list) * 100
