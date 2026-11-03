@@ -17,7 +17,7 @@ from app.models.rag_system import RAGSystem
 from app.models.model import Model
 from app.services.adapters import AdapterFactory
 from app.services.dataset.qa_scope import apply_scope, count_in_scope
-from sqlalchemy import select, func
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +40,23 @@ def _write(batch_counters=None, **fields):
     from sqlalchemy import delete
 
     delete_result_id = fields.pop("delete_result_id", None)
+    dedupe_qa_record_id = fields.pop("dedupe_qa_record_id", None)
 
     async def apply(db):
         if delete_result_id:
             await db.execute(
                 delete(InvocationResult).where(InvocationResult.id == delete_result_id)
+            )
+        if dedupe_qa_record_id is not None:
+            # 一个批次里同一条 QA 只应有一行结果。worker 被 SIGKILL 后 Celery 会把
+            # invocation_task 重投，旧实现每次重投都追加一行：实测 5 题的批次长出 6 行，
+            # completed_count 由终态反推变成 6/5（进度超 100%），下游评估还把这道题
+            # 双计一次，均值被拉偏。重投时先删掉同题旧行再写新行。
+            await db.execute(
+                delete(InvocationResult).where(
+                    InvocationResult.batch_id == fields["batch_id"],
+                    InvocationResult.qa_record_id == dedupe_qa_record_id,
+                )
             )
         db.add(InvocationResult(**fields))
         if batch_counters is not None:
@@ -87,17 +99,26 @@ async def _reconcile_terminal_state(batch_id: UUID, error: str = None, attempts:
             return "missing"
 
         counts = await db.execute(
-            select(InvocationResult.status, func.count(InvocationResult.id)).where(
-                InvocationResult.batch_id == batch_id
-            ).group_by(InvocationResult.status)
+            select(InvocationResult.qa_record_id, InvocationResult.status)
+            .where(InvocationResult.batch_id == batch_id)
+            .order_by(InvocationResult.created_at, InvocationResult.id)
         )
-        by_status = dict(counts.all())
-        done = sum(by_status.values())
+        # 按"每条 QA 的最后一行"统计，而不是按行数：重投留下的重复行会把
+        # completed_count 顶到 total_count 以上（实测 6/5），进度条超 100%，
+        # 终态判定也跟着失真。取最后一行＝以最新一次调用为准。
+        last_status_by_qa: dict = {}
+        for qa_id, status in counts.all():
+            last_status_by_qa[qa_id] = status
+        done = len(last_status_by_qa)
+        by_status = {
+            "success": sum(1 for s in last_status_by_qa.values() if s == "success"),
+            "failed": sum(1 for s in last_status_by_qa.values() if s != "success"),
+        }
         # total_count 缺失时回退到"批次取样范围内的条数"，不是整个数据集：
         # 只跑 40 题的批次按 2556 题判未完成，会永远落在 failed 且重试补不完
         expected = batch.total_count or await count_in_scope(db, batch) or 0
-        batch.completed_count = by_status.get("success", 0)
-        batch.failed_count = by_status.get("failed", 0)
+        batch.completed_count = by_status["success"]
+        batch.failed_count = by_status["failed"]
 
         if batch.cancel_requested:
             batch.status = "cancelled"
@@ -431,6 +452,7 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
                     # 记成 success，污染评估输入并让批次统计虚高。
                     await _commit_with_retry(_write(
                         batch_counters=(completed, failed),
+                        dedupe_qa_record_id=qa["id"],
                         batch_id=batch_id,
                         qa_record_id=qa["id"],
                         rag_system_id=rag_system.id,
@@ -449,6 +471,7 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
                     # 失败也要留痕，否则每条 QA 凑不满 total
                     await _commit_with_retry(_write(
                         batch_counters=(completed, failed),
+                        dedupe_qa_record_id=qa["id"],
                         batch_id=batch_id,
                         qa_record_id=qa["id"],
                         rag_system_id=rag_system.id,

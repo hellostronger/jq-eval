@@ -131,7 +131,18 @@ const Invocations: React.FC = () => {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      render: (status: string) => <Tag color={getStatusType(status)}>{status}</Tag>,
+      // 派发时就置 running，worker 真正领取才写 started_at。solo 队列一次只跑一个任务，
+      // 后建的批次会在 running 上停几十分钟——不区分开，界面看着像卡死，其实还在排队。
+      render: (status: string, record: InvocationBatch) => {
+        if (status === 'running' && !record.started_at) {
+          return (
+            <Tooltip title="已派发，正在队列里等 worker 领取（worker 单并发，前面还有任务在跑）">
+              <Tag color="default">排队中</Tag>
+            </Tooltip>
+          )
+        }
+        return <Tag color={getStatusType(status)}>{status}</Tag>
+      },
     },
     {
       title: '进度',

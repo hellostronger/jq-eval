@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Button, Tag, Modal, Form, Input, Select, InputNumber, message, Space, Switch, Divider } from 'antd'
+import { Card, Table, Button, Tag, Modal, Form, Input, Select, InputNumber, message, Space, Switch, Divider, Tooltip } from 'antd'
 import { PlusOutlined, PlayCircleOutlined, SwitcherOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { formatTime } from '@/utils/format'
@@ -163,7 +163,18 @@ const Evaluations: React.FC = () => {
     { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
     {
       title: '状态', dataIndex: 'status', key: 'status',
-      render: (status: string) => <Tag color={getStatusType(status)}>{status}</Tag>,
+      // 同调用批次：running 是派发时置的，worker 领取才写 started_at，
+      // 队列排到几十分钟后才会真跑，不区分开会被读成卡住。
+      render: (status: string, record: Evaluation) => {
+        if (status === 'running' && !record.started_at) {
+          return (
+            <Tooltip title="已派发，正在队列里等 worker 领取（worker 单并发，前面还有任务在跑）">
+              <Tag color="default">排队中</Tag>
+            </Tooltip>
+          )
+        }
+        return <Tag color={getStatusType(status)}>{status}</Tag>
+      },
     },
     {
       title: '调用批次', dataIndex: 'invocation_batch_id', key: 'invocation_batch_id',

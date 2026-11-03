@@ -175,6 +175,10 @@ async def run_invocation_batch(
 
     # 置运行中并派发；broker 不可达时状态自动回滚
     from ...tasks.invocation_tasks import invocation_task
+    # started_at 描述的是"这一轮"何时被 worker 领取，由 worker 在任务开头写。
+    # 重跑不清旧值会让界面把"排队中"读成"已经在跑"（状态列按 started_at 判空）。
+    batch.started_at = None
+    batch.completed_at = None
     task = await start_task(db, batch, lambda: invocation_task.delay(str(batch_id)))
 
     return {
