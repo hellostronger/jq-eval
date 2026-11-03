@@ -107,6 +107,7 @@ jq-eval/
 - **指标市场**: 用户可勾选组合评估指标
 - **评估引擎**: Ragas + EvalScope + 自研指标
 - **根因分析**: 评估结果分析与调参建议
+- **badcase 分步归因**: 低分样本按链路环节分桶（调用失败 / gold 漏召 / 召回了没答好 / 链路正常 / 无检索轨迹 / 缺 gold 分片），`GET /evaluations/{id}/analysis` 直接给出各环节占比与瓶颈环，`GET /evaluations/{id}/results?attribution=retrieval_miss` 按环筛样本；跨系统对比（`POST /evaluations/compare`）逐题给出各系统归因，能看出同一道题在 A 系统漏召、在 B 系统答不好
 - **快照机制**: 历史数据冻结，保证可追溯
 - **向量检索**: Milvus高性能向量检索
 - **调用与评估解耦**: 调用批次(Invocation)与评估(Evaluation)分离，支持复用调用结果重评（reuse_invocation），同一批对话可换指标/换模型反复评估

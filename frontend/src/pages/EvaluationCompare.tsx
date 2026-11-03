@@ -10,6 +10,12 @@ interface EvalInfo {
   name: string
   metrics: string[]
   summary: Record<string, any>
+  rag_system_name?: string | null
+  attribution?: {
+    total: number
+    counts: Record<string, number>
+    ratios: Record<string, number>
+  }
 }
 
 interface ComparisonItem {
@@ -17,6 +23,23 @@ interface ComparisonItem {
   question: string
   ground_truth?: string
   scores: Record<string, Record<string, { score: number; error?: string }>>
+  attribution?: Record<string, string>
+}
+
+// 与后端 ATTRIBUTION_BUCKETS、EvaluationDetail 里的同一张表保持一致
+const ATTRIBUTION_LABELS: Record<string, { text: string; color: string }> = {
+  call_failed: { text: '调用失败', color: 'volcano' },
+  retrieval_miss: { text: '检索漏召', color: 'red' },
+  retrieved_but_answer_weak: { text: '召回了没答好', color: 'orange' },
+  retrieved_ok: { text: '链路正常', color: 'green' },
+  no_retrieval_trace: { text: '无检索轨迹', color: 'default' },
+  no_gold: { text: '缺 gold 分片', color: 'default' },
+}
+
+const attributionTag = (key?: string) => {
+  if (!key) return <Tag color="default">无</Tag>
+  const label = ATTRIBUTION_LABELS[key] || { text: key, color: 'default' }
+  return <Tag color={label.color}>{label.text}</Tag>
 }
 
 interface CompareResult {
@@ -60,8 +83,8 @@ const EvaluationCompare: React.FC = () => {
   const allMetrics = data?.evaluations.flatMap(e => e.metrics) || []
   const uniqueMetrics = [...new Set(allMetrics)]
 
-  // 表格总宽 = 问题 200 + 参考答案 150 + 每个（评估 × 指标）单元格 80
-  const compareTableWidth = 200 + 150 + evalNames.length * uniqueMetrics.length * 80
+  // 表格总宽 = 问题 200 + 参考答案 150 + 每个评估（归因 120 + 指标列 80 × n）
+  const compareTableWidth = 200 + 150 + evalNames.length * (120 + uniqueMetrics.length * 80)
 
   // 构建对比表格列
   const columns = [
@@ -84,20 +107,29 @@ const EvaluationCompare: React.FC = () => {
     ...evalNames.map(name => ({
       title: name,
       key: name,
-      children: uniqueMetrics.map(metric => ({
-        title: metric,
-        key: `${name}-${metric}`,
-        width: 80,
-        render: (record: ComparisonItem) => {
-          const scoreData = record.scores?.[name]?.[metric]
-          if (!scoreData) return <Tag color="default">无</Tag>
-          if (scoreData.error) return <Tag color="error">错误</Tag>
-          const score = scoreData.score
-          // 根据分数高低显示颜色
-          const color = score >= 0.8 ? '#52c41a' : score >= 0.6 ? '#1890ff' : score >= 0.4 ? '#faad14' : '#ff4d4f'
-          return <span style={{ color }}>{typeof score === 'number' ? score.toFixed(4) : score}</span>
+      children: [
+        // 分数之外先给一环结论：跨系统对比要看的是"同一道题各自断在哪"
+        {
+          title: '归因',
+          key: `${name}-attribution`,
+          width: 120,
+          render: (record: ComparisonItem) => attributionTag(record.attribution?.[name]),
         },
-      })),
+        ...uniqueMetrics.map(metric => ({
+          title: metric,
+          key: `${name}-${metric}`,
+          width: 80,
+          render: (record: ComparisonItem) => {
+            const scoreData = record.scores?.[name]?.[metric]
+            if (!scoreData) return <Tag color="default">无</Tag>
+            if (scoreData.error) return <Tag color="error">错误</Tag>
+            const score = scoreData.score
+            // 根据分数高低显示颜色
+            const color = score >= 0.8 ? '#52c41a' : score >= 0.6 ? '#1890ff' : score >= 0.4 ? '#faad14' : '#ff4d4f'
+            return <span style={{ color }}>{typeof score === 'number' ? score.toFixed(4) : score}</span>
+          },
+        })),
+      ],
     })),
   ]
 
@@ -165,6 +197,31 @@ const EvaluationCompare: React.FC = () => {
             ))}
           </Row>
           <Row gutter={16} style={{ marginTop: 16 }}>
+            {data?.evaluations.map(evalInfo => {
+              const buckets = Object.entries(evalInfo.attribution?.counts || {}).filter(([, n]) => n > 0)
+              return (
+                <Col span={Math.floor(24 / data.evaluations.length)} key={`${evalInfo.id}-attr`}>
+                  <Card
+                    size="small"
+                    title={`逐环归因${evalInfo.rag_system_name ? `（${evalInfo.rag_system_name}）` : ''}`}
+                  >
+                    {buckets.length === 0 ? (
+                      <span style={{ color: '#888' }}>无结果</span>
+                    ) : (
+                      <Space wrap size={4}>
+                        {buckets.map(([k, n]) => (
+                          <span key={k} title={`${((n / (evalInfo.attribution?.total || 1)) * 100).toFixed(1)}%`}>
+                            {attributionTag(k)} {n}
+                          </span>
+                        ))}
+                      </Space>
+                    )}
+                  </Card>
+                </Col>
+              )
+            })}
+          </Row>
+          <Row gutter={16} style={{ marginTop: 16 }}>
             <Col span={12}>
               <Card title="指标均值对比（柱状图）">
                 <ReactECharts option={barOption} style={{ height: 300 }} />
@@ -228,7 +285,9 @@ const EvaluationCompare: React.FC = () => {
             <Space>
               <span>对比评估任务：</span>
               {data.evaluations.map(e => (
-                <Tag key={e.id} color="blue">{e.name}</Tag>
+                <Tag key={e.id} color="blue">
+                  {e.name}{e.rag_system_name ? ` · ${e.rag_system_name}` : ''}
+                </Tag>
               ))}
             </Space>
           </Card>

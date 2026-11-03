@@ -96,24 +96,26 @@ async def compare_evaluations(
             raise HTTPException(status_code=400, detail=f"评估任务 {eval_id} 未完成，无法对比")
         evaluations.append(evaluation)
 
-    # 获取所有评估结果，按 qa_record_id 组织
+    # 获取所有评估结果，按 qa_record_id 组织。
+    # 走 _result_items 而不是裸查 EvalResult：跨系统对比真正要看的是
+    # "同一道题在 A 系统漏召、在 B 系统召回了没答好"，只有归因字段能给这个结论。
     all_results = {}
+    items_by_eval = {}
     for evaluation in evaluations:
-        results = await db.execute(
-            select(EvalResult, QARecord)
-            .join(QARecord, EvalResult.qa_record_id == QARecord.id)
-            .where(EvalResult.eval_id == evaluation.id)
-        )
-        for er, qr in results.all():
-            qa_id = str(qr.id)
+        items = await _result_items(db, evaluation.id)
+        items_by_eval[str(evaluation.id)] = items
+        for item in items:
+            qa_id = item["qa_record_id"]
             if qa_id not in all_results:
                 all_results[qa_id] = {
                     "qa_record_id": qa_id,
-                    "question": qr.question,
-                    "ground_truth": qr.ground_truth,
-                    "scores": {}
+                    "question": item["question"],
+                    "ground_truth": item["ground_truth"],
+                    "scores": {},
+                    "attribution": {},
                 }
-            all_results[qa_id]["scores"][evaluation.name] = er.scores or {}
+            all_results[qa_id]["scores"][evaluation.name] = item["metric_scores"]
+            all_results[qa_id]["attribution"][evaluation.name] = classify_attribution(item)
 
     # 构建对比数据
     comparison_data = list(all_results.values())
@@ -123,6 +125,15 @@ async def compare_evaluations(
     for evaluation in evaluations:
         summary_data[evaluation.name] = evaluation.summary or {}
 
+    # 各评估背后的 RAG 系统名：对比页面上 eval name 常常叫 "xxx-v1"，
+    # 不带系统名就分不清哪一列是谁
+    from ...models import RAGSystem
+    sys_ids = [e.rag_system_id for e in evaluations if e.rag_system_id]
+    sys_names = {}
+    if sys_ids:
+        rows = await db.execute(select(RAGSystem).where(RAGSystem.id.in_(sys_ids)))
+        sys_names = {str(r.id): r.name for r in rows.scalars().all()}
+
     return {
         "evaluations": [
             {
@@ -130,6 +141,9 @@ async def compare_evaluations(
                 "name": e.name,
                 "metrics": e.metrics or [],
                 "summary": e.summary,
+                "rag_system_id": str(e.rag_system_id) if e.rag_system_id else None,
+                "rag_system_name": sys_names.get(str(e.rag_system_id)) if e.rag_system_id else None,
+                "attribution": attribution_summary(items_by_eval[str(e.id)]),
             }
             for e in evaluations
         ],

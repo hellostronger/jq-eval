@@ -220,7 +220,36 @@ async def retry_invocation_batch(
                 InvocationResult.status == "failed"
             )
         )
-        retry_list = results_to_retry.scalars().all()
+        retry_list = list(results_to_retry.scalars().all())
+
+        # 补齐"根本没有结果行"的 QA：调用跑完了但落库时连接断了，这条题目在
+        # 批次里既不是 success 也不是 failed，而是凭空消失。只按 failed 筛永远
+        # 找不到它，批次会永久停在 n-1/total，评估又要求 completed → 死锁。
+        # 只在批次已落定终态时补：running 的批次 worker 还可能自己写这条。
+        if batch.status in ("completed", "failed", "cancelled"):
+            have = await db.execute(
+                select(InvocationResult.qa_record_id).where(InvocationResult.batch_id == batch_id)
+            )
+            covered = {r[0] for r in have.all()}
+            stmt = select(QARecord).where(QARecord.dataset_id == batch.dataset_id)
+            if covered:
+                stmt = stmt.where(QARecord.id.not_in(covered))
+            missing = await db.execute(stmt)
+            for qa in missing.scalars().all():
+                placeholder = InvocationResult(
+                    batch_id=batch_id,
+                    qa_record_id=qa.id,
+                    rag_system_id=batch.rag_system_id,
+                    question=qa.question,
+                    status="failed",
+                    error="调用结果未落库（上一轮执行中或收尾时连接中断）",
+                )
+                db.add(placeholder)
+                retry_list.append(placeholder)
+            if retry_list:
+                # placeholder 要有主键才能进 result_ids，先 flush
+                await db.flush()
+                await db.commit()
 
     if not retry_list:
         return {"message": "没有需要重试的记录", "batch_id": str(batch_id), "retry_count": 0}

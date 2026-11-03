@@ -1,13 +1,14 @@
 # RAG系统调用相关异步任务
 from typing import Dict, List, Any
 from datetime import datetime
+import asyncio
 import logging
 import time
 from uuid import UUID
 
 from app.core.celery_app import celery_app
 from app.core.exceptions import TaskCancelled
-from app.tasks._common import run_async, format_error, mark_task_failed
+from app.tasks._common import run_async, format_error
 from app.core.database import get_db_context
 from app.models.invocation import InvocationBatch, InvocationResult
 from app.models.dataset import Dataset, QARecord
@@ -32,8 +33,61 @@ async def _raise_if_cancelled(db, batch_id: UUID) -> None:
         raise TaskCancelled()
 
 
+async def _reconcile_terminal_state(batch_id: UUID, error: str = None, attempts: int = 3) -> str:
+    """按结果表重算批次终态；连接抖动时换新 session 重试。
+
+    远端 PG/Redis 掉线偏偏容易落在"跑完最后一条、写终态"这一步：每条 InvocationResult
+    都已逐条 commit（一次调用几分钟的真实成本），却因为一条 UPDATE 失败被标成 failed，
+    下游评估又以"批次必须 completed"为前置条件，整批成果白白作废。
+    所以终态不靠内存里的计数，而是回查结果表：全部样本都有结果就按 completed 落，
+    原始异常只作为 error 记录，不推翻已经真实完成的工作。
+    """
+    last_exc = None
+    for attempt in range(attempts):
+        try:
+            async with get_db_context() as db:
+                batch = await db.get(InvocationBatch, batch_id)
+                if not batch:
+                    return "missing"
+
+                counts = await db.execute(
+                    select(InvocationResult.status, func.count(InvocationResult.id)).where(
+                        InvocationResult.batch_id == batch_id
+                    ).group_by(InvocationResult.status)
+                )
+                by_status = dict(counts.all())
+                done = sum(by_status.values())
+                expected = batch.total_count or await db.scalar(
+                    select(func.count(QARecord.id)).where(QARecord.dataset_id == batch.dataset_id)
+                ) or 0
+                batch.completed_count = by_status.get("success", 0)
+                batch.failed_count = by_status.get("failed", 0)
+
+                if batch.cancel_requested:
+                    batch.status = "cancelled"
+                    batch.error = error or "批次已被用户取消"
+                    batch.cancel_requested = False
+                elif expected and done >= expected:
+                    # 全部样本都有结果：跑完了就是跑完了，哪怕收尾时连接断了
+                    batch.status = "completed"
+                    batch.error = error
+                else:
+                    batch.status = "failed"
+                    batch.error = error or f"批次未完成（{done}/{expected}）"
+                batch.completed_at = datetime.utcnow()
+                await db.commit()
+                return batch.status
+        except Exception as exc:
+            last_exc = exc
+            logger.warning(f"写入批次终态失败（第 {attempt + 1}/{attempts} 次）batch_id={batch_id}: {exc}")
+            await asyncio.sleep(1.5 * (attempt + 1))
+
+    logger.error(f"批次终态始终写不进去 batch_id={batch_id}: {last_exc}")
+    return "unknown"
+
+
 async def _run_invocation_guarded(task, batch_id: UUID) -> Dict[str, Any]:
-    """_run_invocation 的最外层兜底：任何逃逸异常都必须把批次落成 failed。
+    """_run_invocation 的最外层兜底：任何逃逸异常都必须把批次落成明确终态。
 
     批次刚建好就炸（schema 未迁移、模型类字段与库不一致等）时，函数内部那个
     except 根本还没进入，状态会永远停在 running、error 为空：界面显示"执行中"，
@@ -45,20 +99,18 @@ async def _run_invocation_guarded(task, batch_id: UUID) -> Dict[str, Any]:
     except TaskCancelled:
         raise
     except Exception as e:
-        async with get_db_context() as db:
-            await mark_task_failed(db, InvocationBatch, batch_id, format_error(e), logger)
+        await _reconcile_terminal_state(batch_id, format_error(e))
         raise
 
 
 async def _run_retry_guarded(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, Any]:
-    """同上：重试任务炸在头部也要把批次标失败，不能留在 running"""
+    """同上：重试任务炸在头部也要把批次落成明确终态，不能留在 running"""
     try:
         return await _run_retry(task, batch_id, result_ids)
     except TaskCancelled:
         raise
     except Exception as e:
-        async with get_db_context() as db:
-            await mark_task_failed(db, InvocationBatch, batch_id, format_error(e), logger)
+        await _reconcile_terminal_state(batch_id, format_error(e))
         raise
 
 
@@ -231,18 +283,7 @@ async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, 
                 await db.commit()
 
             # 计数不再做增量加减（重试成功项会造成重复计数），直接按结果表重算
-            counts = await db.execute(
-                select(InvocationResult.status, func.count(InvocationResult.id)).where(
-                    InvocationResult.batch_id == batch_id
-                ).group_by(InvocationResult.status)
-            )
-            by_status = dict(counts.all())
-            batch.completed_count = by_status.get("success", 0)
-            batch.failed_count = by_status.get("failed", 0)
-            batch.status = "completed"
-            batch.completed_at = datetime.utcnow()
-
-            await db.commit()
+            await _reconcile_terminal_state(batch_id)
 
             return {
                 "batch_id": str(batch_id),
@@ -263,14 +304,11 @@ async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, 
             return {"batch_id": str(batch_id), "status": "cancelled"}
 
         except Exception as e:
-            # 与 _run_invocation 对齐：任何未预期异常都必须把批次标记为失败，
+            # 与 _run_invocation 对齐：任何未预期异常都必须把批次落成明确终态，
             # 否则批次永久停留在 running
             logger.error(f"重试任务异常 batch_id={batch_id}: {e}")
             await db.rollback()
-            batch = await db.get(InvocationBatch, batch_id)
-            if batch:
-                batch.status = "failed"
-                await db.commit()
+            await _reconcile_terminal_state(batch_id, format_error(e))
             raise
 
 
@@ -382,14 +420,12 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
                     meta={"progress": progress, "completed": completed, "failed": failed, "total": len(qa_list)}
                 )
 
-            # 完成批次
-            batch.status = "completed"
-            batch.completed_at = datetime.utcnow()
-            await db.commit()
+            # 完成批次：终态回查结果表，收尾连接抖动不会把已完成的调用判成失败
+            status = await _reconcile_terminal_state(batch_id)
 
             return {
                 "batch_id": str(batch_id),
-                "status": "completed",
+                "status": status,
                 "total": len(qa_list),
                 "completed": completed,
                 "failed": failed
@@ -412,10 +448,7 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
         except Exception as e:
             logger.error(f"调用批次 {batch_id} 失败: {e}")
             await db.rollback()
-            batch = await db.get(InvocationBatch, batch_id)
-            if batch:
-                batch.status = "failed"
-                batch.error = format_error(e)
-                batch.completed_at = datetime.utcnow()
-                await db.commit()
-            return {"error": format_error(e)}
+            # 终态由结果表反推：中途抛错、没跑完才落 failed；
+            # 全部跑完只是收尾时连接断了的情况落 completed，不把真实成果判死
+            status = await _reconcile_terminal_state(batch_id, format_error(e))
+            return {"error": format_error(e), "status": status}
