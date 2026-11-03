@@ -84,8 +84,10 @@ class QARecordCreate(BaseModel):
     question_type: Optional[str] = None
     difficulty: Optional[str] = None
     metadata: dict = {}
-    # 检索指标 ground truth：目标 chunk ID 列表（基准数据集如 StratRAG 用 gold_chunk_ids 标注）
-    target_chunk_ids: Optional[List[UUID]] = None
+    # 检索指标 ground truth：目标 chunk ID 列表。
+    # 用 str 而不是 UUID——开源基准（StratRAG / CRAG / MultiHop）的 gold 标注是
+    # 自定义 key（如 "mh_0001:p0076"），UUID 会把它们全丢掉，recall/mrr 就无从算起。
+    target_chunk_ids: Optional[List[str]] = None
     # 训练数据评估专属字段（reranker/dpo/vlm 等指标所需），随 qa_metadata 存储：
     # positive_doc/negative_doc/label/doc_content/is_hard_negative,
     # chosen/rejected/preference_score/confidence,
@@ -101,7 +103,7 @@ class QARecordResponse(BaseModel):
     contexts: Optional[List[str]] = None
     question_type: Optional[str]
     difficulty: Optional[str]
-    target_chunk_ids: Optional[List[UUID]] = None  # 检索指标 ground truth（基准数据集导入）
+    target_chunk_ids: Optional[List[str]] = None  # 检索指标 ground truth（基准数据集导入）
 
     class Config:
         from_attributes = True
@@ -476,7 +478,7 @@ async def import_data(
     # - answer: answer|answers|gold_answer
     # - ground_truth: ground_truth（CRAG 无 ground_truth 时回退 answer）
     # - contexts: contexts|gold_contexts
-    # - target_chunk_ids: target_chunk_ids|gold_chunk_ids|positive_chunk_ids（检索解耦评测）
+    # - target_chunk_ids: target_chunk_ids|gold_chunk_ids|positive_chunk_ids|positive_ids（检索解耦评测）
     # - question_type: question_type|composition_type|question_category
     # - difficulty: difficulty|level
     KNOWN_KEYS = {
@@ -484,7 +486,7 @@ async def import_data(
         "ground_truth", "contexts", "gold_contexts",
         "question_type", "composition_type", "question_category",
         "difficulty", "level",
-        "target_chunk_ids", "gold_chunk_ids", "positive_chunk_ids",
+        "target_chunk_ids", "gold_chunk_ids", "positive_chunk_ids", "positive_ids",
         "metadata", "qa_metadata",
     }
 
@@ -520,20 +522,19 @@ async def import_data(
             except Exception:
                 metadata = {}
 
-        # 目标chunk ID（检索指标 ground truth，如 StratRAG 的 gold_chunk_ids）
-        raw_targets = _first(record, "target_chunk_ids", "gold_chunk_ids", "positive_chunk_ids")
+        # 目标chunk ID（检索指标 ground truth，如 StratRAG 的 gold_chunk_ids）。
+        # 原样按字符串保留：基准数据集的 gold key 五花八门（UUID、"doc:p0076"、
+        # "chunk_12"），只做类型校验不做 UUID 解析，否则非 UUID 的标注会被静默丢弃，
+        # 导入看着成功、检索指标却全部报「缺少目标chunk ID列表」。
+        raw_targets = _first(record, "target_chunk_ids", "gold_chunk_ids", "positive_chunk_ids", "positive_ids")
         if isinstance(raw_targets, str):
             try:
                 raw_targets = json.loads(raw_targets)
             except Exception:
                 raw_targets = [raw_targets]
-        target_chunk_ids = []
-        invalid_targets = []
-        for t in (raw_targets or []):
-            try:
-                target_chunk_ids.append(UUID(str(t)))
-            except (ValueError, AttributeError, TypeError):
-                invalid_targets.append(t)
+        if not isinstance(raw_targets, list):
+            raw_targets = [raw_targets] if raw_targets else []
+        target_chunk_ids = [str(t) for t in raw_targets if t not in (None, "")]
 
         # 答案别名（answers 为列表时拼接）
         answer_value = _first(record, "answer", "gold_answer")
@@ -545,8 +546,6 @@ async def import_data(
 
         # 未识别的字段全部保留到 qa_metadata.extra，保证任意基准数据集格式可回读
         extras = {k: v for k, v in record.items() if k not in KNOWN_KEYS}
-        if invalid_targets:
-            extras["invalid_target_chunk_ids"] = invalid_targets
 
         qa_metadata = dict(metadata or {})
         if extras:
@@ -596,6 +595,7 @@ async def import_data(
         mark_contexts=any(
             r.get("contexts") or r.get("gold_contexts")
             or r.get("target_chunk_ids") or r.get("gold_chunk_ids")
+            or r.get("positive_chunk_ids") or r.get("positive_ids")
             for r in records
         ),
     )
@@ -1089,11 +1089,17 @@ async def list_dataset_chunks(
     chunk_ids_lists = qa_records_result.scalars().all()
 
     # 收集所有唯一的 chunk_ids
+    # target_chunk_ids 现在允许任意字符串 key（开源基准的 gold 标注），
+    # 只有能解析成 UUID 的才是本地 Chunk 主键；其余（如 "mh_0001:p0076"）
+    # 是远端系统的分片标识，本地没有对应分片正文，跳过而不是丢给 SQL——
+    # UUIDType 绑定非 UUID 字符串会直接抛 ValueError。
     all_chunk_ids = set()
     for chunk_ids in chunk_ids_lists:
-        if chunk_ids:
-            for chunk_id in chunk_ids:
-                all_chunk_ids.add(chunk_id)
+        for chunk_id in (chunk_ids or []):
+            try:
+                all_chunk_ids.add(UUID(str(chunk_id)))
+            except (ValueError, AttributeError, TypeError):
+                continue
 
     if not all_chunk_ids:
         return ChunkListResponse(items=[], total=0)

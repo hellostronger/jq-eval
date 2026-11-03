@@ -64,7 +64,10 @@ class QARecord(BaseModel):
 
     # 关联原始分片（引用）
     doc_ids = Column(ArrayType(UUIDType(as_uuid=True)), default=list)
-    target_chunk_ids = Column(ArrayType(UUIDType(as_uuid=True)), default=list)
+    # gold 分片 id。开源基准（StratRAG/CRAG/MultiHop）用的是自定义 key
+    # （如 "mh_0001:p0076"、"doc#chunk12"），UUID 列会把它们全部丢进
+    # invalid_target_chunk_ids，导致 recall_k / mrr_k / hit_rate_k 无法计算。
+    target_chunk_ids = Column(ArrayType(String), default=list)
 
     # 快照（冻结历史数据）
     snapshot = Column(JSONType, default=dict)

@@ -92,6 +92,23 @@ async def init_db():
                 CREATE INDEX IF NOT EXISTS ix_datasets_dataset_kind ON datasets(dataset_kind)
             """))
 
+        # qa_records.target_chunk_ids: uuid[] -> text[]
+        # 开源基准（StratRAG / CRAG / MultiHop）的 gold 标注用的是自定义分片 key
+        # （如 "mh_0001:p0076"），UUID 列在导入时会把它们全部剔到
+        # invalid_target_chunk_ids，recall_k / mrr_k / hit_rate_k 因此永远算不出来。
+        # UUID -> text 无损（UUID 本就是规范化字符串），存量数据无需重写语义。
+        col_type = await conn.execute(text("""
+            SELECT udt_name FROM information_schema.columns
+            WHERE table_name = 'qa_records' AND column_name = 'target_chunk_ids'
+        """))
+        row = col_type.fetchone()
+        if row is not None and row[0] == '_uuid':
+            await conn.execute(text("""
+                ALTER TABLE qa_records
+                ALTER COLUMN target_chunk_ids TYPE text[]
+                USING target_chunk_ids::text[]
+            """))
+
         # models.save_logs
         result = await conn.execute(text("""
             SELECT column_name FROM information_schema.columns
