@@ -104,6 +104,7 @@ async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, 
         )
 
         batch.status = "running"
+        batch.error = None  # 重试成功后不应继续展示上一次的失败原因
         await db.commit()
 
         # 批量预取要重试的问题，避免循环内逐条 db.get
@@ -227,6 +228,7 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
 
         # 更新状态
         batch.status = "running"
+        batch.error = None  # 重新运行要清掉上一次失败的错误信息，否则界面一直显示旧原因
         batch.started_at = datetime.utcnow()
         await db.commit()
 
