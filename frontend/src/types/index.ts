@@ -99,11 +99,13 @@ export interface InvocationBatch {
   name: string
   dataset_id: string
   rag_system_id: string
-  status: 'pending' | 'running' | 'completed' | 'failed'
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
   total_count: number
   completed_count: number
   failed_count: number
   error?: string
+  // 取消请求已提交（worker 在下一条 QA 边界才真正停下，界面据此提示）
+  cancel_requested?: boolean
   started_at?: string
   completed_at?: string
   created_at: string

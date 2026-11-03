@@ -1,5 +1,5 @@
 # RAG系统调用结果模型
-from sqlalchemy import Column, String, Text, Integer, Float, ForeignKey, DateTime
+from sqlalchemy import Column, String, Text, Integer, Float, ForeignKey, DateTime, Boolean
 from sqlalchemy.orm import relationship
 from ..core.db_types import JSONType, UUIDType
 from .base import BaseModel
@@ -14,11 +14,14 @@ class InvocationBatch(BaseModel):
     rag_system_id = Column(UUIDType(as_uuid=True), ForeignKey("rag_systems.id"), nullable=False, index=True)
 
     # 状态
-    status = Column(String(50), default="pending")  # pending/running/completed/failed
+    status = Column(String(50), default="pending")  # pending/running/completed/failed/cancelled
     total_count = Column(Integer, default=0)
     completed_count = Column(Integer, default=0)
     failed_count = Column(Integer, default=0)
     error = Column(Text, nullable=True)
+    # 协作式取消标志：跑一个批次要几十分钟（慢速 RAG 单条 8min+），
+    # 之前只能 SIGKILL worker，批次永远停在 running，既不能重试也无法判定。
+    cancel_requested = Column(Boolean, nullable=False, default=False)
 
     # 时间
     started_at = Column(DateTime, nullable=True)

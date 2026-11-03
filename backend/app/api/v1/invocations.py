@@ -31,6 +31,8 @@ class InvocationBatchResponse(BaseModel):
     completed_count: int
     failed_count: int
     error: Optional[str] = None
+    # 取消请求是否已提交（界面据此把「取消」按钮置灰，避免重复点击以为没生效）
+    cancel_requested: bool = False
     started_at: Optional[UTCDatetime] = None
     completed_at: Optional[UTCDatetime] = None
     created_at: Optional[UTCDatetime] = None
@@ -146,6 +148,32 @@ async def run_invocation_batch(
         "message": "调用批次已启动",
         "batch_id": str(batch_id),
         "task_id": task.id
+    }
+
+
+@router.post("/{batch_id}/cancel")
+async def cancel_invocation_batch(
+    batch_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """取消运行中的调用批次（协作式）
+
+    单条 RAG 调用可能 8min+，一批要跑几十分钟。此前只能硬杀 worker，
+    批次状态永久停在 running：既不能重试（"正在执行中"），也无法判定结果，
+    还占着队列。改为置标志位，由 worker 在下一条 QA 边界停下并落库 cancelled，
+    已完成的每条结果保留（每次调用都是真实的 token 开销，不该丢）。
+    """
+    batch = await get_or_404(db, InvocationBatch, batch_id, "调用批次不存在")
+
+    if batch.status != "running":
+        raise HTTPException(status_code=400, detail="调用批次未在运行中，无法取消")
+
+    batch.cancel_requested = True
+    await db.commit()
+
+    return {
+        "message": "取消请求已提交，批次将在当前这条问答结束后停止",
+        "batch_id": str(batch_id),
     }
 
 

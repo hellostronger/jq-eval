@@ -6,6 +6,7 @@ import time
 from uuid import UUID
 
 from app.core.celery_app import celery_app
+from app.core.exceptions import TaskCancelled
 from app.tasks._common import run_async, format_error
 from app.core.database import get_db_context
 from app.models.invocation import InvocationBatch, InvocationResult
@@ -16,6 +17,19 @@ from app.services.adapters import AdapterFactory
 from sqlalchemy import select, func
 
 logger = logging.getLogger(__name__)
+
+
+async def _raise_if_cancelled(db, batch_id: UUID) -> None:
+    """逐条 QA 边界重读取消标志。
+
+    用独立短查询而不是复用外层 session 里的 batch 对象：长任务里该对象可能
+    已被过期快照，读不到其它连接写入的 flag。
+    """
+    flag = await db.execute(
+        select(InvocationBatch.cancel_requested).where(InvocationBatch.id == batch_id)
+    )
+    if flag.scalar():
+        raise TaskCancelled()
 
 
 async def _prepare_direct_llm_config(connection_config: Dict[str, Any], db) -> Dict[str, Any]:
@@ -117,6 +131,7 @@ async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, 
 
         try:
             for inv_result in retry_results:
+                await _raise_if_cancelled(db, batch_id)
                 try:
                     # 删除旧结果
                     await db.delete(inv_result)
@@ -206,6 +221,17 @@ async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, 
                 "failed": fail_count
             }
 
+        except TaskCancelled:
+            logger.info(f"重试任务 batch_id={batch_id} 已被用户取消")
+            await db.rollback()
+            batch = await db.get(InvocationBatch, batch_id)
+            if batch:
+                batch.status = "cancelled"
+                batch.error = "批次已被用户取消"
+                batch.cancel_requested = False
+                await db.commit()
+            return {"batch_id": str(batch_id), "status": "cancelled"}
+
         except Exception as e:
             # 与 _run_invocation 对齐：任何未预期异常都必须把批次标记为失败，
             # 否则批次永久停留在 running
@@ -268,6 +294,7 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
             completed = 0
             failed = 0
             for qa in qa_list:
+                await _raise_if_cancelled(db, batch_id)
                 try:
                     start_time = time.time()
                     # 调用RAG系统
@@ -337,6 +364,20 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
                 "completed": completed,
                 "failed": failed
             }
+
+        except TaskCancelled:
+            # 协作式取消：已完成的每条结果都已逐条 commit，保留不删（调用一次
+            # 就是几分钟真实开销），只把批次标成 cancelled 并清掉标志。
+            logger.info(f"调用批次 {batch_id} 已被用户取消")
+            await db.rollback()
+            batch = await db.get(InvocationBatch, batch_id)
+            if batch:
+                batch.status = "cancelled"
+                batch.error = "批次已被用户取消"
+                batch.cancel_requested = False
+                batch.completed_at = datetime.utcnow()
+                await db.commit()
+            return {"batch_id": str(batch_id), "status": "cancelled"}
 
         except Exception as e:
             logger.error(f"调用批次 {batch_id} 失败: {e}")

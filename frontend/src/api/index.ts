@@ -475,6 +475,10 @@ export const deleteInvocationBatch = (id: string) => {
   return request.delete(`/invocations/${id}`)
 }
 
+export const cancelInvocationBatch = (id: string) => {
+  return request.post<{ message: string; batch_id: string }>(`/invocations/${id}/cancel`)
+}
+
 export const retryInvocationBatch = (batchId: string, resultIds?: string[]) => {
   return request.post<{ message: string; batch_id: string; task_id: string; retry_count?: number }>(
     `/invocations/${batchId}/retry`,

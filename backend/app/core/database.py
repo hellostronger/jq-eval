@@ -237,6 +237,17 @@ async def init_db():
                 ADD COLUMN cancel_requested BOOLEAN NOT NULL DEFAULT false
             """))
 
+        # invocation_batches.cancel_requested（协作式取消，与 evaluations 对齐）
+        result = await conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'invocation_batches' AND column_name = 'cancel_requested'
+        """))
+        if result.fetchone() is None:
+            await conn.execute(text("""
+                ALTER TABLE invocation_batches
+                ADD COLUMN cancel_requested BOOLEAN NOT NULL DEFAULT false
+            """))
+
         # invocation_results.retrieval_ids
         result = await conn.execute(text("""
             SELECT column_name FROM information_schema.columns
