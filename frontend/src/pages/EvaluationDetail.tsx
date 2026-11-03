@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Descriptions, Table, Tag, Tabs, Row, Col, Statistic, Button, message, Space, Modal, Switch, Alert } from 'antd'
+import { Card, Descriptions, Table, Tag, Tabs, Row, Col, Statistic, Button, message, Space, Modal, Switch, Alert, Select, InputNumber, Tooltip } from 'antd'
 import { useParams } from 'react-router-dom'
 import { ReloadOutlined, StopOutlined } from '@ant-design/icons'
 import { formatShortTime, formatTime } from '@/utils/format'
@@ -17,6 +17,12 @@ interface EvalResult {
   ground_truth?: string
   metric_scores: Record<string, { score: number; error?: string }>
   details?: Record<string, any>
+  // 逐条归因字段（后端 /results 直出，前端不再自己猜低分来源）
+  target_chunk_ids?: string[]
+  retrieval_ids?: string[]
+  contexts_count?: number | null
+  gold_hit?: boolean | null
+  invocation_error?: string | null
   created_at?: string
 }
 
@@ -50,6 +56,9 @@ const EvaluationDetail: React.FC = () => {
   const [cancelling, setCancelling] = useState(false)
   const [retryModalVisible, setRetryModalVisible] = useState(false)
   const [reuseInvocation, setReuseInvocation] = useState(true)
+  // badcase 视图：按指标低分阈值筛样本（默认阈值与根因分析里的 0.6 一致）
+  const [badcaseMetric, setBadcaseMetric] = useState<string>('')
+  const [badcaseMax, setBadcaseMax] = useState<number | null>(null)
 
   // 返回取到的状态，供轮询判断"是否刚刚跑完"（闭包里的 evaluation 是旧值，不能用）
   const fetchEvaluation = async (): Promise<string | undefined> => {
@@ -68,7 +77,13 @@ const EvaluationDetail: React.FC = () => {
     if (!id) return
     setLoading(true)
     try {
-      const data = await getEvaluationResults(id, { skip: (page - 1) * pageSize, limit: pageSize })
+      const filters: Record<string, any> = { skip: (page - 1) * pageSize, limit: pageSize }
+      // 只看 badcase：按所选指标的低分阈值筛，后端筛所以 total 与翻页口径一致
+      if (badcaseMetric && badcaseMax != null) {
+        filters.metric = badcaseMetric
+        filters.max_score = badcaseMax
+      }
+      const data = await getEvaluationResults(id, filters)
       // 后端返回 { results: [...], total, summary }，提取 results 数组和 summary
       setResults(data?.results || [])
       setTotal(data?.total || data?.results?.length || 0)
@@ -195,6 +210,20 @@ const EvaluationDetail: React.FC = () => {
       },
     }))),
     {
+      title: '低分归因',
+      key: 'attribution',
+      width: 170,
+      // 一眼区分"检索没召回"和"召回了没答好"，不必再翻调用结果
+      render: (record: EvalResult) => {
+        if (record.invocation_error) {
+          return <Tag color="volcano" title={record.invocation_error}>调用失败</Tag>
+        }
+        if (record.gold_hit === true) return <Tag color="green">检索命中</Tag>
+        if (record.gold_hit === false) return <Tag color="red">检索漏召</Tag>
+        return <Tag color="default">无检索轨迹</Tag>
+      },
+    },
+    {
       title: '时间',
       dataIndex: 'created_at',
       key: 'created_at',
@@ -203,8 +232,8 @@ const EvaluationDetail: React.FC = () => {
     },
   ]
 
-  // 详细结果表总宽 = 问题 200 + 参考答案 150 + 每个指标列 100 + 时间 100
-  const metricsTableWidth = 200 + 150 + (evaluation?.metrics?.length || 0) * 100 + 100
+  // 详细结果表总宽 = 问题 200 + 参考答案 150 + 归因 170 + 每个指标列 100 + 时间 100
+  const metricsTableWidth = 200 + 150 + 170 + (evaluation?.metrics?.length || 0) * 100 + 100
 
   const barOption = {
     tooltip: { trigger: 'axis' },
@@ -357,29 +386,83 @@ const EvaluationDetail: React.FC = () => {
       key: 'results',
       label: '详细结果',
       children: (
-        <Table
-          dataSource={results}
-          columns={metricsColumns}
-          rowKey="id"
-          loading={loading}
-          pagination={{
-            current: resultPage,
-            pageSize: resultPageSize,
-            total,
-            showSizeChanger: true,
-          }}
-          onChange={(pag) => {
-            // 服务端分页：翻页时按 skip/limit 重新拉取
-            const p = pag.current || 1
-            const s = pag.pageSize || 50
-            setResultPage(p)
-            setResultPageSize(s)
-            fetchResults(p, s)
-          }}
-          // 用具体数值而不是 'max-content'：max-content 会按内容自然宽度撑开表格，
-          // 长问题/参考答案把各列的 ellipsis 顶掉，整张表横向拉出屏幕
-          scroll={{ x: metricsTableWidth }}
-        />
+        <>
+          <Space style={{ marginBottom: 12 }} wrap>
+            <span>只看 badcase：</span>
+            <Select
+              size="small"
+              style={{ width: 200 }}
+              placeholder="选择指标"
+              allowClear
+              value={badcaseMetric || undefined}
+              options={(evaluation?.metrics || []).map(m => ({ label: m, value: m }))}
+              onChange={(v?: string) => {
+                setBadcaseMetric(v || '')
+                setResultPage(1)
+                fetchResults(1, resultPageSize)
+              }}
+            />
+            <InputNumber
+              size="small"
+              style={{ width: 110 }}
+              min={0}
+              max={1}
+              step={0.05}
+              placeholder="分数上限"
+              value={badcaseMax ?? undefined}
+              disabled={!badcaseMetric}
+              onChange={(v) => {
+                setBadcaseMax(typeof v === 'number' ? v : null)
+                setResultPage(1)
+                fetchResults(1, resultPageSize)
+              }}
+            />
+            <Tooltip title="不选指标时展示全部样本；选中指标并给出分数上限后，后端按该阈值筛选，total 与翻页同步收窄">
+              <span style={{ color: '#888' }}>低分阈值默认 0.6，与根因分析口径一致</span>
+            </Tooltip>
+          </Space>
+          <Table
+            dataSource={results}
+            columns={metricsColumns}
+            rowKey="id"
+            loading={loading}
+            expandable={{
+              // 展开行给出检索轨迹与明细：gold / retrieval / contexts / details
+              expandedRowRender: (record: EvalResult) => (
+                <div style={{ fontSize: 12, lineHeight: 1.8 }}>
+                  <div><b>RAG 答案：</b>{record.answer || '-'}</div>
+                  <div><b>gold 分片：</b>{(record.target_chunk_ids || []).join(', ') || '-'}</div>
+                  <div><b>命中分片：</b>{(record.retrieval_ids || []).join(', ') || '-'}</div>
+                  <div><b>上下文档数：</b>{record.contexts_count ?? '-'}</div>
+                  {record.details?.context_budget && (
+                    // 证据被预算截断时必须说明，否则低分读起来像模型质量问题
+                    <div style={{ color: '#d46b08' }}>
+                      <b>上下文已按预算截断：</b>
+                      {`原 ${record.details.context_budget.context_chunks_original} 段 / ${record.details.context_budget.context_chars_original} 字符 → 使用 ${record.details.context_budget.context_chunks_used} 段 / ${record.details.context_budget.context_chars_used} 字符`}
+                    </div>
+                  )}
+                </div>
+              ),
+            }}
+            pagination={{
+              current: resultPage,
+              pageSize: resultPageSize,
+              total,
+              showSizeChanger: true,
+            }}
+            onChange={(pag) => {
+              // 服务端分页：翻页时按 skip/limit 重新拉取
+              const p = pag.current || 1
+              const s = pag.pageSize || 50
+              setResultPage(p)
+              setResultPageSize(s)
+              fetchResults(p, s)
+            }}
+            // 用具体数值而不是 'max-content'：max-content 会按内容自然宽度撑开表格，
+            // 长问题/参考答案把各列的 ellipsis 顶掉，整张表横向拉出屏幕
+            scroll={{ x: metricsTableWidth }}
+          />
+        </>
       ),
     },
   ]

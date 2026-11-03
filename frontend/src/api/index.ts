@@ -391,6 +391,12 @@ interface EvaluationResultsResponse {
     ground_truth?: string
     metric_scores: Record<string, { score: number; error?: string }>
     details?: Record<string, any>
+    // 逐条归因：gold 分片 vs 实际命中分片，判断低分出在检索还是生成
+    target_chunk_ids?: string[]
+    retrieval_ids?: string[]
+    contexts_count?: number | null
+    gold_hit?: boolean | null
+    invocation_error?: string | null
     created_at?: string
   }>
   summary?: {
@@ -399,7 +405,10 @@ interface EvaluationResultsResponse {
   }
 }
 
-export const getEvaluationResults = (id: string, params?: { skip?: number; limit?: number }) => {
+export const getEvaluationResults = (
+  id: string,
+  params?: { skip?: number; limit?: number; metric?: string; min_score?: number; max_score?: number; only_errors?: boolean },
+) => {
   return request.get<EvaluationResultsResponse>(`/evaluations/${id}/results`, { params })
 }
 
