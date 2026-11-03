@@ -68,8 +68,39 @@ async def test_force_cancel_finalizes_orphan_batch(
 
 
 @pytest.mark.asyncio
-async def test_worker_stops_at_next_item_when_flag_set(
-    db_session: AsyncSession, sample_dataset: Dataset, sample_rag_system
+async def test_task_crash_at_head_marks_batch_failed(
+    db_session: AsyncSession, sample_dataset: Dataset, sample_rag_system, monkeypatch
+):
+    """炸在函数头部（schema 未迁移等）也要把批次落成 failed。
+
+    否则批次永远停在 running、error 为空，重试被 batch_in_flight 挡死，
+    只能人工改库——这是 worker 比 API 先启动时实际踩到的问题。
+    """
+    from contextlib import asynccontextmanager
+    import app.tasks.invocation_tasks as mod
+
+    batch = await _running_batch(db_session, sample_dataset, sample_rag_system)
+
+    async def boom(task, batch_id):
+        raise RuntimeError("UndefinedColumnError: cancel_requested")
+
+    @asynccontextmanager
+    async def fake_db():
+        yield db_session
+
+    monkeypatch.setattr(mod, "_run_invocation", boom)
+    monkeypatch.setattr(mod, "get_db_context", fake_db)
+
+    with pytest.raises(RuntimeError):
+        await mod._run_invocation_guarded(None, batch.id)
+
+    await db_session.refresh(batch)
+    assert batch.status == "failed"
+    assert "cancel_requested" in (batch.error or "")
+
+
+@pytest.mark.asyncio
+async def test_worker_stops_at_next_item_when_flag_set(    db_session: AsyncSession, sample_dataset: Dataset, sample_rag_system
 ):
     """标志位真正被任务读到才算取消，只改库不生效是假取消"""
     batch = await _running_batch(db_session, sample_dataset, sample_rag_system)

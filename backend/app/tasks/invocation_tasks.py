@@ -7,7 +7,7 @@ from uuid import UUID
 
 from app.core.celery_app import celery_app
 from app.core.exceptions import TaskCancelled
-from app.tasks._common import run_async, format_error
+from app.tasks._common import run_async, format_error, mark_task_failed
 from app.core.database import get_db_context
 from app.models.invocation import InvocationBatch, InvocationResult
 from app.models.dataset import Dataset, QARecord
@@ -30,6 +30,36 @@ async def _raise_if_cancelled(db, batch_id: UUID) -> None:
     )
     if flag.scalar():
         raise TaskCancelled()
+
+
+async def _run_invocation_guarded(task, batch_id: UUID) -> Dict[str, Any]:
+    """_run_invocation 的最外层兜底：任何逃逸异常都必须把批次落成 failed。
+
+    批次刚建好就炸（schema 未迁移、模型类字段与库不一致等）时，函数内部那个
+    except 根本还没进入，状态会永远停在 running、error 为空：界面显示"执行中"，
+    重试又被 batch_in_flight 挡死，只能人工改库。实际踩过（worker 比 API 先起，
+    读到还没有 cancel_requested 列的旧库直接 UndefinedColumnError）。
+    """
+    try:
+        return await _run_invocation(task, batch_id)
+    except TaskCancelled:
+        raise
+    except Exception as e:
+        async with get_db_context() as db:
+            await mark_task_failed(db, InvocationBatch, batch_id, format_error(e), logger)
+        raise
+
+
+async def _run_retry_guarded(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, Any]:
+    """同上：重试任务炸在头部也要把批次标失败，不能留在 running"""
+    try:
+        return await _run_retry(task, batch_id, result_ids)
+    except TaskCancelled:
+        raise
+    except Exception as e:
+        async with get_db_context() as db:
+            await mark_task_failed(db, InvocationBatch, batch_id, format_error(e), logger)
+        raise
 
 
 async def _prepare_direct_llm_config(connection_config: Dict[str, Any], db) -> Dict[str, Any]:
@@ -73,7 +103,7 @@ def invocation_task(self, batch_id: str) -> Dict[str, Any]:
     Args:
         batch_id: 调用批次ID (UUID字符串格式)
     """
-    return run_async(_run_invocation(self, UUID(batch_id)))
+    return run_async(_run_invocation_guarded(self, UUID(batch_id)))
 
 
 @celery_app.task(bind=True, name="retry_invocation_task")
@@ -84,7 +114,7 @@ def retry_invocation_task(self, batch_id: str, result_ids: List[str]) -> Dict[st
         batch_id: 调用批次ID
         result_ids: 要重试的结果ID列表
     """
-    return run_async(_run_retry(self, UUID(batch_id), [UUID(rid) for rid in result_ids]))
+    return run_async(_run_retry_guarded(self, UUID(batch_id), [UUID(rid) for rid in result_ids]))
 
 
 async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, Any]:
