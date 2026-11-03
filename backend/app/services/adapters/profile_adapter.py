@@ -50,6 +50,18 @@ class ProfileAdapter(BaseRAGAdapter):
                 success=False,
             )
 
+    async def query_stream(
+        self,
+        question: str,
+        contexts: Optional[List[str]] = None,
+        conversation_id: Optional[str] = None,
+        **kwargs: Any,
+    ) -> RAGResponse:
+        """这些平台没有流式接口，退化为一次性查询并补首 token 延迟。"""
+        response = await self.query(question, contexts, conversation_id, **kwargs)
+        response.first_token_latency = response.response_time
+        return response
+
     async def health_check(self) -> bool:
         result = await self.connector.check_connection()
         return bool(result.get("healthy"))

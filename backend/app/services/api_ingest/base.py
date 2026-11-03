@@ -148,6 +148,14 @@ class BaseApiIngestConnector(ABC):
         transport: Optional[httpx.AsyncBaseTransport] = None,
     ):
         self.config = config or {}
+        # 本机/慢速 RAG（如树检索要多次 LLM 调用）单次问答可能远超 30s。
+        # 允许系统配置覆盖，否则调用批次会把"还在处理"误记成超时失败。
+        try:
+            self.request_timeout = float(
+                self.config.get("request_timeout") or self.request_timeout
+            )
+        except (TypeError, ValueError):
+            pass
         raw_base = (
             self.config.get("api_endpoint")
             or self.config.get("api_url")

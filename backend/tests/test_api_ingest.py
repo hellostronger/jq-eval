@@ -1266,3 +1266,30 @@ def test_adapter_factory_reuses_ingest_connectors_for_new_types():
     )
     assert adapter.connector.display_name == "PageIndex"
 
+
+
+def test_generic_connector_request_timeout_is_configurable():
+    """树检索/本机 RAG 单次问答可远超 30s，必须允许系统配置覆盖超时。"""
+    slow = create_connector(
+        "generic",
+        {"api_endpoint": "http://localhost:8010", "request_timeout": 900},
+    )
+    default = create_connector("generic", {"api_endpoint": "http://localhost:8010"})
+    assert slow.request_timeout == 900
+    assert default.request_timeout == 30.0
+
+
+async def test_profile_adapter_query_stream_falls_back_to_query(monkeypatch):
+    """ProfileAdapter 曾漏实现 query_stream 而无法实例化，批次一启动就报抽象类错误。"""
+    from app.services.adapters.base import RAGResponse
+    from app.services.adapters.profile_adapter import ProfileAdapter
+
+    adapter = ProfileAdapter({"api_endpoint": "http://localhost:8010"})
+
+    async def fake_query(question, contexts=None, conversation_id=None, **kwargs):
+        return RAGResponse(answer="ok", response_time=1.25)
+
+    monkeypatch.setattr(adapter, "query", fake_query)
+    response = await adapter.query_stream("q")
+    assert response.answer == "ok"
+    assert response.first_token_latency == 1.25
