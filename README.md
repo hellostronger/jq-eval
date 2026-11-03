@@ -112,6 +112,7 @@ jq-eval/
 - **派发前置校验**: 所选指标含生成类（`requires_llm`）时，创建/运行/重试三处统一校验 LLM 模型是否配了 API Key 与 endpoint，缺凭据直接 400 并点名模型与被挡的指标，不再让任务进 worker 跑几分钟后回一段 langchain 内部报错
 - **空闲事务治理**: 进入长时间打分前先 `commit` 结束准备阶段的事务，两个数据库引擎统一带 `idle_in_transaction_session_timeout`（15min）。此前 worker 被强杀/断网会在远端 PG 留下"本地 socket 已消失、服务端仍挂着 idle in transaction"的幽灵连接，带着表锁常驻并把 `ALTER TABLE` 挡成 `LockNotAvailableError`
 - **调用批次取样范围**: 建批次可带 `qa_limit`/`qa_offset`（按题目创建顺序取样），几千题的大语料先跑 40 题试点，不必再复制一个重复数据集；创建、执行、重试补齐、终态反推四处共用同一份范围口径（`services/dataset/qa_scope.py`），`total_count` 与进度分母都按范围内条数算。两列可空，老批次行为不变（迁移 `005_add_batch_qa_scope.sql`）
+- **检索 gold 回填**: `POST /datasets/{id}/qa-records/backfill-targets` 按题目匹配只写 `target_chunk_ids`，不新增记录、不动答案与上下文——基准导入后 gold 为空（字段没认出、或只有页码没跟被测系统返回的 chunk id 对齐）时，原先只能重建数据集，而历史调用批次与评估都挂在旧 `dataset_id` 上，等于全部作废。默认只补空（`overwrite=true` 才覆盖），支持 `dry_run` 预演、题目空格/大小写归一化匹配、同题多份 gold 判为歧义并跳过；数据集页「导入数据」有「只补齐检索 gold」开关
 - **快照机制**: 历史数据冻结，保证可追溯
 - **向量检索**: Milvus高性能向量检索
 - **调用与评估解耦**: 调用批次(Invocation)与评估(Evaluation)分离，支持复用调用结果重评（reuse_invocation），同一批对话可换指标/换模型反复评估

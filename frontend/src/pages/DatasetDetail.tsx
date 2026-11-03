@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Upload, Button, message, Tabs, Tag, Space, Divider, Popconfirm, Modal, Descriptions, Input, Select, Spin, Alert, Typography } from 'antd'
+import { Card, Table, Upload, Button, message, Tabs, Tag, Space, Divider, Popconfirm, Modal, Descriptions, Input, Select, Spin, Alert, Typography, Checkbox } from 'antd'
 import { UploadOutlined, DownloadOutlined, DeleteOutlined, EyeOutlined, PlusOutlined, FileTextOutlined, EnvironmentOutlined } from '@ant-design/icons'
 import { useParams } from 'react-router-dom'
 import { formatShortTime } from '@/utils/format'
-import { getDataset, getQARecords, uploadDatasetFile, downloadTemplate, deleteQARecord, batchDeleteQARecords, getDatasetDocuments, getDatasetChunks, uploadDatasetDocument, createDocumentFromText, createDocumentsFromNews, getDocumentChunks, getHotArticles } from '@/api'
+import { getDataset, getQARecords, uploadDatasetFile, backfillQATargets, downloadTemplate, deleteQARecord, batchDeleteQARecords, getDatasetDocuments, getDatasetChunks, uploadDatasetDocument, createDocumentFromText, createDocumentsFromNews, getDocumentChunks, getHotArticles } from '@/api'
 import GeneratePanel from '@/components/GeneratePanel'
 import DatasetDocParse from '@/components/DatasetDocParse'
 import type { Dataset, QARecord, DocumentInfo, ChunkInfo, HotArticle } from '@/types'
@@ -31,6 +31,11 @@ const DatasetDetail: React.FC = () => {
   const [chunkPage, setChunkPage] = useState(1)
   const [chunkPageSize, setChunkPageSize] = useState(10)
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
+
+  // 只补齐检索 gold：数据集有题目但 target_chunk_ids 是空的（导入时没认出 gold 字段，
+  // 或 gold 只有页码没跟被测系统返回的 chunk id 对齐）。这种库只能重传 gold——
+  // 重传整份文件会把记录数翻倍，重建数据集又让历史调用批次和评估结果作废。
+  const [goldOnly, setGoldOnly] = useState(false)
 
   // 详情弹窗
   const [docDetailVisible, setDocDetailVisible] = useState(false)
@@ -244,11 +249,70 @@ const DatasetDetail: React.FC = () => {
     }
   }
 
+  // 只补齐 gold 走 JSON/JSONL：CSV 的表头→字段映射在后端导入分支里，
+  // 前端再实现一遍只会和后端慢慢走偏
+  const parseGoldRecords = (text: string, fileName: string): Record<string, unknown>[] | null => {
+    if (fileName.toLowerCase().endsWith('.csv')) return null
+    const trimmed = text.trim()
+    if (!trimmed) return null
+    if (trimmed.startsWith('[')) {
+      try {
+        return JSON.parse(trimmed)
+      } catch {
+        return null
+      }
+    }
+    const rows: Record<string, unknown>[] = []
+    for (const line of trimmed.split('\n')) {
+      if (!line.trim()) continue
+      try {
+        rows.push(JSON.parse(line))
+      } catch {
+        return null
+      }
+    }
+    return rows
+  }
+
   const handleUpload = async (file: File) => {
     if (!id) return
+    if (!goldOnly) {
+      try {
+        await uploadDatasetFile(id, file)
+        message.success('导入成功')
+        fetchQARecords()
+      } catch (e) {
+        // 错误已在拦截器处理
+      }
+      return false
+    }
+
+    const records = parseGoldRecords(await file.text(), file.name)
+    if (!records) {
+      message.error('补齐检索 gold 只支持 JSON / JSONL（CSV 请先转成 JSONL）')
+      return false
+    }
     try {
-      await uploadDatasetFile(id, file)
-      message.success('导入成功')
+      const res = await backfillQATargets(id, { records })
+      Modal.info({
+        title: res.message,
+        width: 560,
+        content: (
+          <div style={{ fontSize: 13 }}>
+            <p>匹配到 {res.matched} 条，本次写入 {res.filled} 条，已存在不动 {res.kept_existing} 条。</p>
+            <p>
+              文件里数据集没有的题目 {res.not_in_dataset} 条；缺 gold {res.payload_invalid} 条；
+              同题不同 gold（已跳过）{res.payload_ambiguous} 条。
+            </p>
+            {res.examples?.length > 0 && (
+              <pre style={{ background: '#f6f6f6', padding: 8, fontSize: 12, whiteSpace: 'pre-wrap' }}>
+                {res.examples.join('\n')}
+              </pre>
+            )}
+            <p style={{ color: '#666' }}>gold 补齐后重跑评估，recall/mrr 这类检索指标才会出数。</p>
+          </div>
+        ),
+      })
       fetchQARecords()
     } catch (e) {
       // 错误已在拦截器处理
@@ -590,15 +654,29 @@ const DatasetDetail: React.FC = () => {
 
             <div>
               <div style={{ marginBottom: 8, fontWeight: 500 }}>上传文件</div>
+              {/* 开源基准常见状态：题目导进来了、gold 却是空的（或只有页码没对齐成
+                  被测系统返回的 chunk id）。这类库只能补 gold，不能重传整份文件——
+                  重传记录翻倍，重建数据集又会让历史调用批次和评估作废 */}
+              <Checkbox
+                checked={goldOnly}
+                onChange={(e) => setGoldOnly(e.target.checked)}
+                style={{ marginBottom: 8 }}
+              >
+                只补齐检索 gold（按题目匹配写 target_chunk_ids，不新增记录）
+              </Checkbox>
               <Upload
                 beforeUpload={handleUpload}
-                accept=".json,.jsonl,.csv"
+                accept={goldOnly ? '.json,.jsonl' : '.json,.jsonl,.csv'}
                 showUploadList={false}
               >
-                <Button icon={<UploadOutlined />}>上传文件导入</Button>
+                <Button icon={<UploadOutlined />}>
+                  {goldOnly ? '上传 gold 文件' : '上传文件导入'}
+                </Button>
               </Upload>
               <p style={{ marginTop: 8, color: '#666', fontSize: 12 }}>
-                支持 JSON、JSONL、CSV 格式文件
+                {goldOnly
+                  ? '文件每行形如 {"question": "...", "target_chunk_ids": ["mh_0001:p0076"]}，gold_chunk_ids / positive_ids 也认；补完后重跑评估才有 recall/mrr'
+                  : '支持 JSON、JSONL、CSV 格式文件'}
               </p>
             </div>
           </Space>

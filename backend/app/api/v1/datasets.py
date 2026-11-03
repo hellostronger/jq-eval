@@ -400,6 +400,120 @@ async def batch_delete_qa_records(
     }
 
 
+class TargetBackfillRequest(BaseModel):
+    """按题目补齐检索 gold
+
+    基准数据集最常见的两种坏法：导入时没认出 gold 字段（整库 target_chunk_ids 为空，
+    recall/mrr 全部报"缺少目标 chunk ID 列表"），或者 gold 存的是页码、没跟被测系统
+    返回的 chunk id 对齐。原先唯一的补救办法是重建数据集，可历史调用批次与评估结果
+    都挂在旧 dataset_id 上，重建等于把它们全作废，跨系统的对比也断了。
+    """
+
+    records: List[Dict[str, Any]] = Field(default_factory=list, description="[{question, target_chunk_ids}]")
+    overwrite: bool = Field(False, description="默认只补空，不改动已有 gold")
+    dry_run: bool = Field(False, description="先看看会补多少条，不写库")
+
+
+def _norm_question(text: Optional[str]) -> str:
+    """题目归一化：开源基准的 question 常见首尾空格与换行差异，逐字匹配会漏"""
+    return " ".join((text or "").split()).casefold()
+
+
+def _targets_of(record: Dict[str, Any]) -> List[str]:
+    """取 gold，字段别名与导入保持一致；字符串形态（"['11','12']"）也认"""
+    for key in ("target_chunk_ids", "gold_chunk_ids", "positive_chunk_ids", "positive_ids"):
+        value = record.get(key)
+        if value in (None, "", []):
+            continue
+        if isinstance(value, str):
+            try:
+                value = json.loads(value.replace("'", '"'))
+            except Exception:
+                value = [value]
+        if not isinstance(value, list):
+            value = [value]
+        return [str(v) for v in value if v not in (None, "")]
+    return []
+
+
+@router.post("/{dataset_id}/qa-records/backfill-targets")
+async def backfill_qa_targets(
+    dataset_id: UUID,
+    data: TargetBackfillRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """按题目回填 target_chunk_ids（检索指标的 ground truth）
+
+    只做"补/换 gold"这一件事：不新增记录、不动答案与上下文，因此历史调用批次
+    和已完成的评估都还在同一批题目上，重跑评估即可拿到修好的检索指标。
+    """
+    await get_or_404(db, Dataset, dataset_id, "数据集不存在")
+
+    # 文件里同一道题给了不同 gold → 无法判断该用哪一份，整题跳过并计数
+    wanted: Dict[str, List[str]] = {}
+    ambiguous: List[str] = []
+    invalid = 0
+    for record in data.records:
+        key = _norm_question(record.get("question") or record.get("query"))
+        targets = _targets_of(record)
+        if not key or not targets:
+            invalid += 1
+            continue
+        previous = wanted.get(key)
+        if previous is not None and previous != targets:
+            ambiguous.append(str(record.get("question"))[:80])
+            del wanted[key]
+            continue
+        wanted.setdefault(key, targets)
+
+    rows = (await db.execute(
+        select(QARecord).where(QARecord.dataset_id == dataset_id)
+    )).scalars().all()
+
+    by_question: Dict[str, List[QARecord]] = {}
+    for row in rows:
+        by_question.setdefault(_norm_question(row.question), []).append(row)
+
+    matched = filled = kept_existing = 0
+    not_in_dataset = [q for q in wanted if q not in by_question]
+    samples: List[str] = []
+    for key, targets in wanted.items():
+        for row in by_question.get(key, []):
+            matched += 1
+            current = row.target_chunk_ids or []
+            if current and not data.overwrite:
+                kept_existing += 1
+                continue
+            if not data.dry_run:
+                row.target_chunk_ids = targets
+            filled += 1
+            if len(samples) < 3:
+                samples.append(f"{str(row.question)[:40]} → {targets[:3]}")
+
+    if filled and not data.dry_run:
+        # 有了 gold 才谈得上检索指标，数据集标记同步置位，否则列表页仍显示"无参考"
+        await refresh_dataset_stats(db, dataset_id, mark_contexts=True)
+        await db.commit()
+
+    return {
+        "message": (
+            "预演完成（dry_run，未写库）" if data.dry_run
+            else f"已补齐 {filled} 条检索 gold"
+        ),
+        "dataset_id": str(dataset_id),
+        "dry_run": data.dry_run,
+        "payload_total": len(data.records),
+        "payload_invalid": invalid,
+        "payload_ambiguous": len(ambiguous),
+        "matched": matched,
+        "filled": filled,
+        "kept_existing": kept_existing,
+        "not_in_dataset": len(not_in_dataset),
+        "not_in_dataset_samples": not_in_dataset[:5],
+        "examples": samples,
+    }
+
+
 @router.post("/{dataset_id}/import")
 async def import_data(
     dataset_id: UUID,
@@ -526,15 +640,9 @@ async def import_data(
         # 原样按字符串保留：基准数据集的 gold key 五花八门（UUID、"doc:p0076"、
         # "chunk_12"），只做类型校验不做 UUID 解析，否则非 UUID 的标注会被静默丢弃，
         # 导入看着成功、检索指标却全部报「缺少目标chunk ID列表」。
-        raw_targets = _first(record, "target_chunk_ids", "gold_chunk_ids", "positive_chunk_ids", "positive_ids")
-        if isinstance(raw_targets, str):
-            try:
-                raw_targets = json.loads(raw_targets)
-            except Exception:
-                raw_targets = [raw_targets]
-        if not isinstance(raw_targets, list):
-            raw_targets = [raw_targets] if raw_targets else []
-        target_chunk_ids = [str(t) for t in raw_targets if t not in (None, "")]
+        # 与回填接口共用 _targets_of：两处各写一遍别名表，早晚会出现"导入认得、
+        # 回填不认得"（或反过来）的口径分裂。
+        target_chunk_ids = _targets_of(record)
 
         # 答案别名（answers 为列表时拼接）
         answer_value = _first(record, "answer", "gold_answer")

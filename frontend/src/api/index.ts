@@ -301,6 +301,24 @@ export const uploadDatasetFile = (datasetId: string, file: File) => {
   return request.post<{ object_name?: string; file_path?: string }>(`/datasets/${datasetId}/import`, formData)
 }
 
+// 只补齐检索 gold（target_chunk_ids）：不新增记录、不动答案，
+// 所以历史调用批次与评估仍挂在同一批题目上，重跑评估就能拿到 recall/mrr
+export const backfillQATargets = (
+  datasetId: string,
+  payload: { records: Array<Record<string, unknown>>; overwrite?: boolean; dry_run?: boolean }
+) => {
+  return request.post<{
+    message: string
+    matched: number
+    filled: number
+    kept_existing: number
+    payload_invalid: number
+    payload_ambiguous: number
+    not_in_dataset: number
+    examples: string[]
+  }>(`/datasets/${datasetId}/qa-records/backfill-targets`, payload)
+}
+
 // 上传文件到 MinIO 指定 bucket（如 documents，供数据集生成等场景使用）
 
 // 删除QA记录
