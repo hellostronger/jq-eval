@@ -41,10 +41,17 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
             return {"error": f"评估任务 {evaluation_id} 不存在"}
 
         # acks_late 重投幂等：若结果 commit 成功但 worker 在 ack 前被杀，消息会重投递。
-        # 无此保护将全量重打 LLM（浪费 token）并二次插入结果（数据翻倍）
-        if evaluation.status == EvaluationStatus.COMPLETED:
-            logger.warning(f"评估 {evaluation_id} 已完成但收到重复投递，跳过（acks_late 重投保护）")
-            return {"evaluation_id": evaluation_id, "status": "already_completed",
+        # 无此保护将全量重打 LLM（浪费 token）并二次插入结果（数据翻倍）。
+        # cancelled 同样要挡：取消是用户明确的决定，而 broker 断线重连后 kombu 会把
+        # "已投递未 ack"的旧消息再投一次——实测被取消的评估因此复活，重新打了 5 分钟
+        # ragas（还撞上当天配额上限）。手工重跑走 POST /evaluations/{id}/run|retry，
+        # 那里会先把状态置回 running 再派发，不受这里影响。
+        if evaluation.status in (EvaluationStatus.COMPLETED, EvaluationStatus.CANCELLED):
+            logger.warning(
+                f"评估 {evaluation_id} 已处于终态 {evaluation.status.value}，跳过重复投递（acks_late 重投保护）"
+            )
+            return {"evaluation_id": evaluation_id,
+                    "status": f"already_{evaluation.status.value}",
                     "summary": evaluation.summary}
 
         # 更新状态

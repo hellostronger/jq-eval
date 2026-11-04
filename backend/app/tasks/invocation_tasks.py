@@ -381,6 +381,16 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
         if not batch:
             return {"error": f"调用批次 {batch_id} 不存在"}
 
+        # 重投保护：Redis broker 抖动后 kombu 会把"已投递未 ack"的消息重新入队，
+        # 实测同一批次/评估被再跑一遍（一次评估白花 5 分钟且撞上配额上限）。
+        # 已完成/已取消都是终态：取消是用户明确的决定，重投不该把它翻回 running。
+        # 手工重跑走 POST /invocations/{id}/run，那里会先把状态置回 running 再派发。
+        if batch.status in ("completed", "cancelled"):
+            logger.warning(
+                f"调用批次 {batch_id} 已处于终态 {batch.status}，忽略重复投递（不重新调用 RAG）"
+            )
+            return {"batch_id": str(batch_id), "status": f"already_{batch.status}"}
+
         # 更新状态
         batch.status = "running"
         batch.error = None  # 重新运行要清掉上一次失败的错误信息，否则界面一直显示旧原因

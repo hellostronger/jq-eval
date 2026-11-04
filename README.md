@@ -114,6 +114,7 @@ jq-eval/
 - **调用批次取样范围**: 建批次可带 `qa_limit`/`qa_offset`（按题目创建顺序取样），几千题的大语料先跑 40 题试点，不必再复制一个重复数据集；创建、执行、重试补齐、终态反推四处共用同一份范围口径（`services/dataset/qa_scope.py`），`total_count` 与进度分母都按范围内条数算。两列可空，老批次行为不变（迁移 `005_add_batch_qa_scope.sql`）
 - **检索 gold 回填**: `POST /datasets/{id}/qa-records/backfill-targets` 按题目匹配只写 `target_chunk_ids`，不新增记录、不动答案与上下文——基准导入后 gold 为空（字段没认出、或只有页码没跟被测系统返回的 chunk id 对齐）时，原先只能重建数据集，而历史调用批次与评估都挂在旧 `dataset_id` 上，等于全部作废。默认只补空（`overwrite=true` 才覆盖），支持 `dry_run` 预演、题目空格/大小写归一化匹配、同题多份 gold 判为歧义并跳过；数据集页「导入数据」有「只补齐检索 gold」开关
 - **调用结果去重与排队态**: worker 被强杀后 Celery 会重投调用任务，旧实现每跑一条就追加一行，实测 5 题批次长出 6 行、`completed_count=6/total=5`——进度超 100%，下游评估还把同一题双计。现在写结果同事务删掉同题旧行（`_write(dedupe_qa_record_id=...)`），终态计数按「每条 QA 的最后一行」统计，历史重复行也不会顶穿 `total_count`。界面另按 `status=running && started_at is null` 显示「排队中」：派发时就置 running，而 worker 单并发（`--pool=solo`）时后面的批次要等几十分钟才真正领取，此前只能看着 0 进度的 running 猜是排队还是卡死
+- **重投幂等**: broker 断线重连后 kombu 会把"已投递未 ack"的消息再投一次，实测一个已取消的评估因此复活、重打 5 分钟 ragas 并撞上当天模型配额。调用任务与评估任务现在都拒绝终态重投（`completed`/`cancelled` 直接返回 `already_*`，不重新调用模型、不写新行），用户主动重跑仍走 `POST /run`、`/retry`（派发前先把状态置回 running）
 - **快照机制**: 历史数据冻结，保证可追溯
 - **向量检索**: Milvus高性能向量检索
 - **调用与评估解耦**: 调用批次(Invocation)与评估(Evaluation)分离，支持复用调用结果重评（reuse_invocation），同一批对话可换指标/换模型反复评估
