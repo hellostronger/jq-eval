@@ -16,6 +16,7 @@ from app.models.dataset import Dataset, QARecord
 from app.models.rag_system import RAGSystem
 from app.models.model import Model
 from app.services.adapters import AdapterFactory
+from app.services.diagnostics.trace import compact_trace
 from app.services.dataset.qa_scope import apply_scope, count_in_scope
 from sqlalchemy import select
 
@@ -318,6 +319,7 @@ async def _run_retry(task, batch_id: UUID, result_ids: List[UUID]) -> Dict[str, 
                         answer=answer,
                         contexts=contexts,
                         retrieval_ids=retrieval_ids,
+                        trace=compact_trace(getattr(response, "trace", None)),
                         latency=latency,
                         # 尊重 adapter 的 success 标志（同主流程）
                         status="success" if response.success else "failed",
@@ -470,6 +472,7 @@ async def _run_invocation(task, batch_id: UUID) -> Dict[str, Any]:
                         answer=answer,
                         contexts=contexts,
                         retrieval_ids=retrieval_ids,
+                        trace=compact_trace(getattr(response, "trace", None)),
                         latency=latency,
                         status="success" if response.success else "failed",
                         error=None if response.success else (response.error or "RAG 调用失败"),

@@ -116,6 +116,7 @@ jq-eval/
 - **调用结果去重与排队态**: worker 被强杀后 Celery 会重投调用任务，旧实现每跑一条就追加一行，实测 5 题批次长出 6 行、`completed_count=6/total=5`——进度超 100%，下游评估还把同一题双计。现在写结果同事务删掉同题旧行（`_write(dedupe_qa_record_id=...)`），终态计数按「每条 QA 的最后一行」统计，历史重复行也不会顶穿 `total_count`。界面另按 `status=running && started_at is null` 显示「排队中」：派发时就置 running，而 worker 单并发（`--pool=solo`）时后面的批次要等几十分钟才真正领取，此前只能看着 0 进度的 running 猜是排队还是卡死
 - **重投幂等**: broker 断线重连后 kombu 会把"已投递未 ack"的消息再投一次，实测一个已取消的评估因此复活、重打 5 分钟 ragas 并撞上当天模型配额。调用任务与评估任务现在都拒绝终态重投（`completed`/`cancelled` 直接返回 `already_*`，不重新调用模型、不写新行），用户主动重跑仍走 `POST /run`、`/retry`（派发前先把状态置回 running）
 - **快照机制**: 历史数据冻结，保证可追溯
+- **检索轨迹与通道级归因**: 调用结果新增 `trace`（`InvocationResult.trace`，迁移 `006_add_invocation_trace.sql`），由接入层透传被测系统回传的检索轨迹（通用 HTTP 连接器按 `ask.trace_path` 取，默认响应里的 `trace`），落库前经 `compact_trace` 收拢（通道排序留 40 项、定位轮次留 8 轮、单条 48KB 封顶，并保留 `*_total` 以免把截断读成"没有"）。评估侧因此能在「漏召」之下再判一层：`/evaluations/{id}/analysis` 的 `retrieval_trace_analysis` 给出每路自己的 `hit@k`/`recall`/gold 最好名次，以及断点分布——`lost_in_fusion`（某一路已捞到、融合排序挤出，该调配比或加 reranker）与 `channel_all_miss`（各通道都没有，该动分片和索引）是两种完全不同的修法；`root_cause.sub_stage` 直接指出这一层，`/results?step=` 可按断点筛 badcase，`/results/{id}/trace` 取单条完整轨迹。没有轨迹的老系统一律记 `no_trace`，不会被误算成漏召
 - **向量检索**: Milvus高性能向量检索
 - **调用与评估解耦**: 调用批次(Invocation)与评估(Evaluation)分离，支持复用调用结果重评（reuse_invocation），同一批对话可换指标/换模型反复评估
 - **模型调用映射代理**: 对外暴露 OpenAI/Anthropic 协议端点（/v1/chat/completions、/v1/messages），按映射转发到目标模型，协议自动互转，调用日志全量落库，支持流式

@@ -54,6 +54,14 @@ const ATTRIBUTION_LABELS: Record<string, { text: string; color: string }> = {
   no_gold: { text: '缺 gold 分片', color: 'default' },
 }
 
+const RETRIEVAL_STEP_LABELS: Record<string, { text: string; color: string; hint: string }> = {
+  gold_in_final: { text: '检索命中', color: 'green', hint: 'gold 已在最终返回列表里，低分要往下游看' },
+  lost_in_fusion: { text: '融合挤掉', color: 'magenta', hint: '某一路已捞到 gold，融合/重排把它排出了列表——调配比或加 reranker' },
+  channel_all_miss: { text: '各通道都没捞到', color: 'red', hint: '所有召回通道都没有 gold——动分片、索引或 query 理解' },
+  no_trace: { text: '无通道轨迹', color: 'default', hint: '被测系统没回传轨迹，只能判到「漏召」这一层' },
+  no_gold: { text: '缺 gold', color: 'default', hint: '数据集没有检索 gold，检索指标无从判断' },
+}
+
 const EvaluationDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null)
@@ -73,6 +81,8 @@ const EvaluationDetail: React.FC = () => {
   const [badcaseMax, setBadcaseMax] = useState<number | null>(null)
   // 按环节筛 badcase：检索漏召 / 召回了没答好 是两类完全不同的修法
   const [badcaseAttribution, setBadcaseAttribution] = useState<string>('')
+  // 漏召再下一层：各通道都没捞到（改索引）还是融合挤掉（调配比）
+  const [badcaseStep, setBadcaseStep] = useState<string>('')
 
   // 返回取到的状态，供轮询判断"是否刚刚跑完"（闭包里的 evaluation 是旧值，不能用）
   const fetchEvaluation = async (): Promise<string | undefined> => {
@@ -99,6 +109,9 @@ const EvaluationDetail: React.FC = () => {
       }
       if (badcaseAttribution) {
         filters.attribution = badcaseAttribution
+      }
+      if (badcaseStep) {
+        filters.step = badcaseStep
       }
       const data = await getEvaluationResults(id, filters)
       // 后端返回 { results: [...], total, summary }，提取 results 数组和 summary
@@ -254,7 +267,23 @@ const EvaluationDetail: React.FC = () => {
                 : 'no_retrieval_trace'
         )
         const label = ATTRIBUTION_LABELS[key] || { text: key, color: 'default' }
-        return <Tag color={label.color} title={record.invocation_error || undefined}>{label.text}</Tag>
+        const summary = (record as any).trace_summary
+        const step = summary?.retrieval_step
+        const stepLabel = step ? RETRIEVAL_STEP_LABELS[step] || { text: step, color: 'default', hint: '' } : null
+        const ranks = summary?.gold_channel_ranks || {}
+        return (
+          <Space size={4} wrap>
+            <Tag color={label.color} title={record.invocation_error || undefined}>{label.text}</Tag>
+            {stepLabel && step !== 'gold_in_final' && (
+              // 漏召再下一层：某一路第几名捞到过 gold
+              <Tooltip title={Object.keys(ranks).length
+                ? 'gold 在各通道的最好名次：' + Object.entries(ranks).map(([c, r]) => `${c}#${r}`).join('，')
+                : stepLabel.hint}>
+                <Tag color={stepLabel.color}>{stepLabel.text}</Tag>
+              </Tooltip>
+            )}
+          </Space>
+        )
       },
     },
     {
@@ -436,6 +465,86 @@ const EvaluationDetail: React.FC = () => {
               )}
             </Space>
           </Card>
+          {/* 通道级下钻：只有 retrieval_ids 时归因止步于「漏召」，
+              这里才说清是各通道都没捞到，还是捞到了被融合挤掉 */}
+          {analysis.retrieval_trace_analysis && analysis.retrieval_trace_analysis.coverage.with_channels > 0 && (
+            <Card
+              title={`检索通道下钻（有轨迹 ${analysis.retrieval_trace_analysis.coverage.with_channels}/${analysis.retrieval_trace_analysis.coverage.total} 条）`}
+            >
+              <Table
+                size="small"
+                pagination={false}
+                rowKey="channel"
+                dataSource={Object.entries(analysis.retrieval_trace_analysis.channels).map(
+                  ([channel, s]) => ({ channel, ...s })
+                )}
+                columns={[
+                  { title: `通道`, dataIndex: 'channel' },
+                  { title: '样本', dataIndex: 'samples' },
+                  {
+                    title: `hit@${analysis.retrieval_trace_analysis.top_k}`,
+                    dataIndex: 'hit_at_k',
+                    render: (v: number | null) => (v == null ? '-' : `${(v * 100).toFixed(1)}%`),
+                  },
+                  {
+                    title: 'recall',
+                    dataIndex: 'recall',
+                    render: (v: number | null) => (v == null ? '-' : v.toFixed(3)),
+                  },
+                  { title: 'gold 首个名次均值', dataIndex: 'mean_first_rank', render: (v: number | null) => v ?? '-' },
+                  {
+                    title: '',
+                    dataIndex: 'channel',
+                    key: 'best',
+                    render: (c: string) =>
+                      c === analysis.retrieval_trace_analysis?.best_channel ? <Tag color="blue">最好的一路</Tag> : null,
+                  },
+                ]}
+              />
+              <Space wrap size={4} style={{ marginTop: 12 }}>
+                <span>漏召断在哪一步（点击筛出这些样本）：</span>
+                {Object.entries(analysis.retrieval_trace_analysis.step_counts)
+                  .filter(([, n]) => n > 0)
+                  .map(([k, n]) => {
+                    const label = RETRIEVAL_STEP_LABELS[k] || { text: k, color: 'default', hint: '' }
+                    return (
+                      <Tooltip key={k} title={label.hint}>
+                        <Tag
+                          color={label.color}
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => {
+                            setBadcaseStep(k)
+                            setResultPage(1)
+                            fetchResults(1, resultPageSize)
+                          }}
+                        >
+                          {label.text} {n}
+                        </Tag>
+                      </Tooltip>
+                    )
+                  })}
+                {badcaseStep && (
+                  <Tag
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => {
+                      setBadcaseStep('')
+                      setResultPage(1)
+                      fetchResults(1, resultPageSize)
+                    }}
+                  >
+                    清除筛选（{badcaseStep}）
+                  </Tag>
+                )}
+              </Space>
+              {analysis.retrieval_trace_analysis.coverage.total >
+                analysis.retrieval_trace_analysis.coverage.with_channels && (
+                <div style={{ color: '#888', marginTop: 8 }}>
+                  有 {analysis.retrieval_trace_analysis.coverage.total - analysis.retrieval_trace_analysis.coverage.with_channels} 条没有通道轨迹，
+                  这部分只能判到「漏召」，判不出断在索引还是融合。
+                </div>
+              )}
+            </Card>
+          )}
           <Card title="调参建议">
             <ol style={{ margin: 0, paddingLeft: 20 }}>
               {analysis.recommendations.map((r, i) => <li key={i}>{r}</li>)}

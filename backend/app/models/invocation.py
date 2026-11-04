@@ -56,6 +56,10 @@ class InvocationResult(BaseModel):
     answer = Column(Text, nullable=True)
     contexts = Column(JSONType, nullable=True)  # 检索到的上下文片段列表
     retrieval_ids = Column(JSONType, nullable=True)  # 检索到的chunk ID列表（用于检索指标计算）
+    # 被测系统回传的检索轨迹（通道各自的排序、树定位轮次、是否兜底取样）。
+    # 只有 retrieval_ids 时，badcase 只能得到"漏召"这一个结论，说不清是
+    # 哪一路没捞到、还是捞到了却在融合排序里被挤掉——这两种要改的地方完全不同。
+    trace = Column(JSONType, nullable=True)
 
     # 性能指标
     latency = Column(Float, nullable=True)  # 响应耗时（秒）

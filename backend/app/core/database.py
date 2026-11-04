@@ -284,6 +284,19 @@ async def init_db():
                 ADD COLUMN retrieval_ids JSONB
             """))
 
+        # invocation_results.trace
+        # 被测系统回传的检索轨迹（各通道排序、树定位轮次、兜底标记）。
+        # 缺它时 badcase 只能说"漏召"，分不清是没捞到还是融合排序挤掉。
+        result = await conn.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'invocation_results' AND column_name = 'trace'
+        """))
+        if result.fetchone() is None:
+            await conn.execute(text("""
+                ALTER TABLE invocation_results
+                ADD COLUMN trace JSONB
+            """))
+
         # eval_results.invocation_result_id
         result = await conn.execute(text("""
             SELECT column_name FROM information_schema.columns

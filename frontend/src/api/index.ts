@@ -438,14 +438,34 @@ interface EvaluationAttribution {
   call_failed_rate: number
 }
 
+interface RetrievalChannelStats {
+  samples: number
+  hit_rate: number | null
+  hit_at_k?: number | null
+  recall: number | null
+  mean_first_rank: number | null
+}
+
+interface RetrievalTraceAnalysis {
+  coverage: { total: number; with_channels: number; ratio: number | null }
+  top_k: number
+  channels: Record<string, RetrievalChannelStats>
+  best_channel?: string | null
+  step_counts: Record<string, number>
+  fusion_loss_rate: number | null
+  all_channel_miss_rate: number | null
+}
+
 interface EvaluationAnalysis {
   metric_means: Record<string, number>
   retrieval_analysis: { average: number | null; metrics: Record<string, number> }
   generation_analysis: { average: number | null; metrics: Record<string, number> }
   // 逐环归因分布：RAG 系统没回传检索轨迹时 retrieval_miss 等桶全为 0
   attribution?: EvaluationAttribution
+  // 通道级下钻：漏召是「各通道都没捞到」还是「融合挤掉」，改法完全不同
+  retrieval_trace_analysis?: RetrievalTraceAnalysis
   weak_metrics: string[]
-  root_cause: { stage: string; confidence: string; evidence?: string }
+  root_cause: { stage: string; confidence: string; evidence?: string; sub_stage?: string }
   recommendations: string[]
 }
 

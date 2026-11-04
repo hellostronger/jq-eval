@@ -15,6 +15,10 @@ class RAGResponse(BaseModel):
     retrieval_ids: Optional[List[str]] = None
     metadata: Dict[str, Any] = {}
 
+    # 检索轨迹：各召回通道各自的排序、树定位轮次、是否走兜底取样。
+    # 只给 retrieval_ids 时，评测侧只能判"漏召"，给不出"哪一路/哪一步断的"。
+    trace: Optional[Dict[str, Any]] = None
+
     # 性能指标
     response_time: float = 0.0
     first_token_latency: Optional[float] = None  # 首token延迟（秒）

@@ -363,6 +363,10 @@ class GenericHttpConnector(BaseApiIngestConnector):
             "answer": answer,
             "contexts": contexts,
             "retrieval_ids": ids if isinstance(ids, list) else [],
+            # 检索轨迹：默认取响应里的 trace 字段，profile 可用 trace_path 指到别处
+            # （如 data.debug.retrieval）。没有就是没有，评测侧要能区分
+            # "系统没回传轨迹" 与 "轨迹显示各通道都没命中"。
+            "trace": dig(payload, spec.get("trace_path") or "trace") if isinstance(payload, dict) else None,
             "metadata": payload if isinstance(payload, dict) else {},
         }
 

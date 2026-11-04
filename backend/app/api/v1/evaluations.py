@@ -13,6 +13,12 @@ from ._common import get_or_404, delete_or_404, start_task
 from ...core.utc_datetime import UTCDatetime
 from ...core.celery_app import celery_app
 from ...models import Evaluation, EvalResult, Dataset, QARecord, InvocationResult, Model
+from ...services.diagnostics.trace import (
+    RETRIEVAL_STEPS,
+    analyze_retrieval_traces,
+    channel_rank_of,
+    retrieval_step,
+)
 from ...tasks.evaluation_tasks import evaluation_task
 
 router = APIRouter()
@@ -474,9 +480,34 @@ async def _result_items(db: AsyncSession, eval_id: UUID) -> List[Dict[str, Any]]
                 else None
             ),
             "invocation_error": ir.error if ir else None,
+            # 检索轨迹（通道排序/定位轮次/兜底标记）。老系统没回传时为 None，
+            # 归因层据此把"没轨迹"和"轨迹显示各通道都没命中"分开——
+            # 前者是接入问题，后者才是检索本身的问题。
+            "trace": (ir.trace if ir else None) or None,
             "created_at": er.created_at.isoformat() if er.created_at else None,
         })
     return items
+
+
+def _trace_summary(item: Dict[str, Any]) -> Dict[str, Any]:
+    """给列表用的轨迹摘要：通道规模、断点、gold 在各路的最好名次。
+
+    完整 trace 单条可到几十 KB，列表页一次几百条没必要全带上；
+    要看原文走 /results/{id}/trace。
+    """
+    trace = item.get("trace") or {}
+    channels = trace.get("channels") or {}
+    gold = [str(g) for g in (item.get("target_chunk_ids") or [])]
+    return {
+        "has_trace": bool(trace),
+        "mode": trace.get("mode"),
+        "fallback": trace.get("fallback"),
+        "channels": {name: len(ids) for name, ids in channels.items()},
+        "rounds": trace.get("rounds_total") or len(trace.get("rounds") or []),
+        "unavailable": trace.get("unavailable") or {},
+        "gold_channel_ranks": channel_rank_of(gold, channels) if gold else {},
+        "retrieval_step": retrieval_step(item),
+    }
 
 
 @router.get("/{eval_id}/analysis")
@@ -536,6 +567,9 @@ async def get_evaluation_analysis(
     # 根因定位：先看逐条归因（哪一环断的样本最多），再用指标均值兜底
     attribution = attribution_summary(items)
     buckets = attribution["counts"]
+    # 通道级下钻：只有 retrieval_ids 时归因止步于"漏召"，
+    # 有了 trace 才能分清"各通道都没捞到"和"捞到了却在融合里被挤掉"
+    trace_analysis = analyze_retrieval_traces(items)
     diagnosable = (buckets["retrieval_miss"] + buckets["retrieved_but_answer_weak"]
                    + buckets["retrieved_ok"])
     root_cause: Dict[str, Any] = {}
@@ -556,6 +590,35 @@ async def get_evaluation_analysis(
         }
         recommendations.append("低分主因是召回漏召，不是生成：先动检索侧（分片、top-k、重排、索引类型）")
         recommendations.append("按 /results?metric=recall_k&max_score=0 导出漏召样本，核对其 gold 分片是否真的存在于知识库")
+        if trace_analysis["coverage"]["with_channels"]:
+            # 漏召再往下拆一层：改融合配比还是改索引，成本完全不同
+            if (trace_analysis["fusion_loss_rate"] or 0) >= 0.3:
+                root_cause["sub_stage"] = "fusion"
+                recommendations.append(
+                    f"其中 {trace_analysis['step_counts']['lost_in_fusion']} 条某一路已经捞到 gold，"
+                    f"是融合/重排把它们挤掉的（fusion_loss_rate={trace_analysis['fusion_loss_rate']}）："
+                    f"先调通道权重或加 reranker，别急着改分片"
+                )
+                if trace_analysis["best_channel"]:
+                    recommendations.append(
+                        f"单通道最好的一路是 {trace_analysis['best_channel']}，"
+                        f"可用 ?channels= 只跑这一路做对照，确认是配比问题而不是召回问题"
+                    )
+            elif (trace_analysis["all_channel_miss_rate"] or 0) >= 0.5:
+                root_cause["sub_stage"] = "index"
+                recommendations.append(
+                    f"{trace_analysis['step_counts']['channel_all_miss']} 条是所有通道都没有 gold："
+                    f"往分片粒度、索引覆盖和 query 理解上找，动融合配比不会有用"
+                )
+            unavailable = {}
+            for item in items:
+                for name, why in ((item.get("trace") or {}).get("unavailable") or {}).items():
+                    unavailable[name] = why
+            if unavailable:
+                recommendations.append(
+                    "有通道在评测期间没跑成（" + "；".join(f"{k}: {v}" for k, v in unavailable.items()) + "），"
+                    "该通道的召回数字是假的 0，先修复再接着比"
+                )
     elif diagnosable and diagnosable - buckets["retrieval_miss"] >= buckets["retrieval_miss"] \
             and buckets["retrieved_but_answer_weak"] > 0 \
             and buckets["retrieved_but_answer_weak"] / (diagnosable - buckets["retrieval_miss"]) >= 0.5:
@@ -616,6 +679,8 @@ async def get_evaluation_analysis(
             },
             # 逐环归因：接入了检索轨迹的评估才能给出"断在哪一步"的分布
             "attribution": attribution,
+            # 通道级下钻：每路各自的 hit/recall，以及漏召到底断在索引还是融合
+            "retrieval_trace_analysis": trace_analysis,
             "weak_metrics": weak_metrics,
             "root_cause": root_cause,
             "recommendations": recommendations,
@@ -635,6 +700,10 @@ async def get_evaluation_results(
     attribution: Optional[str] = Query(
         None, enum=list(ATTRIBUTION_BUCKETS),
         description="只看归到该环的样本，如 retrieval_miss=gold 未召回"),
+    step: Optional[str] = Query(
+        None, enum=list(RETRIEVAL_STEPS),
+        description="在归因之上再下一层：漏召是各通道都没捞到（channel_all_miss，改索引）"
+                    "还是捞到了被融合挤掉（lost_in_fusion，调配比/重排）"),
     db: AsyncSession = Depends(get_db)
 ):
     """获取评估结果，包含每条 QA 记录的详细信息和得分
@@ -647,6 +716,10 @@ async def get_evaluation_results(
     items = await _result_items(db, eval_id)
     for item in items:
         item["attribution"] = classify_attribution(item)
+        # 列表只带轨迹摘要，完整 trace 交给 /results/{id}/trace：
+        # 一次拉 200 条原始轨迹能有几十 MB，前端也用不到全部通道排序
+        item["trace_summary"] = _trace_summary(item)
+        item.pop("trace", None)
 
     def _score_of(item: Dict[str, Any]) -> Optional[float]:
         entry = item["metric_scores"].get(metric)
@@ -658,10 +731,12 @@ async def get_evaluation_results(
 
     # 过滤在内存完成：score 存在 JSON 列里，跨方言（PG JSONB / SQLite JSON）
     # 取 JSON path 再比大小的写法不通用，而单批次评估样本量本就有限。
-    if metric or only_errors or attribution:
+    if metric or only_errors or attribution or step:
         filtered = []
         for item in items:
             if attribution and item["attribution"] != attribution:
+                continue
+            if step and item["trace_summary"]["retrieval_step"] != step:
                 continue
             if only_errors:
                 has_metric_error = any(
@@ -687,6 +762,37 @@ async def get_evaluation_results(
         "summary": evaluation.summary,
         "total": total,
         "results": items[skip:skip + limit],
+    }
+
+
+@router.get("/{eval_id}/results/{result_id}/trace")
+async def get_result_trace(
+    eval_id: UUID,
+    result_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """单条 badcase 的完整检索轨迹：各通道排序、树定位轮次、兜底标记。
+
+    列表接口只给摘要（一次 200 条原始轨迹能到几十 MB），下钻某一条时才取全量。
+    同时把 gold 在每一路的名次一并算好——人来看"到底哪一步断的"，
+    最想先知道的就是"它其实被谁捞到过"。
+    """
+    await get_or_404(db, Evaluation, eval_id, "评估任务不存在")
+    items = await _result_items(db, eval_id)
+    item = next((it for it in items if it["id"] == str(result_id)), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="该评估下没有这条结果")
+    gold = [str(g) for g in (item.get("target_chunk_ids") or [])]
+    channels = (item.get("trace") or {}).get("channels") or {}
+    return {
+        "eval_id": str(eval_id),
+        "result_id": str(result_id),
+        "question": item.get("question"),
+        "target_chunk_ids": gold,
+        "retrieval_ids": item.get("retrieval_ids") or [],
+        "retrieval_step": retrieval_step(item),
+        "gold_channel_ranks": channel_rank_of(gold, channels),
+        "trace": item.get("trace"),
     }
 
 

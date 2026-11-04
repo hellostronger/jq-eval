@@ -41,6 +41,7 @@ class ConnectorAdapter(BaseRAGAdapter):
                 retrieval_ids=data.get("retrieval_ids") or [],
                 response_time=time.time() - start_time,
                 metadata=data.get("metadata") or {},
+                trace=data.get("trace") or None,
                 success=True,
             )
         except Exception as e:
