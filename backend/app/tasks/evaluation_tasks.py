@@ -14,7 +14,8 @@ from app.core.database import get_db_context
 from app.models.evaluation import Evaluation, EvaluationStatus, EvalResult
 from app.models.dataset import Dataset, QARecord
 from app.models.model import Model
-from app.models.invocation import InvocationResult
+from app.models.invocation import InvocationResult, InvocationBatch
+from app.services.dataset.qa_scope import apply_scope
 from app.services.metrics import MetricEngine, get_metric_engine, METRIC_REGISTRY
 from app.services.metrics.context_budget import apply_context_budget
 
@@ -75,18 +76,26 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
             # 获取QA记录。用 ORM 查询而非 text() 裸 SQL：text() 不做类型转换，
             # PostgreSQL 能隐式接受 UUID，SQLite 会抛
             # "Error binding parameter 0 - probably unsupported type"。
-            qa_result = await db.execute(
-                select(
-                    QARecord.id,
-                    QARecord.question,
-                    QARecord.answer,
-                    QARecord.ground_truth,
-                    QARecord.target_chunk_ids,
-                    QARecord.snapshot,
-                )
-                .where(QARecord.dataset_id == dataset.id)
-                .order_by(QARecord.created_at)
-            )
+            #
+            # 取样范围必须跟着调用批次走：批次只跑了 50 题，评估却按整个数据集
+            # 取 QA，范围外那几千条没有调用结果，会被拿空上下文参与打分——
+            # hit@k / recall 直接稀释成"像漏召"的假数字，进度条也永远停在 0%
+            # （实测 2556 题的数据集挂 50 题批次，评估十几分钟只写出几十行）。
+            scope_batch = None
+            if evaluation.invocation_batch_id:
+                scope_batch = await db.get(InvocationBatch, evaluation.invocation_batch_id)
+
+            qa_stmt = select(
+                QARecord.id,
+                QARecord.question,
+                QARecord.answer,
+                QARecord.ground_truth,
+                QARecord.target_chunk_ids,
+                QARecord.snapshot,
+            ).where(QARecord.dataset_id == dataset.id).order_by(QARecord.created_at)
+            if scope_batch is not None:
+                qa_stmt = apply_scope(qa_stmt, scope_batch)
+            qa_result = await db.execute(qa_stmt)
             qa_list = [dict(r._mapping) for r in qa_result.all()]
 
             # 获取调用结果（如果指定了 invocation_batch_id）
