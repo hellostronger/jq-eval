@@ -337,8 +337,12 @@ class GenericHttpConnector(BaseApiIngestConnector):
         if not spec:
             raise ConnectorError(f"{self.display_name} 未配置 ask")
         context = {
-            # 先把连接配置铺开（app_id / pipeline_ids / bot_id 等），再用本次调用参数覆盖
-            **{key: value for key, value in self.config.items() if isinstance(value, (str, int, float, list))},
+            # 先把连接配置铺开（app_id / pipeline_ids / bot_id / 通道权重等），
+            # 再用本次调用参数覆盖。dict 也要能铺开：RRF 配比、过滤条件这类
+            # 嵌套参数在 body 里就是 {"weights": "{{weights}}"}，漏掉它整串
+            # 占位符会原样发出去，被对方按类型校验打回 422。
+            **{key: value for key, value in self.config.items()
+               if isinstance(value, (str, int, float, list, dict))},
             "question": question,
             "chat_id": chat_id or "",
             "conversation_id": conversation_id or "",

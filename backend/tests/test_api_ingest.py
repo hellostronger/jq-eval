@@ -1293,3 +1293,46 @@ async def test_profile_adapter_query_stream_falls_back_to_query(monkeypatch):
     response = await adapter.query_stream("q")
     assert response.answer == "ok"
     assert response.first_token_latency == 1.25
+
+
+def test_generic_ask_renders_dict_config_and_returns_trace():
+    """嵌套参数（RRF 权重、过滤条件）来自连接配置：只铺开标量会把
+    {"weights": "{{weights}}"} 原样发出去，对方按 dict 校验直接 422"""
+    calls = []
+    connector = create_connector(
+        "generic",
+        {
+            "api_endpoint": "http://rag.local",
+            "auth_type": "none",
+            "channels": ["vector", "fulltext"],
+            "weights": {"vector": 3.0},
+            "ingest_profile": {
+                "ask": {
+                    "method": "POST",
+                    "path": "/api/eval_search",
+                    "body": {
+                        "question": "{{question}}",
+                        "channels": "{{channels}}",
+                        "weights": "{{weights}}",
+                    },
+                    "retrieval_ids_path": "retrieval_ids",
+                    "trace_path": "trace",
+                }
+            },
+        },
+        transport=routes_transport(
+            {
+                ("POST", "/api/eval_search"): {
+                    "retrieval_ids": ["p1"],
+                    "trace": {"channels": {"vector": ["p1"]}},
+                }
+            },
+            calls,
+        ),
+    )
+
+    data = asyncio_run(connector.ask("问题"))
+    body = json.loads(calls[0].content)
+    assert body["weights"] == {"vector": 3.0}
+    assert body["channels"] == ["vector", "fulltext"]
+    assert data["trace"] == {"channels": {"vector": ["p1"]}}

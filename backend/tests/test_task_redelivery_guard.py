@@ -118,7 +118,8 @@ async def test_manual_rerun_is_not_blocked_by_the_guard(
 
 
 @pytest.mark.asyncio
-async def test_redelivered_evaluation_task_skips_cancelled(monkeypatch, db_session: AsyncSession):
+@pytest.mark.parametrize("terminal", ["cancelled", "completed"])
+async def test_redelivered_evaluation_task_skips_terminal(monkeypatch, db_session: AsyncSession, terminal):
     from contextlib import asynccontextmanager
 
     from app.tasks import evaluation_tasks
@@ -134,14 +135,19 @@ async def test_redelivered_evaluation_task_skips_cancelled(monkeypatch, db_sessi
     await db_session.commit()
     await db_session.refresh(ds)
     ev = Evaluation(
-        name="已取消的评估", dataset_id=ds.id, status=EvaluationStatus.CANCELLED,
+        name="已终止的评估", dataset_id=ds.id, status=terminal,
         metrics=["recall_k"], batch_size=2,
     )
     db_session.add(ev)
     await db_session.commit()
+    # 必须像 worker 那样从库里重新读一遍：status 列是 String，读回来是裸 str。
+    # 直接用内存里的枚举对象测会掩盖掉 .value 崩溃（实测就是这样把重投保护
+    # 打成 AttributeError，Celery 继续重投，保护形同虚设）。
+    await db_session.refresh(ev)
+    assert not hasattr(ev.status, "value"), "期望从库里读回裸字符串状态"
 
     out = await evaluation_tasks._run_evaluation(_FakeTask(), ev.id)
 
-    assert out["status"] == "already_cancelled"
+    assert out["status"] == f"already_{terminal}"
     await db_session.refresh(ev)
-    assert ev.status == EvaluationStatus.CANCELLED, "取消被重投推翻"
+    assert ev.status == terminal, "终态被重投翻回 running"

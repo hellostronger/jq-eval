@@ -11,6 +11,7 @@ import logging
 from ...core.database import get_db
 from ...core.utc_datetime import UTCDatetime
 from ...models import RAGSystem, RAGSystemType, Model, ApiIngestTask
+from ...services.diagnostics.trace import compact_trace
 from ._common import commit_delete, validate_upload_size
 from app.core.exceptions import format_error
 
@@ -494,6 +495,10 @@ async def query_rag_system(
         return {
             "answer": response.answer,
             "contexts": response.contexts,
+            # 单题调试也要能看到召回与通道轨迹：否则「系统能连通」和
+            # 「检索结果对不对」在界面上无法同时验证，只能靠跑整批再翻结果
+            "retrieval_ids": response.retrieval_ids or [],
+            "trace": compact_trace(response.trace),
             "response_time": response.response_time,
             "success": response.success,
             "error": response.error

@@ -117,6 +117,7 @@ jq-eval/
 - **重投幂等**: broker 断线重连后 kombu 会把"已投递未 ack"的消息再投一次，实测一个已取消的评估因此复活、重打 5 分钟 ragas 并撞上当天模型配额。调用任务与评估任务现在都拒绝终态重投（`completed`/`cancelled` 直接返回 `already_*`，不重新调用模型、不写新行），用户主动重跑仍走 `POST /run`、`/retry`（派发前先把状态置回 running）
 - **快照机制**: 历史数据冻结，保证可追溯
 - **检索轨迹与通道级归因**: 调用结果新增 `trace`（`InvocationResult.trace`，迁移 `006_add_invocation_trace.sql`），由接入层透传被测系统回传的检索轨迹（通用 HTTP 连接器按 `ask.trace_path` 取，默认响应里的 `trace`），落库前经 `compact_trace` 收拢（通道排序留 40 项、定位轮次留 8 轮、单条 48KB 封顶，并保留 `*_total` 以免把截断读成"没有"）。评估侧因此能在「漏召」之下再判一层：`/evaluations/{id}/analysis` 的 `retrieval_trace_analysis` 给出每路自己的 `hit@k`/`recall`/gold 最好名次，以及断点分布——`lost_in_fusion`（某一路已捞到、融合排序挤出，该调配比或加 reranker）与 `channel_all_miss`（各通道都没有，该动分片和索引）是两种完全不同的修法；`root_cause.sub_stage` 直接指出这一层，`/results?step=` 可按断点筛 badcase，`/results/{id}/trace` 取单条完整轨迹。没有轨迹的老系统一律记 `no_trace`，不会被误算成漏召
+- **单题调试与 profile 参数透传**: `POST /rag-systems/{id}/query` 也返回 `retrieval_ids` 与收纳后的 `trace`，跑整批之前就能同时确认「能不能连通」和「召回对不对」；连接配置里的 dict 值（如 RRF 权重 `{"vector": 3}`）能被 `{{weights}}` 原类型展开——此前只铺开标量，占位符会原样发出去，被对端按 dict 校验打回 422
 - **向量检索**: Milvus高性能向量检索
 - **调用与评估解耦**: 调用批次(Invocation)与评估(Evaluation)分离，支持复用调用结果重评（reuse_invocation），同一批对话可换指标/换模型反复评估
 - **模型调用映射代理**: 对外暴露 OpenAI/Anthropic 协议端点（/v1/chat/completions、/v1/messages），按映射转发到目标模型，协议自动互转，调用日志全量落库，支持流式

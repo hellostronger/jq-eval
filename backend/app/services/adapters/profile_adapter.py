@@ -40,6 +40,9 @@ class ProfileAdapter(BaseRAGAdapter):
                 retrieval_ids=data.get("retrieval_ids") or [],
                 response_time=time.time() - start_time,
                 metadata=data.get("metadata") or {},
+                # 与 ConnectorAdapter 保持一致：profile 里配了 trace_path 就必须透传，
+                # 否则通道级归因只能看到 generic 系统全是 no_trace（最常用的一类反而丢轨迹）
+                trace=data.get("trace") or None,
                 success=True,
             )
         except Exception as e:

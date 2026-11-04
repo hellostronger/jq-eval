@@ -273,3 +273,30 @@ async def test_legacy_result_without_trace_is_not_counted_as_miss(client, db_ses
     trace_analysis = resp.json()["analysis"]["retrieval_trace_analysis"]
     assert trace_analysis["step_counts"]["no_trace"] == 1
     assert trace_analysis["coverage"]["with_channels"] == 0
+
+
+@pytest.mark.asyncio
+async def test_profile_adapter_passes_trace_through(monkeypatch):
+    """generic 系统走 ProfileAdapter：连接器给出的 trace 必须透传，
+    否则最常用的 profile 接入全是 no_trace，通道级归因形同虚设"""
+    from app.services.adapters.profile_adapter import ProfileAdapter
+
+    class _FakeConnector:
+        display_name = "通用 HTTP"
+
+        async def ask(self, question, *, chat_id=None, conversation_id=None):
+            return {
+                "answer": "",
+                "contexts": ["正文"],
+                "retrieval_ids": ["mh_0001:p0001"],
+                "trace": {"channels": {"vector": ["mh_0001:p0001"]}, "mode": "search+vector"},
+                "metadata": {},
+            }
+
+    monkeypatch.setattr(
+        "app.services.adapters.profile_adapter.create_connector",
+        lambda *a, **k: _FakeConnector(),
+    )
+    response = await ProfileAdapter({}).query("问题")
+    assert response.success is True
+    assert response.trace == {"channels": {"vector": ["mh_0001:p0001"]}, "mode": "search+vector"}

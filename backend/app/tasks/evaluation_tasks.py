@@ -47,11 +47,15 @@ async def _run_evaluation(task, evaluation_id: UUID) -> Dict[str, Any]:
         # ragas（还撞上当天配额上限）。手工重跑走 POST /evaluations/{id}/run|retry，
         # 那里会先把状态置回 running 再派发，不受这里影响。
         if evaluation.status in (EvaluationStatus.COMPLETED, EvaluationStatus.CANCELLED):
+            # status 列是 String，取出来是裸 str 而不是枚举成员，不能调 .value：
+            # 实测这条日志把重投保护自己打崩（AttributeError），任务按「异常失败」
+            # 收尾，Celery 还会继续重投——保护反而失效。
+            status_text = getattr(evaluation.status, "value", evaluation.status)
             logger.warning(
-                f"评估 {evaluation_id} 已处于终态 {evaluation.status.value}，跳过重复投递（acks_late 重投保护）"
+                f"评估 {evaluation_id} 已处于终态 {status_text}，跳过重复投递（acks_late 重投保护）"
             )
             return {"evaluation_id": evaluation_id,
-                    "status": f"already_{evaluation.status.value}",
+                    "status": f"already_{status_text}",
                     "summary": evaluation.summary}
 
         # 更新状态
