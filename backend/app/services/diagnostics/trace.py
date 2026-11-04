@@ -130,11 +130,16 @@ def channel_rank_of(gold_ids: List[str], channels: Dict[str, Any]) -> Dict[str, 
 def retrieval_step(item: Dict[str, Any]) -> str:
     """一条样本的检索断点判定，供 badcase 分步归因。
 
-    - no_trace            被测系统没回传轨迹（老接入），无法下钻
-    - no_gold             没有 gold，判不了
-    - channel_all_miss    各通道都没捞到 gold → 索引/分片/query 理解层
-    - lost_in_fusion      至少一路捞到了，但最终列表没有 → 融合配比/重排层
-    - gold_in_final       最终列表里有 → 检索没问题，往下游看
+    - no_trace             被测系统没回传轨迹（老接入），无法下钻
+    - no_gold              没有 gold，判不了
+    - channel_all_miss     各通道都没捞到 gold → 索引/分片/query 理解层
+    - lost_in_truncation   gold 在通道里排在最终列表长度之外 → 截断，改 top-k
+    - lost_in_fusion       gold 在通道里本就靠前、却被融合挤出 → 融合配比/重排
+    - gold_in_final        最终列表里有 → 检索没问题，往下游看
+
+    把截断从融合里拆出来是必要的：实测单通道 vector 路被判成 lost_in_fusion 的
+    样本，gold 在通道里排第 29/33，而最终列表只有 20 条 —— 按融合调配比去改不会
+    有任何收益，真正该动的是 top-k。
     """
     gold = [str(g) for g in (item.get("target_chunk_ids") or [])]
     if not gold:
@@ -146,12 +151,19 @@ def retrieval_step(item: Dict[str, Any]) -> str:
         return "gold_in_final"
     if not channels:
         return "no_trace"
-    if channel_rank_of(gold, channels):
-        return "lost_in_fusion"
-    return "channel_all_miss"
+    ranks = channel_rank_of(gold, channels)
+    if not ranks:
+        return "channel_all_miss"
+    # 通道名次落在最终窗口之外 = 压根没进入被排序/融合的那批候选
+    if min(ranks.values()) > len(final_ids):
+        return "lost_in_truncation"
+    return "lost_in_fusion"
 
 
-RETRIEVAL_STEPS = ("gold_in_final", "lost_in_fusion", "channel_all_miss", "no_trace", "no_gold")
+RETRIEVAL_STEPS = (
+    "gold_in_final", "lost_in_fusion", "lost_in_truncation",
+    "channel_all_miss", "no_trace", "no_gold",
+)
 
 
 def _ratio(part: int, whole: int) -> Optional[float]:
@@ -204,7 +216,8 @@ def analyze_retrieval_traces(items: List[Dict[str, Any]], top_k: int = 10) -> Di
             "mean_first_rank": round(sum(ranks) / len(ranks), 2) if ranks else None,
         }
 
-    retrievable = steps["gold_in_final"] + steps["lost_in_fusion"] + steps["channel_all_miss"]
+    retrievable = (steps["gold_in_final"] + steps["lost_in_fusion"]
+                   + steps["lost_in_truncation"] + steps["channel_all_miss"])
     best_channel = None
     scored = {n: c[f"hit@{top_k}"] for n, c in per_channel.items() if c[f"hit@{top_k}"]}
     if scored:
@@ -222,6 +235,8 @@ def analyze_retrieval_traces(items: List[Dict[str, Any]], top_k: int = 10) -> Di
         "step_counts": steps,
         # 某一路已经捞到 gold、最终列表却没有了 → 问题在融合/重排，不在索引
         "fusion_loss_rate": _ratio(steps["lost_in_fusion"], retrievable),
+        # gold 在通道里但排在最终窗口之外 → 是截断，改 top-k 才有效，改配比没用
+        "truncation_loss_rate": _ratio(steps["lost_in_truncation"], retrievable),
         # 所有通道都找不到 gold → 才轮到动分片、索引或 query 理解
         "all_channel_miss_rate": _ratio(steps["channel_all_miss"], retrievable),
     }

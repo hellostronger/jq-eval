@@ -57,6 +57,7 @@ const ATTRIBUTION_LABELS: Record<string, { text: string; color: string }> = {
 const RETRIEVAL_STEP_LABELS: Record<string, { text: string; color: string; hint: string }> = {
   gold_in_final: { text: '检索命中', color: 'green', hint: 'gold 已在最终返回列表里，低分要往下游看' },
   lost_in_fusion: { text: '融合挤掉', color: 'magenta', hint: '某一路已捞到 gold，融合/重排把它排出了列表——调配比或加 reranker' },
+  lost_in_truncation: { text: '被 top-k 截断', color: 'orange', hint: 'gold 在通道里排在最终列表长度之外——把 top-k 调大才有效，改配比没用' },
   channel_all_miss: { text: '各通道都没捞到', color: 'red', hint: '所有召回通道都没有 gold——动分片、索引或 query 理解' },
   no_trace: { text: '无通道轨迹', color: 'default', hint: '被测系统没回传轨迹，只能判到「漏召」这一层' },
   no_gold: { text: '缺 gold', color: 'default', hint: '数据集没有检索 gold，检索指标无从判断' },

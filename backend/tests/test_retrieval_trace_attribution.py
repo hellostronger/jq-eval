@@ -74,6 +74,29 @@ def test_retrieval_step_separates_index_from_fusion():
     assert retrieval_step(_item([], ["mh_0001:p0001"], {"fulltext": ["x"]})) == "no_gold"
 
 
+def test_retrieval_step_separates_truncation_from_fusion():
+    """gold 在通道里排在最终窗口之外是截断，不是融合挤掉
+
+    实测踩过的坑：单通道 vector 路的 badcase 被判成 lost_in_fusion，
+    其实是通道给了 40 条、最终只留 20 条，gold 排第 29。
+    按融合层去调配比完全不会有效果，该改的是 top-k。
+    """
+    gold = "mh_0001:p0029"
+    final = [f"mh_0001:p{i:04d}" for i in range(101, 121)]       # 最终只留 20 条
+    channel = [f"mh_0001:p{i:04d}" for i in range(1, 41)]        # 通道给 40 条，gold 排第 29
+    assert retrieval_step(_item([gold], final, {"vector": channel})) == "lost_in_truncation"
+    # 同样 40 条通道，gold 排第 3 却没进最终列表 → 才是融合/重排的问题
+    assert retrieval_step(_item(["mh_0001:p0003"], final, {"vector": channel})) == "lost_in_fusion"
+
+    out = analyze_retrieval_traces(
+        [_item([gold], final, {"vector": channel})], top_k=10
+    )
+    assert out["step_counts"]["lost_in_truncation"] == 1
+    assert out["step_counts"]["lost_in_fusion"] == 0
+    assert out["truncation_loss_rate"] == 1.0
+    assert out["fusion_loss_rate"] == 0.0
+
+
 def test_channel_rank_of_reports_best_position():
     ranks = channel_rank_of(
         ["a", "z"], {"vector": ["b", "a", "c"], "fulltext": ["a", "b", "c", "z"]}

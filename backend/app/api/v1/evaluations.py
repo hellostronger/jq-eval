@@ -592,6 +592,14 @@ async def get_evaluation_analysis(
         recommendations.append("按 /results?metric=recall_k&max_score=0 导出漏召样本，核对其 gold 分片是否真的存在于知识库")
         if trace_analysis["coverage"]["with_channels"]:
             # 漏召再往下拆一层：改融合配比还是改索引，成本完全不同
+            if (trace_analysis["truncation_loss_rate"] or 0) >= 0.3:
+                root_cause["sub_stage"] = "top_k"
+                recommendations.append(
+                    f"其中 {trace_analysis['step_counts']['lost_in_truncation']} 条 gold 本来就在候选里，"
+                    f"但通道名次落在最终 {trace_analysis['top_k'] or 'top-k'} 窗口之外"
+                    f"（truncation_loss_rate={trace_analysis['truncation_loss_rate']}）："
+                    f"这是截断，把 top-k 调大就有效，改融合配比不会有用"
+                )
             if (trace_analysis["fusion_loss_rate"] or 0) >= 0.3:
                 root_cause["sub_stage"] = "fusion"
                 recommendations.append(
@@ -703,7 +711,8 @@ async def get_evaluation_results(
     step: Optional[str] = Query(
         None, enum=list(RETRIEVAL_STEPS),
         description="在归因之上再下一层：漏召是各通道都没捞到（channel_all_miss，改索引）"
-                    "还是捞到了被融合挤掉（lost_in_fusion，调配比/重排）"),
+                    "还是捞到了被融合挤掉（lost_in_fusion，调配比/重排）、"
+                    "被 top-k 截断（lost_in_truncation，加大 top-k）"),
     db: AsyncSession = Depends(get_db)
 ):
     """获取评估结果，包含每条 QA 记录的详细信息和得分
