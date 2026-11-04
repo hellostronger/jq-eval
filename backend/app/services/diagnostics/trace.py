@@ -25,7 +25,13 @@ BUDGET_BYTES = 48 * 1024
 
 # 原样保留的标量/小字段
 _SCALAR_KEYS = ("mode", "fallback", "citation_source", "answer_status", "doc_id", "unavailable")
-_LIST_KEYS = ("read_pages", "read_nodes", "wiki_pages", "graph_entities")
+_LIST_KEYS = ("read_pages", "read_nodes", "wiki_pages", "graph_entities", "terms", "anchors")
+# 通道专属的规模计数（lexical_pool_total、rounds_total 等）：不知道被测系统会回传
+# 什么字段，但"这一路到底给了多少候选"是判零候选还是判截断的根据，白名单会把它丢掉
+_EXTRA_SCALAR_MAX = 12
+# 明显是正文/答案的字段：轨迹里不该顺带存生成内容，体积大且与分析无关
+_CONTENT_KEYS = frozenset({"answer", "context", "contexts", "text", "content",
+                          "output", "response", "question", "query"})
 
 
 def _shrink_ids(values: Any, keep: int) -> List[Any]:
@@ -95,11 +101,29 @@ def compact_trace(raw: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if isinstance(verification, dict):
         out["verification"] = verification
 
+    # 通道专属的规模计数：词法路的 lexical_pool_total、图路的 entity_count 等
+    # 都是几个数字，留着才能区分"这一路压根没候选"和"候选被截断"。
+    # 只在确实有通道结构时收，否则 {"answer": "..."} 这种无轨迹响应会被当成轨迹留下
+    kept = 0
+    if out.get("channels"):
+        for key, value in raw.items():
+            if key in out or key in ("channels", "rounds", "lexical", "verification") \
+                    or key in _CONTENT_KEYS:
+                continue
+            if isinstance(value, bool) or isinstance(value, (int, float)):
+                out[key] = value
+                kept += 1
+            elif isinstance(value, str) and len(value) <= 60:
+                out[key] = value
+                kept += 1
+            if kept >= _EXTRA_SCALAR_MAX:
+                break
+
     # 体积兜底：真实批次里一页正文摘要偶尔会把 trace 撑到几百 KB。
     # 结构必须保持不变（channels 仍是通道名 -> id 列表），否则分析层会把
     # "被截断" 当成 "没轨迹"，归因直接退回 no_trace，比少存几个 id 糟糕得多。
     if len(json.dumps(out, ensure_ascii=False).encode("utf-8")) > BUDGET_BYTES:
-        out = {
+        slim = {
             "truncated": "trace 超过单条体积上限，通道排序只留前 10",
             "mode": out.get("mode"),
             "fallback": out.get("fallback"),
@@ -109,6 +133,13 @@ def compact_trace(raw: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
             "channels_total": out.get("channels_total"),
             "rounds": out.get("rounds", [])[:3],
         }
+        # 规模计数本来就是几个数字，超预算时没必要一起丢——丢了就等于
+        # "这一路给了多少候选"又查不出来了
+        slim.update({
+            k: v for k, v in out.items()
+            if k not in slim and isinstance(v, (int, float, bool))
+        })
+        out = slim
 
     return out or None
 

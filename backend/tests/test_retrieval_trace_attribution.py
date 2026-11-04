@@ -38,6 +38,25 @@ def test_compact_trace_keeps_channel_order_and_marks_truncation():
     assert out["graph_entities_total"] == 50
 
 
+def test_compact_trace_keeps_channel_specific_counts():
+    """词法路的候选规模必须留下，否则「这一路零候选」和「候选被截断」分不开
+
+    实测踩过的坑：raw_lexical 路回传 lexical_pool_total/terms，白名单没这两项，
+    落库后只剩 channels，50 题里 18 题返回 0 条这件事在 trace 里看不出来。
+    """
+    raw = {
+        "channels": {"raw_lexical": ["mh_0001:p0027"]},
+        "mode": "search+raw_lexical",
+        "lexical_pool_total": 3,
+        "ordered_by": "lexical_score",
+        "terms": ["TechCrunch", "Amazon"],
+    }
+    out = compact_trace(raw)
+    assert out["lexical_pool_total"] == 3
+    assert out["ordered_by"] == "lexical_score"
+    assert out["terms"] == ["TechCrunch", "Amazon"]
+
+
 def test_compact_trace_without_input_is_none():
     """老系统不回传轨迹时必须落 NULL：分析层要区分「没轨迹」和「没命中」"""
     assert compact_trace(None) is None
@@ -48,10 +67,13 @@ def test_compact_trace_without_input_is_none():
 def test_compact_trace_respects_size_budget():
     """单条批次结果攒几千条，轨迹必须封顶，否则结果表被 JSON 撑爆"""
     long_id = "mh_0001:p0001:" + "x" * 400
-    big = {"channels": {f"c{i}": [f"{long_id}{j}" for j in range(40)] for i in range(8)}}
+    big = {"channels": {f"c{i}": [f"{long_id}{j}" for j in range(40)] for i in range(8)},
+           "lexical_pool_total": 320}
     out = compact_trace(big)
     assert "truncated" in out
     assert all(len(v) <= 10 for v in out["channels"].values())
+    # 超预算时只砍长列表，计数留着
+    assert out["lexical_pool_total"] == 320
 
 
 # ------------------------------------------------------------------ 断点判定
