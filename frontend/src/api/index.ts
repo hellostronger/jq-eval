@@ -286,6 +286,7 @@ export interface BuiltinBenchmarkQualityReport {
   by_question_type: Record<string, number>
   by_ability: Record<string, number>
   by_subject: Record<string, number>
+  by_probe: Record<string, number>
   difficulty_x_type: Record<string, number>
   duplicate_rate: number
   question_length: { min: number; avg: number; max: number }

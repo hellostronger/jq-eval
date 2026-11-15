@@ -96,7 +96,7 @@ jq-eval/
 - **OpenAI/Anthropic 双协议代理**：入站请求统一转内部表示（protocol_converter），出站按目标模型协议转换，SSE流式透传，映射密钥鉴权（hmac比对），调用日志记录请求/响应/时延
 - **密钥静态加密**：上游 API 密钥与对外映射密钥 Fernet 加密落库，EncryptedText TypeDecorator 读写透明、历史明文渐进迁移，密钥轮换失败不留错误凭据
 - **指标插件化**：所有指标实现 BaseMetric 接口并注册 REGISTRY，前端"指标市场"动态勾选组合，检索指标与生成指标按评估阶段分组
-- **内置基准评测集**：66 题原创中文分层基准（easy/medium/hard × simple/complex/multi_hop 全组合），随启动幂等入库；文件 sha256 冻结版本，内容变更升版重建（被引用则跳过保护历史结果）；加载时 fail-fast 校验分层覆盖与集内去重，质量报告（分布/长度/去重率）随数据集可查，新环境开箱即可跑「调用 → 评估 → 归因」
+- **内置基准评测集**：两套原创中文基准随启动幂等入库——①综合问答基准（66 题，easy/medium/hard × simple/complex/multi_hop 全组合，考「会不会」）；②鲁棒性诊断基准（52 题 × 8 类探针：错误前提/应拒答/近义干扰/单位陷阱/否定反转/多条件完整/上下文冲突/歧义识别，考「坏情况下会不会出洋相」，逐探针拆解成绩直接定位失效模式）。文件 sha256 冻结版本，内容变更升版重建（被引用则跳过保护历史结果）；加载时 fail-fast 校验分层覆盖与集内去重，质量报告随数据集可查，新环境开箱即可跑「调用 → 评估 → 归因」
 - **多源数据同步**：Dify/FastGPT/n8n/自定义库 四种同步适配器，字段映射可配置，同步前先探测连接/预览Schema，快照机制保证历史可追溯
 - **Celery 工程化**：NullPool 规避 asyncpg 跨 event loop 连接崩溃；任务失败统一 rollback+重取+标记 FAILED；PROGRESS 状态实时上报；任务超时与 acks_late 配置
 - **前端工程化**：路由级代码分割 + vendor按依赖分包（echarts/antd/mermaid独立chunk）；轮询串行化防请求堆积；WebSocket 卸载防泄漏；统一错误拦截器

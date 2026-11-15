@@ -30,6 +30,27 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "builtin_benchmarks
 VALID_DIFFICULTIES = ("easy", "medium", "hard")
 VALID_QUESTION_TYPES = ("simple", "complex", "multi_hop")
 
+# 诊断探针类型：每类瞄准 RAG/LLM 一个已知失效模式。
+# 与通用基准（考「会不会」）错位，这套考「坏情况下会不会出洋相」：
+#   false_premise     —— 题干埋错误前提，考会不会迎合着答（sycophancy）
+#   unanswerable      —— 无可靠答案，考敢不敢拒答（防幻觉核心指标）
+#   distractor        —— 相似名称/诗句/数字干扰，考检索与记忆的精度
+#   unit_trap         —— 单位/量纲混淆（光年、华氏、大卡），考细致度
+#   negation          —— 否定式提问/识破单数陷阱，考指令理解
+#   multi_constraint  —— 多条件组合必须全部满足，考完整性（漏一条即错）
+#   knowledge_conflict —— 材料与常识冲突/材料互相冲突，考上下文忠诚与冲突检测
+#   ambiguous         —— 歧义句/多视角问题，考会不会强答单一答案
+VALID_PROBES = (
+    "false_premise",
+    "unanswerable",
+    "distractor",
+    "unit_trap",
+    "negation",
+    "multi_constraint",
+    "knowledge_conflict",
+    "ambiguous",
+)
+
 # 内置基准注册表：新增基准在这里登记，启动时自动入库
 BUILTIN_BENCHMARKS = [
     {
@@ -38,10 +59,25 @@ BUILTIN_BENCHMARKS = [
         "version": "v1",
         "filename": "rag_qa_benchmark_v1.jsonl",
         "description": (
-            "原创中文综合问答基准：60 题，覆盖 easy/medium/hard 难度与 "
+            "原创中文综合问答基准：66 题，覆盖 easy/medium/hard 难度与 "
             "simple/complex/multi_hop 题型的全部组合，能力维度含事实记忆、定义理解、"
             "因果解释、数值计算、对比分析、时序推理等。题目不取自公开基准，"
             "可放心用于开箱评估与版本间回归对比。"
+        ),
+        "language": "zh",
+        "license": "proprietary-original",
+    },
+    {
+        "benchmark_id": "rag_stress_zh_v1",
+        "name": "JQ-Eval 中文鲁棒性诊断基准 v1",
+        "version": "v1",
+        "filename": "rag_stress_benchmark_v1.jsonl",
+        "require_probe": True,
+        "description": (
+            "诊断型基准：52 题 × 8 类探针（错误前提/应拒答/近义干扰/单位陷阱/"
+            "否定反转/多条件完整/上下文冲突/歧义识别），每类瞄准一个已知失效模式。"
+            "与通用基准错位——通用基准考「会不会」，这套考「坏情况下会不会出洋相」，"
+            "评估结果按探针维度拆解可直接定位失效模式，衔接归因闭环。"
         ),
         "language": "zh",
         "license": "proprietary-original",
@@ -102,6 +138,18 @@ def load_benchmark_records(meta: dict) -> tuple[list[dict], str]:
             )
         seen[key] = lineno
 
+        probe = (item.get("probe") or "").strip() or None
+        if meta.get("require_probe") and probe not in VALID_PROBES:
+            raise ValueError(
+                f"{meta['filename']} 第{lineno}行 probe 缺失或非法: {probe!r}"
+            )
+
+        # 冲突类探针带命题材料（与常识冲突/材料互斥），落 qa_record.snapshot，
+        # 与手工导入的 contexts 同一通道，faithfulness 类指标照常消费
+        contexts = item.get("contexts") or []
+        if contexts and not isinstance(contexts, list):
+            contexts = [contexts]
+
         records.append({
             "seq": len(records),
             "question": question,
@@ -112,6 +160,9 @@ def load_benchmark_records(meta: dict) -> tuple[list[dict], str]:
             "question_type": question_type,
             "ability": (item.get("ability") or "").strip() or None,
             "subject": (item.get("subject") or "").strip() or None,
+            "probe": probe,
+            "probe_note": (item.get("probe_note") or "").strip() or None,
+            "contexts": contexts,
         })
 
     if not records:
@@ -143,6 +194,14 @@ def _check_coverage(meta: dict, records: list[dict]) -> None:
             raise ValueError(
                 f"{meta['filename']} 难度 {d} 只有 {count} 题，单层样本过少无统计意义"
             )
+    if meta.get("require_probe"):
+        probe_counts = Counter(r["probe"] for r in records)
+        thin = {p: c for p, c in probe_counts.items() if c < 5}
+        if thin:
+            raise ValueError(f"{meta['filename']} 探针样本过少（<5）: {thin}")
+        missing_probes = [p for p in VALID_PROBES if p not in probe_counts]
+        if missing_probes:
+            raise ValueError(f"{meta['filename']} 缺少探针类型: {missing_probes}")
 
 
 def compute_quality_report(records: list[dict]) -> dict:
@@ -151,6 +210,7 @@ def compute_quality_report(records: list[dict]) -> dict:
     by_question_type = Counter(r["question_type"] for r in records)
     by_ability = Counter(r["ability"] for r in records if r["ability"])
     by_subject = Counter(r["subject"] for r in records if r["subject"])
+    by_probe = Counter(r["probe"] for r in records if r["probe"])
     combos = Counter(f"{r['difficulty']}/{r['question_type']}" for r in records)
 
     def _len_stats(values):
@@ -166,6 +226,7 @@ def compute_quality_report(records: list[dict]) -> dict:
         "by_question_type": dict(by_question_type),
         "by_ability": dict(by_ability),
         "by_subject": dict(by_subject),
+        "by_probe": dict(by_probe),
         "difficulty_x_type": dict(combos),
         # 加载器对题干做归一化去重并 fail-fast，这里复核口径永远应为 0
         "duplicate_rate": 0.0,
@@ -175,13 +236,17 @@ def compute_quality_report(records: list[dict]) -> dict:
 
 
 def _qa_metadata(meta: dict, record: dict) -> dict:
-    """单题元信息：溯源字段放 qa_metadata，评估详情里可按能力/学科拆解"""
-    return {
+    """单题元信息：溯源字段放 qa_metadata，评估详情里可按能力/学科/探针拆解"""
+    data = {
         "benchmark_id": meta["benchmark_id"],
         "benchmark_seq": record["seq"],
         "ability": record["ability"],
         "subject": record["subject"],
     }
+    if record.get("probe"):
+        data["probe"] = record["probe"]
+        data["probe_note"] = record["probe_note"]
+    return data
 
 
 async def _find_builtin_dataset(db: AsyncSession, benchmark_id: str):
@@ -210,7 +275,7 @@ async def _dataset_in_use(db: AsyncSession, dataset_id) -> bool:
 
 def _add_records(db: AsyncSession, dataset_id, records: list[dict], meta: dict) -> None:
     for record in records:
-        db.add(QARecord(
+        qa_record = QARecord(
             dataset_id=dataset_id,
             question=record["question"],
             answer=record["answer"],
@@ -218,7 +283,10 @@ def _add_records(db: AsyncSession, dataset_id, records: list[dict], meta: dict) 
             question_type=record["question_type"],
             difficulty=record["difficulty"],
             qa_metadata=_qa_metadata(meta, record),
-        ))
+        )
+        if record.get("contexts"):
+            qa_record.snapshot = {"contexts": record["contexts"]}
+        db.add(qa_record)
 
 
 def _benchmark_metadata(meta: dict, file_hash: str, report: dict) -> dict:
@@ -274,8 +342,13 @@ async def provision_builtin_benchmark(db: AsyncSession, benchmark_id: str) -> di
                 dataset.status = "ready"
                 upgraded = True
 
-    # 每次都校正统计：即便内容没变，手工删过记录也能自愈
-    await refresh_dataset_stats(db, dataset.id, mark_ground_truth=True)
+    # 每次都校正统计：即便内容没变，手工删过记录也能自愈。
+    # 冲突探针带命题材料（contexts），has_contexts 要标记到位
+    await refresh_dataset_stats(
+        db, dataset.id,
+        mark_ground_truth=True,
+        mark_contexts=any(r.get("contexts") for r in records),
+    )
     await db.commit()
     await db.refresh(dataset)
 

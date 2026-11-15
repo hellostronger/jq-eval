@@ -12,6 +12,18 @@ import type { BuiltinBenchmark, BuiltinBenchmarkQualityReport } from '@/api'
 
 const DIFFICULTY_COLORS: Record<string, string> = { easy: 'green', medium: 'orange', hard: 'red' }
 
+// 诊断基准的探针中文名：与后端 VALID_PROBES 对齐
+const PROBE_LABELS: Record<string, string> = {
+  false_premise: '错误前提',
+  unanswerable: '应拒答',
+  distractor: '近义干扰',
+  unit_trap: '单位陷阱',
+  negation: '否定反转',
+  multi_constraint: '多条件',
+  knowledge_conflict: '上下文冲突',
+  ambiguous: '歧义识别',
+}
+
 const renderDifficultyTags = (report: BuiltinBenchmarkQualityReport) =>
   Object.entries(report.by_difficulty).map(([level, count]) => (
     <Tag key={level} color={DIFFICULTY_COLORS[level] || 'default'}>
@@ -280,6 +292,13 @@ const Datasets: React.FC = () => {
                     <Tooltip title="集内去重率为 0，题干归一化后无重复">
                       <Tag color="cyan">去重率 0%</Tag>
                     </Tooltip>
+                    {Object.keys(b.dataset.quality_report.by_probe || {}).length > 0 && (
+                      <Tooltip title="诊断探针分布：评估结果按探针维度拆解可直接定位失效模式">
+                        {Object.entries(b.dataset.quality_report.by_probe).map(([p, c]) => (
+                          <Tag key={p} color="geekblue">{PROBE_LABELS[p] || p}: {c}</Tag>
+                        ))}
+                      </Tooltip>
+                    )}
                   </Space>
                 )}
               </div>

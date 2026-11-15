@@ -293,14 +293,17 @@ POST /api/v1/rag-systems/{system_id}/health
 
 ### 4.0 内置基准评测集
 
-随应用启动自动入库（幂等），新环境开箱即可发起「调用 → 评估 → 归因」。
+两套原创基准随应用启动自动入库（幂等），新环境开箱即可发起「调用 → 评估 → 归因」：
+
+- `rag_qa_zh_v1` 综合问答基准：66 题，难度×题型全组合，考基础能力
+- `rag_stress_zh_v1` 鲁棒性诊断基准：52 题 × 8 类探针（错误前提/应拒答/近义干扰/单位陷阱/否定反转/多条件完整/上下文冲突/歧义识别），考失效模式；`qa_metadata.probe` / `probe_note` 随样本落库，冲突探针的命题材料存 `snapshot.contexts`
 
 ```
 GET  /api/v1/datasets/builtin
 POST /api/v1/datasets/builtin/{benchmark_id}/provision
 ```
 
-- `GET /builtin`：返回注册表 + 入库状态（`dataset.id`、`record_count`、`version_match`）+ 质量报告（难度/题型/能力/学科分布、题干与答案长度、去重率）
+- `GET /builtin`：返回注册表 + 入库状态（`dataset.id`、`record_count`、`version_match`）+ 质量报告（难度/题型/能力/学科/探针分布、题干与答案长度、去重率）
 - `POST /provision`：幂等导入；文件内容变更（sha256 与库内冻结值不一致）且数据集未被评估/调用引用时原地重建升版，被引用则跳过升版保护历史结果；未知 `benchmark_id` 返回 404，文件校验失败返回 400
 
 ### 4.1 创建数据集
