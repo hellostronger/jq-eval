@@ -1,0 +1,14 @@
+# 构建上下文瘦身：本地虚拟环境/缓存/日志/测试不进镜像
+.venv
+venv
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
+tests
+uvicorn*.log
+*.log
+run_backend.ps1
+start.bat
+start.sh
+dev.py

@@ -1,0 +1,6 @@
+node_modules
+dist
+vite.log
+*.log
+run_frontend.ps1
+static_proxy.cjs

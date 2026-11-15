@@ -1,0 +1,89 @@
+# jq-eval 应用层编排：后端 API + Celery worker + 前端网关
+#
+# 中间件不在本文件管理：服务器上 jqeval-postgres / jqeval-redis / jqeval-minio /
+# jqeval-milvus 已由 docker-compose.yml 独立运行，这里只做两件事——
+#   1. 加入它们所在的 jqeval-network（external），用容器名直连；
+#   2. 后端只在网络内暴露（expose），不发布宿主端口，外网唯一入口是前端 8380 的 nginx。
+#
+# 用法（在服务器 /opt/jq-eval 下）：
+#   docker compose -f deploy/docker-compose.app.yml up -d --build
+#
+# 端口选择依据：宿主 8000 已被其他 uvicorn 服务占用、3000 被 new-api 占用，
+# 故前端网关用 8380（部署前已实测空闲）。
+name: jqeval-app
+
+x-backend-env: &backend-env
+  APP_ENV: production
+  APP_DEBUG: "false"
+  # 中间件全部走容器名（同网络 DNS），不再指向公网 IP
+  POSTGRES_HOST: jqeval-postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: jqeval
+  POSTGRES_USER: jqeval
+  POSTGRES_PASSWORD: jqeval123
+  REDIS_HOST: jqeval-redis
+  REDIS_PORT: "6379"
+  REDIS_PASSWORD: jqeval123
+  MINIO_HOST: jqeval-minio
+  MINIO_ACCESS_KEY: minioadmin
+  MINIO_SECRET_KEY: minioadmin123
+  MINIO_BUCKET: jqeval
+  MINIO_SECURE: "false"
+  MILVUS_HOST: jqeval-milvus
+  MILVUS_PORT: "19530"
+  MILVUS_COLLECTION_PREFIX: jqeval
+  # 生产密钥用 deploy/.env 覆盖（JQEVAL_SECRET_KEY / JQEVAL_JWT_SECRET_KEY）
+  SECRET_KEY: ${JQEVAL_SECRET_KEY:-jqeval-secret-key-change-me}
+  JWT_SECRET_KEY: ${JQEVAL_JWT_SECRET_KEY:-jqeval-jwt-secret-change-me}
+  CELERY_BROKER_URL: redis://:jqeval123@jqeval-redis:6379/0
+  CELERY_RESULT_BACKEND: redis://:jqeval123@jqeval-redis:6379/0
+
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+      args:
+        # 国内构建加速：PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple docker compose ...
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    image: jqeval-backend:latest
+    container_name: jqeval-backend
+    restart: unless-stopped
+    environment: *backend-env
+    # 只在网络内暴露，不发布宿主端口：外网唯一入口是前端网关
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=5)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    # 中间件是外部既有容器，不声明 depends_on
+
+  worker:
+    image: jqeval-backend:latest
+    container_name: jqeval-worker
+    restart: unless-stopped
+    # 与 README 的本地启动命令同源；prefork 并发 2 + 定期回收子进程，
+    # 服务器可用内存约 2G，不能按默认 nproc=4 拉满
+    command: ["celery", "-A", "app.core.celery_app", "worker", "--loglevel=info", "--concurrency=2", "--max-tasks-per-child=50"]
+    environment: *backend-env
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    image: jqeval-frontend:latest
+    container_name: jqeval-frontend
+    restart: unless-stopped
+    ports:
+      - "8380:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+networks:
+  default:
+    name: jqeval-network
+    external: true
