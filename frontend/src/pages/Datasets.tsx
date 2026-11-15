@@ -1,10 +1,23 @@
 import React, { useEffect, useState } from 'react'
-import { Card, Table, Button, Tag, Modal, Form, Input, message, Popconfirm, Select, InputNumber, Space } from 'antd'
-import { PlusOutlined, SyncOutlined, LoadingOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Tag, Modal, Form, Input, message, Popconfirm, Select, InputNumber, Space, Tooltip } from 'antd'
+import { PlusOutlined, SyncOutlined, LoadingOutlined, DatabaseOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { formatTime } from '@/utils/format'
-import { getDatasets, createDataset, deleteDataset, createDataSource, executeSync, testDataSourceConnection } from '@/api'
+import {
+  getDatasets, createDataset, deleteDataset, createDataSource, executeSync, testDataSourceConnection,
+  listBuiltinBenchmarks, provisionBuiltinBenchmark,
+} from '@/api'
 import type { Dataset } from '@/types'
+import type { BuiltinBenchmark, BuiltinBenchmarkQualityReport } from '@/api'
+
+const DIFFICULTY_COLORS: Record<string, string> = { easy: 'green', medium: 'orange', hard: 'red' }
+
+const renderDifficultyTags = (report: BuiltinBenchmarkQualityReport) =>
+  Object.entries(report.by_difficulty).map(([level, count]) => (
+    <Tag key={level} color={DIFFICULTY_COLORS[level] || 'default'}>
+      {level}: {count}
+    </Tag>
+  ))
 
 const Datasets: React.FC = () => {
   const navigate = useNavigate()
@@ -16,6 +29,8 @@ const Datasets: React.FC = () => {
   const [syncing, setSyncing] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [builtinBenchmarks, setBuiltinBenchmarks] = useState<BuiltinBenchmark[]>([])
+  const [provisioning, setProvisioning] = useState<string | null>(null)
   const [form] = Form.useForm()
   const [syncForm] = Form.useForm()
 
@@ -45,8 +60,36 @@ const Datasets: React.FC = () => {
     }
   }
 
+  const fetchBuiltinBenchmarks = async () => {
+    try {
+      const res = await listBuiltinBenchmarks()
+      setBuiltinBenchmarks(res.items)
+    } catch (e) {
+      // 错误已在拦截器处理
+    }
+  }
+
+  const handleProvisionBuiltin = async (benchmarkId: string) => {
+    setProvisioning(benchmarkId)
+    try {
+      const result = await provisionBuiltinBenchmark(benchmarkId)
+      if (result.upgrade_skipped) {
+        message.warning('内容有新版本，但该数据集已被评估/调用引用，已跳过升版以保护历史结果')
+      } else {
+        message.success(result.created ? `已导入 ${result.record_count} 题` : `已同步到最新版本（${result.record_count} 题）`)
+      }
+      fetchBuiltinBenchmarks()
+      fetchDatasets()
+    } catch (e) {
+      // 错误已在拦截器处理
+    } finally {
+      setProvisioning(null)
+    }
+  }
+
   useEffect(() => {
     fetchDatasets()
+    fetchBuiltinBenchmarks()
   }, [])
 
   const showCreateDialog = () => {
@@ -201,6 +244,59 @@ const Datasets: React.FC = () => {
         </>
       }
     >
+      {builtinBenchmarks.length > 0 && (
+        <Card
+          size="small"
+          title={<span><DatabaseOutlined /> 内置评测集</span>}
+          style={{ marginBottom: 16 }}
+        >
+          {builtinBenchmarks.map((b) => (
+            <div
+              key={b.benchmark_id}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}
+            >
+              <div style={{ flex: 1, minWidth: 300 }}>
+                <Space size={4} wrap>
+                  <Tag color="purple">{b.version}</Tag>
+                  <strong>{b.name}</strong>
+                  {b.language && <Tag>{b.language}</Tag>}
+                  {b.load_error && <Tag color="red">文件异常: {b.load_error}</Tag>}
+                  {b.dataset && !b.load_error && (
+                    <Tag color="green">{b.dataset.record_count} 题</Tag>
+                  )}
+                  {b.dataset && b.dataset.version_match === false && (
+                    <Tag color="orange">文件有新版本</Tag>
+                  )}
+                </Space>
+                <div style={{ color: '#888', fontSize: 12, marginTop: 4 }}>{b.description}</div>
+                {b.dataset?.quality_report && (
+                  <Space size={4} wrap style={{ marginTop: 4 }}>
+                    {renderDifficultyTags(b.dataset.quality_report)}
+                    <Tooltip title="题型分布">
+                      {Object.entries(b.dataset.quality_report.by_question_type).map(([t, c]) => (
+                        <Tag key={t}>{t}: {c}</Tag>
+                      ))}
+                    </Tooltip>
+                    <Tooltip title="集内去重率为 0，题干归一化后无重复">
+                      <Tag color="cyan">去重率 0%</Tag>
+                    </Tooltip>
+                  </Space>
+                )}
+              </div>
+              <Button
+                size="small"
+                type="primary"
+                ghost
+                loading={provisioning === b.benchmark_id}
+                disabled={!!b.load_error}
+                onClick={() => handleProvisionBuiltin(b.benchmark_id)}
+              >
+                {b.dataset ? '同步/重建' : '一键导入'}
+              </Button>
+            </div>
+          ))}
+        </Card>
+      )}
       <Table dataSource={datasets} columns={columns} rowKey="id" loading={loading} />
 
       <Modal

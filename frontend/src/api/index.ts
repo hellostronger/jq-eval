@@ -279,6 +279,58 @@ export const getDatasets = () => {
   return request.get<Dataset[]>('/datasets')
 }
 
+// 内置基准评测集：随启动自动入库，这里提供列表/一键导入（幂等）
+export interface BuiltinBenchmarkQualityReport {
+  total: number
+  by_difficulty: Record<string, number>
+  by_question_type: Record<string, number>
+  by_ability: Record<string, number>
+  by_subject: Record<string, number>
+  difficulty_x_type: Record<string, number>
+  duplicate_rate: number
+  question_length: { min: number; avg: number; max: number }
+  answer_length: { min: number; avg: number; max: number }
+}
+
+export interface BuiltinBenchmarkDataset {
+  id: string
+  name: string
+  record_count: number
+  status: string
+  file_hash?: string | null
+  version_match?: boolean
+  quality_report?: BuiltinBenchmarkQualityReport | null
+}
+
+export interface BuiltinBenchmark {
+  benchmark_id: string
+  name: string
+  version: string
+  description: string
+  language: string
+  license: string
+  file_hash?: string
+  load_error: string | null
+  dataset: BuiltinBenchmarkDataset | null
+}
+
+export const listBuiltinBenchmarks = () => {
+  return request.get<{ items: BuiltinBenchmark[] }>('/datasets/builtin')
+}
+
+export const provisionBuiltinBenchmark = (benchmarkId: string) => {
+  return request.post<{
+    benchmark_id: string
+    dataset_id: string
+    record_count: number
+    created: boolean
+    upgraded: boolean
+    upgrade_skipped: boolean
+    quality_report: BuiltinBenchmarkQualityReport
+    dataset: { id: string; name: string; record_count: number; status: string }
+  }>(`/datasets/builtin/${benchmarkId}/provision`)
+}
+
 export const getDataset = (id: string) => {
   return request.get<Dataset>(`/datasets/${id}`)
 }

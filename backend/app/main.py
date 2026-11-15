@@ -15,6 +15,7 @@ from .api.v1 import api_router
 from .services.crawler.preset_sources import init_preset_sources
 from .services.preset_tags import init_preset_tags
 from .services.builtin_metrics import sync_builtin_metrics
+from .services.builtin_benchmarks import sync_builtin_benchmarks
 
 # 配置日志
 logging.basicConfig(
@@ -58,6 +59,9 @@ async def lifespan(app: FastAPI):
         # 内置指标入库：指标市场读的是 metric_definitions 表，
         # 不同步的话新装环境里指标市场是空的，建评估时无指标可选
         await sync_builtin_metrics(db)
+        # 内置基准评测集入库（幂等）：新环境开箱就有分层原创评测集，
+        # 「调用 → 评估 → 归因」链路不用先手工造数据
+        await sync_builtin_benchmarks(db)
 
     print(f"[OK] {settings.APP_NAME} v{settings.APP_VERSION} 启动成功")
     print(f"[INFO] 环境: {settings.APP_ENV}")

@@ -179,6 +179,42 @@ async def list_datasets(
     return result.scalars().all()
 
 
+# 注意路由顺序：/builtin 必须注册在 /{dataset_id} 之前，
+# 否则 "builtin" 会先被 /{dataset_id} 吃掉，UUID 解析直接 422
+@router.get("/builtin")
+async def list_builtin_benchmarks_route(db: AsyncSession = Depends(get_db)):
+    """内置基准评测集列表（注册表 + 入库状态 + 质量报告）"""
+    from ...services.builtin_benchmarks import list_builtin_benchmarks
+    return {"items": await list_builtin_benchmarks(db)}
+
+
+@router.post("/builtin/{benchmark_id}/provision")
+async def provision_builtin_benchmark_route(
+    benchmark_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """把内置基准评测集入库（幂等）：不存在则创建，内容变更且未被引用则升版重建"""
+    from ...services.builtin_benchmarks import provision_builtin_benchmark, get_benchmark_meta
+    try:
+        get_benchmark_meta(benchmark_id)
+    except ValueError:
+        # 不透传异常消息：注册表查无此 id 本身就是完整的错误说明
+        raise HTTPException(status_code=404, detail=f"未知的内置基准: {benchmark_id}")
+    try:
+        result = await provision_builtin_benchmark(db, benchmark_id)
+    except ValueError as e:
+        # 基准文件校验失败（坏行/缺层/重复）是数据问题，返回 400 让前端能展示
+        raise HTTPException(status_code=400, detail=f"内置基准校验失败: {e}")
+    dataset = result.pop("dataset")
+    result["dataset"] = {
+        "id": str(dataset.id),
+        "name": dataset.name,
+        "record_count": dataset.record_count,
+        "status": dataset.status,
+    }
+    return result
+
+
 @router.get("/{dataset_id}", response_model=DatasetResponse)
 async def get_dataset(
     dataset_id: UUID,

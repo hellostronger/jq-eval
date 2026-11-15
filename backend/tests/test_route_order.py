@@ -21,6 +21,9 @@ def _method_paths(routes, method):
 
 @pytest.mark.parametrize("prefix,method,static,dynamic", [
     ("/tags", "DELETE", "/unbind", "/{tag_id}"),
+    # 内置基准评测集：/builtin 若落在 /{dataset_id} 之后会被 UUID 解析吃掉恒 422
+    ("/datasets", "GET", "/builtin", "/{dataset_id}"),
+    ("/datasets", "POST", "/builtin/{benchmark_id}/provision", "/{dataset_id}/import"),
     ("/training-data-evals", "GET", "/templates", "/{eval_id}"),
     ("/training-data-evals", "GET", "/quality-rules", "/{eval_id}"),
     ("/training-data-evals", "GET", "/metrics/available", "/{eval_id}"),
