@@ -139,6 +139,108 @@ def _raise_upstream_error(response: httpx.Response):
     raise OutboundError(response.status_code, message, body=data)
 
 
+# ---------------------------------------------------------------------------
+# Embedding / Rerank 出站调用
+# ---------------------------------------------------------------------------
+
+def _openai_embeddings_url(model: Model) -> str:
+    """openai 系 embeddings 出站 URL（azure 走 deployments 路径，与 chat 同规则）"""
+    endpoint = (model.endpoint or "").rstrip("/")
+    provider = model.provider or "openai"
+    model_name = model.model_name or model.name
+
+    if provider == "azure":
+        return f"{endpoint}/deployments/{model_name}/embeddings?api-version=2024-02-01"
+    return f"{endpoint}/embeddings"
+
+
+def _rerank_url(model: Model) -> str:
+    """rerank 出站 URL：endpoint 已含版本段（/v1 /v2）时直接拼 /rerank，
+    否则补 /v1/rerank（Cohere/Jina/SiliconFlow 均兼容此规则）"""
+    endpoint = (model.endpoint or "").rstrip("/")
+    if endpoint.endswith("/v1") or endpoint.endswith("/v2"):
+        return f"{endpoint}/rerank"
+    return f"{endpoint}/v1/rerank"
+
+
+async def _post_json(target: Model, url: str, headers: Dict[str, str],
+                     body: Dict[str, Any]) -> Dict[str, Any]:
+    """通用出站 POST（非流式）：返回解析后的 JSON，错误统一抛 OutboundError"""
+    try:
+        async with httpx.AsyncClient(timeout=CALL_TIMEOUT) as client:
+            response = await client.post(url, headers=headers, json=body)
+    except httpx.TimeoutException as e:
+        raise OutboundError(504, f"上游模型请求超时: {e}") from e
+    except httpx.HTTPError as e:
+        raise OutboundError(502, f"无法连接上游模型: {e}") from e
+
+    if response.status_code != 200:
+        _raise_upstream_error(response)
+
+    try:
+        return response.json()
+    except (json.JSONDecodeError, ValueError) as e:
+        raise OutboundError(502, f"上游响应解析失败: {e}") from e
+
+
+async def call_embedding(target: Model, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """embedding 出站调用：入站 OpenAI 格式透传（model 归一为目标模型名），
+    响应原样返回（data[].embedding + usage），由代理层决定对外展示口径"""
+    model_name = target.model_name or target.name
+    body = {k: v for k, v in (payload or {}).items()
+            if k not in ("model",)}
+    body["model"] = model_name
+    body["input"] = payload.get("input")
+    if not body["input"]:
+        raise OutboundError(400, "embedding 请求缺少 input 字段")
+
+    data = await _post_json(target, _openai_embeddings_url(target),
+                            _openai_headers(target), body)
+    # 对外统一暴露名义模型名，上游真实名不外泄
+    if isinstance(data, dict):
+        data["model"] = model_name
+    return data
+
+
+def _normalize_rerank_results(data: Dict[str, Any]) -> Dict[str, Any]:
+    """上游 rerank 响应归一：兼容 Cohere/Jina/SiliconFlow 的字段差异——
+    结果数组叫 results（Jina/SF/新版 Cohere）或 data；分数叫 relevance_score 或 score"""
+    items = data.get("results") or data.get("data") or []
+    normalized = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        entry = {
+            "index": item.get("index"),
+            "relevance_score": item.get("relevance_score",
+                                        item.get("score", 0.0)),
+        }
+        if item.get("document") is not None:
+            entry["document"] = item["document"]
+        normalized.append(entry)
+    return {"results": normalized}
+
+
+async def call_rerank(target: Model, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """rerank 出站调用：入站 {model, query, documents[], top_n?, return_documents?}
+    透传（model 归一），响应归一为 {results: [{index, relevance_score, document?}]}"""
+    model_name = target.model_name or target.name
+    body = {k: v for k, v in (payload or {}).items() if k not in ("model",)}
+    body["model"] = model_name
+    if not body.get("query") or body.get("documents") in (None, []):
+        raise OutboundError(400, "rerank 请求缺少 query 或 documents 字段")
+
+    data = await _post_json(target, _rerank_url(target), _openai_headers(target), body)
+    normalized = _normalize_rerank_results(data)
+    # usage 与顶层附加字段（如 id/meta）保留给日志与透传
+    if isinstance(data, dict):
+        for key in ("id", "usage", "meta"):
+            if key in data:
+                normalized[key] = data[key]
+    normalized["model"] = model_name
+    return normalized
+
+
 def _stream_request_body(target: Model, req: InternalRequest, outbound: str,
                          include_usage: bool) -> Dict[str, Any]:
     """构建流式出站请求体"""

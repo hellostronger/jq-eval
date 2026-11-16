@@ -140,3 +140,253 @@ async def test_tool_choice_named_survives_e2e(client: AsyncClient, db_session, s
     # 响应里工具调用被正确回填
     assert resp.json()["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "get_weather"
     assert resp.json()["choices"][0]["finish_reason"] == "tool_calls"
+
+
+# ---------------------------------------------------------------------------
+# Embedding / Rerank 映射端点
+# ---------------------------------------------------------------------------
+
+async def _make_mapping_for(client_db, model: Model, log_enabled: bool = False):
+    from app.api.v1.model_mappings import generate_mapping_api_key
+    key = generate_mapping_api_key()
+    mapping = ModelMapping(
+        name=f"proxy-test-{model.model_type}", target_model_id=model.id,
+        api_key=key, auth_required=True, status="active", log_enabled=log_enabled,
+    )
+    client_db.add(mapping)
+    await client_db.commit()
+    await client_db.refresh(mapping)
+    return mapping, key
+
+
+@pytest.mark.asyncio
+async def test_embedding_mapping_e2e(client: AsyncClient, db_session,
+                                     sample_embedding_model: Model, monkeypatch):
+    """embedding 映射端到端：鉴权 -> 出站（model 归一）-> OpenAI 响应透传"""
+    mapping, key = await _make_mapping_for(db_session, sample_embedding_model)
+
+    seen = {}
+
+    async def fake_call_embedding(target, payload):
+        seen["payload"] = dict(payload)
+        return {
+            "object": "list",
+            "data": [
+                {"object": "embedding", "index": 0, "embedding": [0.1, 0.2, 0.3]},
+                {"object": "embedding", "index": 1, "embedding": [0.4, 0.5, 0.6]},
+            ],
+            "model": "text-embedding-ada-002",
+            "usage": {"prompt_tokens": 12, "total_tokens": 12},
+        }
+
+    monkeypatch.setattr(outbound_client, "call_embedding", fake_call_embedding)
+
+    resp = await client.post(
+        f"/api/v1/model-mappings/{mapping.id}/v1/embeddings",
+        headers={"Authorization": f"Bearer {key}"},
+        json={"model": "whatever", "input": ["第一段文本", "第二段文本"]},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["object"] == "list"
+    assert len(data["data"]) == 2
+    assert data["data"][0]["embedding"] == [0.1, 0.2, 0.3]
+    # 上游真实模型名被归一为名义名对外展示
+    assert data["model"] == "text-embedding-ada-002"
+    # 入站体原样传给出站层（model 归一在 call_embedding 内部，见下一条单测）
+    assert seen["payload"]["input"] == ["第一段文本", "第二段文本"]
+
+
+@pytest.mark.asyncio
+async def test_call_embedding_rerank_normalize_outbound(sample_embedding_model: Model,
+                                                        sample_reranker_model: Model,
+                                                        monkeypatch):
+    """出站层单测：model 归一为目标模型名，URL 按类型拼接"""
+    captured = {}
+
+    async def fake_post(target, url, headers, body):
+        captured["url"] = url
+        captured["body"] = dict(body)
+        return {}
+
+    monkeypatch.setattr(outbound_client, "_post_json", fake_post)
+
+    await outbound_client.call_embedding(sample_embedding_model,
+                                         {"model": "whatever", "input": ["x"]})
+    assert captured["body"]["model"] == "text-embedding-ada-002"
+    assert captured["url"].endswith("/embeddings")
+
+    await outbound_client.call_rerank(sample_reranker_model,
+                                      {"model": "whatever", "query": "q", "documents": ["d"]})
+    assert captured["body"]["model"] == "bge-reranker-v2-m3"
+    # endpoint 以 /v1 结尾时直接拼 /rerank
+    assert captured["url"].endswith("/v1/rerank")
+
+
+@pytest.mark.asyncio
+async def test_embedding_mapping_rejects_llm_target(client: AsyncClient, db_session,
+                                                    sample_llm_model: Model):
+    """chat 映射拿去调 /v1/embeddings 应被端点类型校验拦下"""
+    mapping, key = await _make_mapping_for(db_session, sample_llm_model)
+    resp = await client.post(
+        f"/api/v1/model-mappings/{mapping.id}/v1/embeddings",
+        headers={"Authorization": f"Bearer {key}"},
+        json={"model": "m", "input": "hi"},
+    )
+    assert resp.status_code == 400
+    assert "embedding" in resp.json()["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_embedding_mapping_requires_input(client: AsyncClient, db_session,
+                                                sample_embedding_model: Model):
+    mapping, key = await _make_mapping_for(db_session, sample_embedding_model)
+    resp = await client.post(
+        f"/api/v1/model-mappings/{mapping.id}/v1/embeddings",
+        headers={"Authorization": f"Bearer {key}"},
+        json={"model": "m"},
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_rerank_mapping_e2e(client: AsyncClient, db_session,
+                                  sample_reranker_model: Model, monkeypatch):
+    """rerank 映射端到端：鉴权 -> 出站归一 -> results/score 字段归一响应"""
+    mapping, key = await _make_mapping_for(db_session, sample_reranker_model)
+
+    seen = {}
+
+    async def fake_call_rerank(target, payload):
+        seen["query"] = payload.get("query")
+        seen["docs"] = payload.get("documents")
+        seen["model"] = payload.get("model")
+        # 模拟 SiliconFlow 风格上游响应（results + relevance_score）
+        return {
+            "id": "rr-1",
+            "results": [
+                {"index": 1, "relevance_score": 0.92},
+                {"index": 0, "relevance_score": 0.31},
+            ],
+            "model": "bge-reranker-v2-m3",
+        }
+
+    monkeypatch.setattr(outbound_client, "call_rerank", fake_call_rerank)
+
+    resp = await client.post(
+        f"/api/v1/model-mappings/{mapping.id}/v1/rerank",
+        headers={"Authorization": f"Bearer {key}"},
+        json={"model": "whatever", "query": "什么是向量检索",
+              "documents": ["向量检索用向量相似度找文档", "今天天气不错"], "top_n": 2},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["model"] == "bge-reranker-v2-m3"
+    assert data["results"][0]["index"] == 1
+    assert data["results"][0]["relevance_score"] == 0.92
+    assert seen["query"] == "什么是向量检索"
+    assert len(seen["docs"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_rerank_response_normalizes_cohere_shape(client: AsyncClient, db_session,
+                                                       sample_reranker_model: Model, monkeypatch):
+    """老版 Cohere 风格上游（data + score）也要归一成统一 results/relevance_score"""
+    mapping, key = await _make_mapping_for(db_session, sample_reranker_model)
+
+    # 出站层归一直测：call_rerank 内部对上游响应做字段兼容
+    from app.services.llm.outbound_client import _normalize_rerank_results
+    normalized = _normalize_rerank_results({"data": [{"index": 0, "score": 0.77}]})
+    assert normalized == {"results": [{"index": 0, "relevance_score": 0.77}]}
+
+    async def fake_call_rerank(target, payload):
+        # 真实 call_rerank 会把上游响应归一后再交给代理层，mock 模拟归一后的形态
+        return {"results": [{"index": 0, "relevance_score": 0.77}], "model": "m"}
+
+    monkeypatch.setattr(outbound_client, "call_rerank", fake_call_rerank)
+    resp = await client.post(
+        f"/api/v1/model-mappings/{mapping.id}/v1/rerank",
+        headers={"Authorization": f"Bearer {key}"},
+        json={"model": "m", "query": "q", "documents": ["d1"]},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["results"][0]["relevance_score"] == 0.77
+
+
+@pytest.mark.asyncio
+async def test_rerank_mapping_rejects_embedding_target(client: AsyncClient, db_session,
+                                                       sample_embedding_model: Model):
+    """embedding 映射拿去调 /v1/rerank 同样被端点类型校验拦下"""
+    mapping, key = await _make_mapping_for(db_session, sample_embedding_model)
+    resp = await client.post(
+        f"/api/v1/model-mappings/{mapping.id}/v1/rerank",
+        headers={"Authorization": f"Bearer {key}"},
+        json={"model": "m", "query": "q", "documents": ["d"]},
+    )
+    assert resp.status_code == 400
+    assert "reranker" in resp.json()["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_mapping_api_accepts_embedding_and_reranker_target(client: AsyncClient, db_session,
+                                                                 sample_embedding_model: Model,
+                                                                 sample_reranker_model: Model):
+    """映射管理 API：embedding/reranker 目标可建映射（原来硬性要求 llm）"""
+    for model in (sample_embedding_model, sample_reranker_model):
+        resp = await client.post("/api/v1/model-mappings", json={
+            "name": f"map-{model.model_type}", "target_model_id": str(model.id),
+            "auth_required": True, "log_enabled": True,
+        })
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["target_model_id"] == str(model.id)
+
+
+@pytest.mark.asyncio
+async def test_embedding_rerank_logs_recorded(client: AsyncClient, db_session, test_engine,
+                                              sample_embedding_model: Model,
+                                              sample_reranker_model: Model, monkeypatch):
+    """开启 log_enabled 的 embedding/rerank 映射调用应落 model_request_logs（source=mapping）"""
+    from app.models import ModelRequestLog
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    async def fake_emb(target, payload):
+        return {"data": [{"index": 0, "embedding": [0.1] * 8}], "model": "m",
+                "usage": {"prompt_tokens": 3, "total_tokens": 3}}
+
+    async def fake_rr(target, payload):
+        return {"results": [{"index": 0, "relevance_score": 0.5}], "model": "m"}
+
+    monkeypatch.setattr(outbound_client, "call_embedding", fake_emb)
+    monkeypatch.setattr(outbound_client, "call_rerank", fake_rr)
+
+    emb_mapping, emb_key = await _make_mapping_for(db_session, sample_embedding_model, log_enabled=True)
+    rr_mapping, rr_key = await _make_mapping_for(db_session, sample_reranker_model, log_enabled=True)
+
+    # finish_log 用独立的 AsyncSessionLocal 落库，测试环境把它指到测试引擎
+    # （默认指向 .env 配置的真实数据库，测试里写不进去）
+    import app.services.llm.mapping_logger as ml
+    monkeypatch.setattr(ml, "AsyncSessionLocal",
+                        async_sessionmaker(test_engine, class_=AsyncSession,
+                                           expire_on_commit=False))
+
+    await client.post(f"/api/v1/model-mappings/{emb_mapping.id}/v1/embeddings",
+                      headers={"Authorization": f"Bearer {emb_key}"},
+                      json={"model": "m", "input": ["a", "b"]})
+    await client.post(f"/api/v1/model-mappings/{rr_mapping.id}/v1/rerank",
+                      headers={"Authorization": f"Bearer {rr_key}"},
+                      json={"model": "m", "query": "q", "documents": ["d1", "d2"]})
+
+    rows = (await db_session.execute(select(ModelRequestLog))).scalars().all()
+    by_type = {r.request_type: r for r in rows}
+    assert "embedding" in by_type and "rerank" in by_type
+    emb_log = by_type["embedding"]
+    assert emb_log.source == "mapping" and emb_log.status == "success"
+    assert emb_log.mapping_id == emb_mapping.id
+    assert emb_log.response_metadata.get("vector_dim") == 8
+    rr_log = by_type["rerank"]
+    assert rr_log.source == "mapping" and rr_log.status == "success"
+    # prompt 摘要含 query 与文档条数，而不是整段文档正文
+    assert "documents: 2条" in rr_log.prompt
+
+

@@ -37,9 +37,13 @@ def _extract_api_key(request: Request) -> Optional[str]:
     return request.headers.get("x-api-key")
 
 
-async def verify_mapping(mapping_id: UUID, request: Request,
-                         db: AsyncSession) -> Tuple[ModelMapping, Model]:
-    """校验映射服务与密钥，返回 (mapping, target)"""
+async def verify_mapping(mapping_id: UUID, request: Request, db: AsyncSession,
+                         allowed_types: Optional[set] = None) -> Tuple[ModelMapping, Model]:
+    """校验映射服务与密钥，返回 (mapping, target)
+
+    allowed_types：端点允许的目标模型类型（chat 端点默认 llm；
+    embeddings/rerank 端点分别限定 embedding/reranker，防止拿 chat 映射调 embedding）
+    """
     result = await db.execute(select(ModelMapping).where(ModelMapping.id == mapping_id))
     mapping = result.scalar_one_or_none()
     if not mapping:
@@ -56,8 +60,12 @@ async def verify_mapping(mapping_id: UUID, request: Request,
 
     result = await db.execute(select(Model).where(Model.id == mapping.target_model_id))
     target = result.scalar_one_or_none()
-    if not target or target.model_type != "llm":
-        raise HTTPException(status_code=400, detail="目标模型不存在或不是 LLM 类型")
+    allowed = allowed_types or {"llm"}
+    if not target or target.model_type not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"目标模型不存在或类型不符（该端点要求 {'/'.join(sorted(allowed))} 类型）",
+        )
     if target.status != "active":
         raise HTTPException(status_code=403, detail="目标模型已停用")
 
@@ -421,6 +429,147 @@ async def _handle_anthropic_inbound(mapping_id: UUID, request: Request, db: Asyn
 async def proxy_openai_chat(mapping_id: UUID, request: Request, db: AsyncSession = Depends(get_db)):
     """[OI] 协议入站（chat/completions）"""
     return await _handle_openai_inbound(mapping_id, request, db)
+
+
+# ---------------------------------------------------------------------------
+# Embedding / Rerank 映射端点：同一把映射密钥，按端点限定目标模型类型
+# ---------------------------------------------------------------------------
+
+async def _execute_embedding(mapping: ModelMapping, target: Model,
+                             body: Dict, db: AsyncSession) -> JSONResponse:
+    """embedding 映射执行：出站透传 + 日志 + OpenAI 响应原样返回"""
+    start_time = time.time()
+    log_id = None
+    if mapping.log_enabled:
+        try:
+            from ...services.llm.mapping_logger import start_mapping_log
+            log_id = await start_mapping_log(db, mapping, target, "embedding", body)
+        except Exception as e:
+            logger.warning(f"写入 embedding 映射日志失败: {e}")
+
+    try:
+        data = await outbound_client.call_embedding(target, body)
+    except OutboundError as e:
+        if log_id:
+            await finish_log(log_id, None, status="failed", error=e.message,
+                             latency_ms=int((time.time() - start_time) * 1000),
+                             mapping_id=mapping.id)
+        return protocol_error(e.status_code if e.status_code >= 400 else 502,
+                              e.message, "openai")
+    except Exception as e:
+        if log_id:
+            await finish_log(log_id, None, status="failed", error=format_error(e),
+                             latency_ms=int((time.time() - start_time) * 1000),
+                             mapping_id=mapping.id)
+        return protocol_error(502, f"上游调用失败: {e}", "openai")
+
+    latency_ms = int((time.time() - start_time) * 1000)
+    if log_id:
+        # 响应列存摘要（维度/条数/用量），向量本体不落日志（几千维撑爆文本列）
+        embeddings = data.get("data") or []
+        dims = len(embeddings[0].get("embedding") or []) if embeddings else None
+        summary = f"embeddings: {len(embeddings)}条" + (f", dim={dims}" if dims else "")
+        await finish_log(log_id, summary, usage=data.get("usage"),
+                         latency_ms=latency_ms, status="success",
+                         outbound_protocol="openai", mapping_id=mapping.id,
+                         extra_metadata={"vector_dim": dims,
+                                         "embedding_count": len(embeddings)})
+    return JSONResponse(status_code=200, content=data)
+
+
+async def _execute_rerank(mapping: ModelMapping, target: Model,
+                          body: Dict, db: AsyncSession) -> JSONResponse:
+    """rerank 映射执行：出站透传（归一化） + 日志 + 通用 rerank 响应"""
+    start_time = time.time()
+    log_id = None
+    if mapping.log_enabled:
+        try:
+            from ...services.llm.mapping_logger import start_mapping_log
+            log_id = await start_mapping_log(db, mapping, target, "rerank", body)
+        except Exception as e:
+            logger.warning(f"写入 rerank 映射日志失败: {e}")
+
+    try:
+        data = await outbound_client.call_rerank(target, body)
+    except OutboundError as e:
+        if log_id:
+            await finish_log(log_id, None, status="failed", error=e.message,
+                             latency_ms=int((time.time() - start_time) * 1000),
+                             mapping_id=mapping.id)
+        return protocol_error(e.status_code if e.status_code >= 400 else 502,
+                              e.message, "openai")
+    except Exception as e:
+        if log_id:
+            await finish_log(log_id, None, status="failed", error=format_error(e),
+                             latency_ms=int((time.time() - start_time) * 1000),
+                             mapping_id=mapping.id)
+        return protocol_error(502, f"上游调用失败: {e}", "openai")
+
+    latency_ms = int((time.time() - start_time) * 1000)
+    if log_id:
+        results = data.get("results") or []
+        top = results[0] if results else {}
+        summary = (f"rerank: {len(results)}条结果, top1 index={top.get('index')} "
+                   f"score={top.get('relevance_score')}")
+        await finish_log(log_id, summary, usage=data.get("usage"),
+                         latency_ms=latency_ms, status="success",
+                         outbound_protocol="openai", mapping_id=mapping.id,
+                         extra_metadata={"result_count": len(results),
+                                         "top1_index": top.get("index"),
+                                         "top1_score": top.get("relevance_score")})
+    return JSONResponse(status_code=200, content=data)
+
+
+async def _handle_embedding_inbound(mapping_id: UUID, request: Request, db: AsyncSession):
+    """embedding 入站：OpenAI /v1/embeddings 协议"""
+    inbound = "openai"
+    try:
+        mapping, target = await verify_mapping(mapping_id, request, db,
+                                               allowed_types={"embedding"})
+    except HTTPException as e:
+        return await _http_exception_response(e, inbound)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return protocol_error(400, "请求体不是合法 JSON", inbound)
+    if not isinstance(body, dict) or not body.get("input"):
+        return protocol_error(400, "请求体必须是 JSON 对象且包含 input 字段", inbound)
+
+    return await _execute_embedding(mapping, target, body, db)
+
+
+async def _handle_rerank_inbound(mapping_id: UUID, request: Request, db: AsyncSession):
+    """rerank 入站：通用 rerank 协议（Cohere/Jina/SiliconFlow 兼容格式）"""
+    inbound = "openai"
+    try:
+        mapping, target = await verify_mapping(mapping_id, request, db,
+                                               allowed_types={"reranker"})
+    except HTTPException as e:
+        return await _http_exception_response(e, inbound)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return protocol_error(400, "请求体不是合法 JSON", inbound)
+    if not isinstance(body, dict) or not body.get("query") or not body.get("documents"):
+        return protocol_error(400, "请求体必须是 JSON 对象且包含 query 与 documents 字段", inbound)
+
+    return await _execute_rerank(mapping, target, body, db)
+
+
+@router.post("/{mapping_id}/v1/embeddings")
+@router.post("/{mapping_id}/embeddings")
+async def proxy_openai_embeddings(mapping_id: UUID, request: Request, db: AsyncSession = Depends(get_db)):
+    """[OI] embeddings 映射入站（OpenAI 协议）"""
+    return await _handle_embedding_inbound(mapping_id, request, db)
+
+
+@router.post("/{mapping_id}/v1/rerank")
+@router.post("/{mapping_id}/rerank")
+async def proxy_rerank(mapping_id: UUID, request: Request, db: AsyncSession = Depends(get_db)):
+    """rerank 映射入站（通用 rerank 协议）"""
+    return await _handle_rerank_inbound(mapping_id, request, db)
 
 
 @router.post("/{mapping_id}/v1/messages")

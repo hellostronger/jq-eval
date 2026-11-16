@@ -1188,6 +1188,45 @@ GET /api/v1/graph/health/{builder_type}
 
 ---
 
+## 映射代理（模型调用映射）
+
+映射服务把外部请求转发到目标模型，同一把映射密钥（`sk-mx-` 前缀）按端点区分用法：
+`/chat/completions` 要求目标为 llm，`/embeddings` 要求 embedding，`/rerank` 要求 reranker。
+开启「记录调用」后所有调用写入 model_request_logs（source=mapping），调用日志页可查。
+
+```
+POST /api/v1/model-mappings/{mapping_id}/v1/chat/completions   # OpenAI 协议（含流式）
+POST /api/v1/model-mappings/{mapping_id}/v1/messages           # Anthropic 协议
+POST /api/v1/model-mappings/{mapping_id}/v1/embeddings         # OpenAI 协议（embedding 目标）
+POST /api/v1/model-mappings/{mapping_id}/v1/rerank             # 通用 rerank 协议（reranker 目标）
+GET  /api/v1/model-mappings/{mapping_id}/v1/models             # SDK list 兼容
+```
+
+**Embedding 请求/响应（OpenAI 协议透传）：**
+
+```json
+// 请求
+{"model": "任意值（以映射目标为准）", "input": ["文本一", "文本二"]}
+// 响应（OpenAI 原格式，model 归一为名义名）
+{"object": "list", "data": [{"index": 0, "embedding": [0.1, ...]}], "model": "bge-m3", "usage": {"prompt_tokens": 13, "total_tokens": 13}}
+```
+
+**Rerank 请求/响应（Cohere/Jina/SiliconFlow 兼容格式，响应字段归一）：**
+
+```json
+// 请求
+{"model": "任意值（以映射目标为准）", "query": "什么是向量检索",
+ "documents": ["向量检索用相似度找文档", "今天天气不错"], "top_n": 2}
+// 响应（上游 results/data + relevance_score/score 差异已归一）
+{"results": [{"index": 0, "relevance_score": 0.936}, {"index": 2, "relevance_score": 0.049}], "model": "bge-reranker-v2-m3"}
+```
+
+**日志记录口径**（model_request_logs，request_type=embedding/rerank）：
+prompt 列存摘要（embedding 为输入文本前 200 字符×前 5 条；rerank 为 query + 文档条数），
+响应列存摘要（条数/维度/top1），向量本体不落库；用量与 top1 分数等进 response_metadata。
+
+---
+
 ## 通用错误响应
 
 所有API在出错时返回统一格式：

@@ -74,6 +74,52 @@ async def start_log(
     return log.id
 
 
+def _prompt_summary(request_type: str, payload: Dict[str, Any]) -> str:
+    """embedding/rerank 请求的日志摘要：文本列表拼摘要，避免整段文档撑爆 prompt 列"""
+    if request_type == "embedding":
+        inputs = payload.get("input") or []
+        if isinstance(inputs, str):
+            inputs = [inputs]
+        texts = [str(t) for t in inputs]
+        summary = " | ".join(t[:200] for t in texts[:5])
+        more = len(texts) - 5
+        if more > 0:
+            summary += f" ...[共{len(texts)}条输入]"
+        return summary
+    # rerank：query + 文档条数（文档正文量大，只记条数）
+    docs = payload.get("documents") or []
+    return f"query: {str(payload.get('query'))[:200]} | documents: {len(docs)}条"
+
+
+async def start_mapping_log(
+    db: AsyncSession,
+    mapping: ModelMapping,
+    target: Model,
+    request_type: str,
+    payload: Dict[str, Any],
+) -> UUID:
+    """embedding/rerank 映射调用的 pending 日志（request_type 区分，chat 走 start_log）"""
+    log = ModelRequestLog(
+        model_id=target.id,
+        mapping_id=mapping.id,
+        source="mapping",
+        request_type=request_type,
+        prompt=_prompt_summary(request_type, payload),
+        params={
+            "mapping_name": mapping.name,
+            "raw_request": truncate(payload),
+            "input_count": (len(payload.get("input")) if isinstance(payload.get("input"), list)
+                            else 1 if payload.get("input") else None),
+            "document_count": len(payload.get("documents") or []) if request_type == "rerank" else None,
+        },
+        status="pending",
+    )
+    db.add(log)
+    await db.commit()
+    await db.refresh(log)
+    return log.id
+
+
 async def finish_log(
     log_id: Optional[UUID],
     response: Optional[str],

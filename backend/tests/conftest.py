@@ -122,6 +122,25 @@ async def sample_embedding_model(db_session: AsyncSession) -> Model:
 
 
 @pytest.fixture
+async def sample_reranker_model(db_session: AsyncSession) -> Model:
+    """创建示例 Reranker 模型"""
+    model = Model(
+        name="Test Reranker",
+        model_type="reranker",
+        provider="openai",
+        model_name="bge-reranker-v2-m3",
+        endpoint="https://api.siliconflow.cn/v1",
+        api_key_encrypted="test-key",
+        is_default=True,
+        status="active"
+    )
+    db_session.add(model)
+    await db_session.commit()
+    await db_session.refresh(model)
+    return model
+
+
+@pytest.fixture
 async def sample_dataset(db_session: AsyncSession) -> Dataset:
     """创建示例数据集"""
     dataset = Dataset(

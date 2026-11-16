@@ -92,13 +92,17 @@ async def _get_target_names(db: AsyncSession, target_model_ids: List[UUID]) -> d
 
 
 async def _validate_target(db: AsyncSession, target_model_id: UUID) -> Model:
-    """校验目标模型存在且为 LLM 类型"""
+    """校验目标模型存在且类型可映射（llm/embedding/reranker）
+
+    用哪个端点访问由调用方决定：/chat/completions 要求 llm，
+    /embeddings 要求 embedding，/rerank 要求 reranker——代理层按端点校验类型
+    """
     result = await db.execute(select(Model).where(Model.id == target_model_id))
     target = result.scalar_one_or_none()
     if not target:
         raise HTTPException(status_code=404, detail="目标模型不存在")
-    if target.model_type != "llm":
-        raise HTTPException(status_code=400, detail="目标模型必须是 LLM 类型")
+    if target.model_type not in ("llm", "embedding", "reranker"):
+        raise HTTPException(status_code=400, detail="目标模型必须是 llm/embedding/reranker 类型")
     return target
 
 

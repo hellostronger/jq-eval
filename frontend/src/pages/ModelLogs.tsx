@@ -640,7 +640,10 @@ const MappingsTab: React.FC<{ onNotify: () => void }> = ({ onNotify }) => {
       ? `# 映射服务密钥（在「密钥」列查看，重置后旧密钥失效）\nexport MAPPING_KEY="你的密钥"\n\n`
       : ''
 
-    const text = `${keyExport}# 1. OpenAI 协议调用（兼容 /v1/chat/completions）\ncurl -X POST "${baseUrl}/v1/chat/completions" \\${authLine}
+    // 按目标模型类型给对应端点的示例：embedding/reranker 的端点与请求体完全不同
+    const targetType = models.find(m => m.id === mapping.target_model_id)?.model_type || 'llm'
+
+    const chatExample = `# 1. OpenAI 协议调用（兼容 /v1/chat/completions）\ncurl -X POST "${baseUrl}/v1/chat/completions" \\${authLine}
   -H "Content-Type: application/json" \\
   -d '{
     "model": "任意值（以映射的目标模型为准）",
@@ -661,6 +664,30 @@ curl -X POST "${baseUrl}/v1/messages" \\${authLineA}
     "max_tokens": 1024,
     "messages": [{"role": "user", "content": "你好"}]
   }'`
+
+    const embeddingExample = `# Embedding 映射调用（OpenAI /v1/embeddings 协议）
+curl -X POST "${baseUrl}/v1/embeddings" \\${authLine}
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "任意值（以映射的目标模型为准）",
+    "input": ["第一个文本", "第二个文本"]
+  }'`
+
+    const rerankExample = `# Reranker 映射调用（通用 /v1/rerank 协议，Cohere/Jina/SiliconFlow 兼容）
+curl -X POST "${baseUrl}/v1/rerank" \\${authLine}
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "任意值（以映射的目标模型为准）",
+    "query": "什么是向量检索",
+    "documents": ["向量检索用向量相似度找文档", "今天天气不错"],
+    "top_n": 2
+  }'`
+
+    const text = keyExport + (
+      targetType === 'embedding' ? embeddingExample
+        : targetType === 'reranker' ? rerankExample
+          : chatExample
+    )
     setCurlSample(text)
     setCurlModalVisible(true)
   }
@@ -677,9 +704,13 @@ curl -X POST "${baseUrl}/v1/messages" \\${authLineA}
   }
 
   const fetchModels = async () => {
+    // 映射目标支持三种类型：llm/embedding/reranker，合并成一个下拉
+    // （端点与类型在代理层按路径校验，这里只负责选得到）
     try {
-      const data = await getModels('llm')
-      setModels(data)
+      const [llm, embedding, reranker] = await Promise.all([
+        getModels('llm'), getModels('embedding'), getModels('reranker'),
+      ])
+      setModels([...llm, ...embedding, ...reranker])
     } catch (e) {
       // 错误已在拦截器处理
     }
@@ -902,8 +933,8 @@ curl -X POST "${baseUrl}/v1/messages" \\${authLineA}
           </Form.Item>
           <Form.Item name="target_model_id" label="目标模型" rules={[{ required: true, message: '请选择目标模型' }]}>
             <Select
-              placeholder="选择 LLM 模型"
-              options={models.map(m => ({ value: m.id, label: m.name }))}
+              placeholder="选择目标模型（LLM / Embedding / Reranker）"
+              options={models.map(m => ({ value: m.id, label: `${m.name}（${m.model_type}）` }))}
             />
           </Form.Item>
           <Form.Item
