@@ -1,5 +1,5 @@
 import { request } from './request'
-import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, MetricScope, DataSource, ModelConfig, SystemStats, NewsSource, HotArticle, NewsStats, InvocationBatch, InvocationResult, LoadTest, OpenSourceDataset, AnnotationCorrection } from '@/types'
+import type { RAGSystem, Dataset, QARecord, Evaluation, MetricDefinition, MetricScope, DataSource, ModelConfig, SystemStats, NewsSource, HotArticle, NewsStats, InvocationBatch, InvocationResult, LoadTest, OpenSourceDataset, AnnotationCorrection, MMDataset, MMDatasetDetail, MMRun, MMQueryResultPage } from '@/types'
 
 // 文档和分片API
 export interface DocumentInfo {
@@ -1110,3 +1110,64 @@ export const importUltraDataSample = (data: {
     data
   )
 }
+
+// ---------------------------------------------------------------------------
+// 多模态嵌入评测 API
+// ---------------------------------------------------------------------------
+export const getMMDatasets = () => {
+  return request.get<MMDataset[]>('/mm-embeddings/datasets')
+}
+
+export const getMMDataset = (id: string, limit = 20) => {
+  return request.get<MMDatasetDetail>(`/mm-embeddings/datasets/${id}`, { params: { limit } })
+}
+
+// 导入可能包含上千张图片，后端要逐张下载/校验/入库，30s 默认超时不够
+export const importMMDataset = (data: { file: File; name: string; description?: string }) => {
+  const formData = new FormData()
+  formData.append('file', data.file)
+  formData.append('name', data.name)
+  formData.append('description', data.description || '')
+  return request.post<MMDataset>('/mm-embeddings/datasets', formData, { timeout: 600000 })
+}
+
+export const deleteMMDataset = (id: string) => {
+  return request.delete<{ deleted: boolean; images_removed: number }>(`/mm-embeddings/datasets/${id}`)
+}
+
+export const getMMRuns = (params?: { dataset_id?: string; status?: string; limit?: number }) => {
+  return request.get<MMRun[]>('/mm-embeddings/runs', { params })
+}
+
+export const getMMRun = (id: string) => {
+  return request.get<MMRun>(`/mm-embeddings/runs/${id}`)
+}
+
+export const createMMRun = (data: {
+  name?: string
+  dataset_id: string
+  model_id: string
+  params?: Record<string, any>
+}) => {
+  return request.post<MMRun>('/mm-embeddings/runs', data)
+}
+
+export const cancelMMRun = (id: string, force = false) => {
+  return request.post<{ cancelled: boolean; forced: boolean; message: string }>(
+    `/mm-embeddings/runs/${id}/cancel`,
+    null,
+    { params: { force } },
+  )
+}
+
+export const rerunMMRun = (id: string) => {
+  return request.post<MMRun>(`/mm-embeddings/runs/${id}/rerun`)
+}
+
+export const getMMRunQueries = (
+  id: string,
+  params?: { page?: number; page_size?: number; subset?: string; only_missed?: boolean },
+) => {
+  return request.get<MMQueryResultPage>(`/mm-embeddings/runs/${id}/queries`, { params })
+}
+

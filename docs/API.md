@@ -16,6 +16,7 @@
 7. [数据源与同步](#7-数据源与同步)
 8. [文件存储](#8-文件存储)
 9. [图谱构建](#9-图谱构建)
+10. [多模态嵌入评测](#10-多模态嵌入评测)
 
 ---
 
@@ -1224,6 +1225,141 @@ GET  /api/v1/model-mappings/{mapping_id}/v1/models             # SDK list 兼容
 **日志记录口径**（model_request_logs，request_type=embedding/rerank）：
 prompt 列存摘要（embedding 为输入文本前 200 字符×前 5 条；rerank 为 query + 文档条数），
 响应列存摘要（条数/维度/top1），向量本体不落库；用量与 top1 分数等进 response_metadata。
+
+---
+
+## 10. 多模态嵌入评测
+
+前缀：`/mm-embeddings`。与 RAG 评估完全独立：数据是 (query, candidate) 图文对，
+分别用被测嵌入模型编码后按余弦相似度排序，直接统计检索指标，不经过 LLM 打分。
+
+### 10.1 导入评测集
+
+```
+POST /mm-embeddings/datasets
+Content-Type: multipart/form-data
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| file | file | ✓ | .jsonl / .json / .zip，≤200MB |
+| name | string | ✓ | 评测集名称 |
+| description | string | | 描述 |
+
+支持的样本字段（兼容 MMEB 官方与常见别名）：
+
+| 语义 | 可用字段 |
+|------|----------|
+| 查询文本 | `qry_text` / `query_text` / `question` / `qry` |
+| 查询图片 | `qry_image_path` / `query_image` / `query_image_path` |
+| 目标文本 | `tgt_text` / `target_text` / `answer` / `tgt` |
+| 目标图片 | `tgt_image_path` / `target_image` / `target_image_path` |
+| 相关标注 | `label` / `relevance` / `is_positive`（缺省 1） |
+| 查询分组 | `qid` / `query_id` / `group_id`（缺省按 query 内容哈希） |
+| 模态分组 | `subset` / `task` / `task_type`（缺省按 T/I 推断） |
+
+- 同一 `qid` 的多行组成候选池；`pos_*` + `hard_neg_*` 写法会自动拆成正/负样本。
+- zip 包内可放 `manifest.jsonl`（文件名即默认 subset）与图片，图片会登记到 MinIO 的 `mm-eval` bucket。
+- 每个 qid 至少要有一个正例，否则导入直接 400。
+
+**响应：**
+
+```json
+{
+  "id": "uuid",
+  "name": "MMEB-v2 检索子集",
+  "status": "ready",
+  "record_count": 900,
+  "query_count": 300,
+  "image_count": 1200,
+  "subset_stats": {"T→T": {"queries": 200, "candidates": 600}},
+  "source_meta": {"file": "mmeb.jsonl", "format": "jsonl", "total_rows": 900}
+}
+```
+
+`status`：`importing` / `ready` / `failed`。
+
+### 10.2 评测集列表 / 详情 / 删除
+
+```
+GET    /mm-embeddings/datasets
+GET    /mm-embeddings/datasets/{id}?limit=20    # 附带前 N 行预览与图片预签名 URL
+DELETE /mm-embeddings/datasets/{id}             # 已被运行引用时 400；同时清理 MinIO 图片
+```
+
+### 10.3 创建评测运行
+
+```
+POST /mm-embeddings/runs
+```
+
+```json
+{
+  "name": "EmbeddingGemma 在 MMEB 上",
+  "dataset_id": "uuid",
+  "model_id": "uuid",
+  "params": {
+    "image_transport": "data_url",
+    "request_format": "content_array",
+    "batch_size": 8,
+    "top_k": 10,
+    "timeout": 180,
+    "max_retries": 2
+  }
+}
+```
+
+| 参数 | 取值 | 说明 |
+|------|------|------|
+| image_transport | `data_url` / `url` | base64 内联，或 MinIO 预签名地址（模型服务需可访问） |
+| request_format | `content_array` / `messages` / `text_only` | 标准 OpenAI content 数组 / chat 式 embedding / 只编码文本 |
+| batch_size | 1-100 | 单次 HTTP 请求内的输入条数（`messages` 强制 1） |
+| top_k | 1-100 | 明细里保留的候选项数，也是漏召判定阈值 |
+
+模型必须是 `model_type=embedding`。`provider=gemini` 或 endpoint 含
+`generativelanguage.googleapis.com` 时自动走 `batchEmbedContents`（图片走 `inline_data`）。
+所有请求串行发送，便于适配限流网关。
+
+**响应：** 运行对象（`status=running`，任务已派发）。
+
+### 10.4 运行列表 / 详情 / 取消 / 重跑
+
+```
+GET  /mm-embeddings/runs?dataset_id=&status=&limit=100
+GET  /mm-embeddings/runs/{id}
+POST /mm-embeddings/runs/{id}/cancel?force=false
+POST /mm-embeddings/runs/{id}/rerun
+```
+
+- 取消为协作式：worker 在批次边界检查 `cancel_requested` 后停止；`force=true` 用于 worker 已丢失时直接终结状态。
+- 仅 `failed` / `cancelled` 可重跑，重跑会清空旧明细后重新派发。
+
+**运行对象关键字段：**
+
+```json
+{
+  "status": "completed",
+  "progress": 100,
+  "query_count": 300,
+  "skipped_queries": 2,
+  "encoded_items": 1500,
+  "metrics": {"query_count": 300, "recall@1": 0.61, "recall@5": 0.86,
+              "recall@10": 0.91, "mrr@10": 0.72, "ndcg@10": 0.78},
+  "subset_metrics": {"T→I": {"query_count": 100, "recall@10": 0.88}}
+}
+```
+
+指标口径：Recall@1/5/10（前 k 是否命中正例）、MRR@10、nDCG@10（二值相关性）；
+总体与分组均按查询宏平均，同分按候选原始顺序稳定排序。
+
+### 10.5 逐条查询明细
+
+```
+GET /mm-embeddings/runs/{id}/queries?page=1&page_size=20&subset=&only_missed=false
+```
+
+`only_missed=true` 只返回首个正例排名为空或大于 `top_k` 的漏召样本。
+`retrieved_top` 按分数降序返回前 `top_k` 条候选（label/score/text/image_url）。
 
 ---
 

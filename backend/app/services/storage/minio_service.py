@@ -41,6 +41,7 @@ class MinIOService:
             "exports",       # 导出文件
             "temp",          # 临时文件
             "models",        # 模型相关文件
+            "mm-eval",       # 多模态嵌入评测图片
         ]
 
         for bucket in buckets:

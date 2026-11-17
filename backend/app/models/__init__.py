@@ -26,6 +26,7 @@ from .training_data_eval import (
 )
 from .training_data_profile import TrainingDataProfile, TrainingDataRecord
 from .eval_set_profile import EvalSetProfile, EvalSetRecord
+from .multimodal import MMDataset, MMSample, MMEvalRun, MMEvalQueryResult
 from .vibe_agent import (
     VibeAgentSession,
     VibeAgentWorkflow,
@@ -81,6 +82,10 @@ __all__ = [
     "TrainingDataRecord",
     "EvalSetProfile",
     "EvalSetRecord",
+    "MMDataset",
+    "MMSample",
+    "MMEvalRun",
+    "MMEvalQueryResult",
     "VibeAgentSession",
     "VibeAgentWorkflow",
     "VibeAgentWorkflowVersion",

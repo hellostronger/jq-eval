@@ -125,6 +125,7 @@ jq-eval/
 - **大模型压测**: QPS上限探测与响应时间分布两种模式，直连模型或RAG系统，输出P50/P90/P99延迟、错误分类汇总与失败样本
 - **文档解析**: 集成 minerU 官方API批量解析 PDF/图片/Office 文档，解析产物入库支持二次评估
 - **训练数据质量评估**: 面向 LLM/Embedding/Reranker/DPO/奖励模型 等训练数据的专项指标引擎，输出质量标签与改进建议
+- **多模态嵌入评测**: 独立页面（`/mm-embeddings`）评测图文嵌入模型的检索排序能力。支持 MMEB 官方 jsonl 与通用 jsonl/zip 导入（图片自动入 MinIO、按内容哈希去重），OpenAI 兼容 content_array/messages 与 Gemini `batchEmbedContents` 两种协议，图片可选 base64 内联或预签名 URL；按查询统计 Recall@1/5/10、MRR@10、nDCG@10，支持 T→T / T→I / I→T / I→I 等模态分组宏平均，并提供「只看漏召」的逐条 badcase 与 Top-K 候选明细。全程不调用 LLM 打分，接口见 `docs/API.md` 第 10 节
 - **Prompt管理**: 提示词版本管理、A/B 对比与自动优化
 - **标注纠错闭环**: 评估结果可转标注任务，LLM辅助生成纠错建议
 - **VibeAgent**: 对话式生成 RAG 工作流（自然语言→Mermaid 流程图→可运行代码）

@@ -596,3 +596,100 @@ export interface UltraDataSampleItem {
   available: boolean
   count?: number
 }
+
+// ---------- 多模态嵌入评测 ----------
+// 数据集是 (query, candidate) 对，指标为候选池内排序的 Recall@k/MRR/nDCG
+export interface MMDataset {
+  id: string
+  name: string
+  description?: string
+  status: 'importing' | 'ready' | 'failed'
+  record_count: number
+  query_count: number
+  image_count: number
+  // subset -> { queries, candidates }
+  subset_stats?: Record<string, { queries: number; candidates: number }>
+  source_meta?: Record<string, any>
+  error?: string
+  created_at?: string
+}
+
+export interface MMSamplePreview {
+  qid: string
+  subset?: string
+  query_text?: string
+  query_image_url?: string
+  target_text?: string
+  target_image_url?: string
+  label: number
+}
+
+export interface MMDatasetDetail extends MMDataset {
+  samples: MMSamplePreview[]
+}
+
+export interface MMMetrics {
+  query_count?: number
+  'recall@1'?: number
+  'recall@5'?: number
+  'recall@10'?: number
+  'mrr@10'?: number
+  'ndcg@10'?: number
+}
+
+export interface MMRetrievedItem {
+  label: number
+  score: number
+  text?: string | null
+  image?: string | null
+  image_url?: string | null
+}
+
+export interface MMQueryResult {
+  id: string
+  qid: string
+  subset?: string
+  rank?: number | null
+  candidate_count: number
+  positive_count: number
+  metrics?: MMMetrics
+  retrieved_top: MMRetrievedItem[]
+}
+
+export interface MMQueryResultPage {
+  items: MMQueryResult[]
+  total: number
+  page: number
+  page_size: number
+  top_k: number
+}
+
+export interface MMRun {
+  id: string
+  name: string
+  dataset_id: string
+  dataset_name?: string
+  model_id: string
+  model_name?: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  progress: number
+  error?: string
+  params?: {
+    image_transport?: 'data_url' | 'url'
+    request_format?: 'content_array' | 'messages' | 'text_only'
+    batch_size?: number
+    top_k?: number
+    timeout?: number
+    max_retries?: number
+  }
+  metrics?: MMMetrics
+  // subset -> 汇总指标（含 query_count）
+  subset_metrics?: Record<string, MMMetrics>
+  query_count: number
+  skipped_queries: number
+  encoded_items: number
+  started_at?: string
+  completed_at?: string
+  created_at?: string
+}
+

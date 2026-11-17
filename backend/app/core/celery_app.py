@@ -101,6 +101,7 @@ celery_app.conf.update(
         "app.tasks.training_data_profile_tasks",
         "app.tasks.doc_parse_tasks",
         "app.tasks.api_ingest_tasks",
+        "app.tasks.mm_embedding_tasks",
     ],
 )
 

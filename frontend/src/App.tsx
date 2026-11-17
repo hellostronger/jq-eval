@@ -16,6 +16,7 @@ import {
   HistoryOutlined,
   LineChartOutlined,
   MenuOutlined,
+  PictureOutlined,
   SettingOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons'
@@ -34,6 +35,7 @@ const RAGSystems = lazy(() => import('./pages/RAGSystems'))
 const Datasets = lazy(() => import('./pages/Datasets'))
 const DatasetDetail = lazy(() => import('./pages/DatasetDetail'))
 const Evaluations = lazy(() => import('./pages/Evaluations'))
+const MultimodalEmbeddings = lazy(() => import('./pages/MultimodalEmbeddings'))
 const EvaluationDetail = lazy(() => import('./pages/EvaluationDetail'))
 const EvaluationCompare = lazy(() => import('./pages/EvaluationCompare'))
 const Invocations = lazy(() => import('./pages/Invocations'))
@@ -61,6 +63,7 @@ const PAGE_META: Record<string, { title: string; description: string; section: s
   '/invocations': { title: '调用批次', description: '运行并留存可复用的 RAG 调用结果', section: '评测流程' },
   '/load-tests': { title: '性能压测', description: '测量系统吞吐、响应延迟与稳定性', section: '评测流程' },
   '/evaluations': { title: '评估任务', description: '创建评估、跟踪进度并比较实验结果', section: '评测流程' },
+  '/mm-embeddings': { title: '多模态嵌入评测', description: '评测图文嵌入模型在检索任务上的排序质量', section: '评测流程' },
   '/evaluations/compare': { title: '评估对比', description: '横向比较不同实验的指标表现', section: '评测流程' },
   [TRAINING_DATA_BASE_PATH]: { title: '训练数据评估', description: '评估训练数据质量与分布特征', section: '数据洞察' },
   '/training-data-profiles': { title: '训练数据画像', description: '查看训练数据的结构与质量画像', section: '数据洞察' },
@@ -93,6 +96,7 @@ const menuItems: MenuProps['items'] = [
     children: [
       { key: '/invocations', icon: <ThunderboltOutlined />, label: '调用批次' },
       { key: '/evaluations', icon: <LineChartOutlined />, label: '评估任务' },
+      { key: '/mm-embeddings', icon: <PictureOutlined />, label: '多模态嵌入' },
       { key: '/load-tests', icon: <ExperimentOutlined />, label: '性能压测' },
     ],
   },
@@ -277,6 +281,7 @@ const App: React.FC = () => {
                   <Route path="/evaluations" element={<Evaluations />} />
                   <Route path="/evaluations/compare" element={<EvaluationCompare />} />
                   <Route path="/evaluations/:id" element={<EvaluationDetail />} />
+                  <Route path="/mm-embeddings" element={<MultimodalEmbeddings />} />
                   <Route path={TRAINING_DATA_BASE_PATH} element={<TrainingDataEvals />} />
                   <Route path="/training-data-evaluations/embedding" element={<TrainingDataEvals dataType="embedding" />} />
                   <Route path="/training-data-evaluations/reranker" element={<TrainingDataEvals dataType="reranker" />} />
