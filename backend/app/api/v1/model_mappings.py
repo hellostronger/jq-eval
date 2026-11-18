@@ -47,6 +47,7 @@ class MappingResponse(BaseModel):
     name: str
     target_model_id: UUID
     target_model_name: Optional[str] = None
+    target_model_type: Optional[str] = None
     auth_required: bool
     log_enabled: bool
     status: str
@@ -63,6 +64,7 @@ class MappingResponse(BaseModel):
 
 
 def mapping_to_response(mapping: ModelMapping, target_model_name: Optional[str] = None,
+                        target_model_type: Optional[str] = None,
                         plain_key: Optional[str] = None) -> dict:
     """转换为响应字典"""
     return {
@@ -70,6 +72,7 @@ def mapping_to_response(mapping: ModelMapping, target_model_name: Optional[str] 
         "name": mapping.name,
         "target_model_id": mapping.target_model_id,
         "target_model_name": target_model_name,
+        "target_model_type": target_model_type,
         "auth_required": mapping.auth_required,
         "log_enabled": mapping.log_enabled,
         "status": mapping.status,
@@ -83,12 +86,14 @@ def mapping_to_response(mapping: ModelMapping, target_model_name: Optional[str] 
     }
 
 
-async def _get_target_names(db: AsyncSession, target_model_ids: List[UUID]) -> dict:
-    """批量查目标模型名称"""
+async def _get_target_info(db: AsyncSession, target_model_ids: List[UUID]) -> dict:
+    """批量查目标模型名称与类型（类型决定调用方该用哪个端点）"""
     if not target_model_ids:
         return {}
-    result = await db.execute(select(Model.id, Model.name).where(Model.id.in_(target_model_ids)))
-    return {row[0]: row[1] for row in result}
+    result = await db.execute(
+        select(Model.id, Model.name, Model.model_type).where(Model.id.in_(target_model_ids))
+    )
+    return {row[0]: (row[1], row[2]) for row in result}
 
 
 async def _validate_target(db: AsyncSession, target_model_id: UUID) -> Model:
@@ -109,7 +114,7 @@ async def _validate_target(db: AsyncSession, target_model_id: UUID) -> Model:
 @router.post("", response_model=MappingResponse)
 async def create_mapping(data: MappingCreate, db: AsyncSession = Depends(get_db)):
     """创建映射服务（响应中一次性返回明文密钥）"""
-    await _validate_target(db, data.target_model_id)
+    target = await _validate_target(db, data.target_model_id)
 
     mapping = ModelMapping(
         name=data.name,
@@ -124,8 +129,8 @@ async def create_mapping(data: MappingCreate, db: AsyncSession = Depends(get_db)
     await db.commit()
     await db.refresh(mapping)
 
-    names = await _get_target_names(db, [mapping.target_model_id])
-    return mapping_to_response(mapping, names.get(mapping.target_model_id), plain_key=mapping.api_key)
+    return mapping_to_response(mapping, target.name, target.model_type,
+                               plain_key=mapping.api_key)
 
 
 @router.get("", response_model=List[MappingResponse])
@@ -134,8 +139,12 @@ async def list_mappings(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(ModelMapping).order_by(ModelMapping.created_at.desc()))
     mappings = result.scalars().all()
 
-    names = await _get_target_names(db, [m.target_model_id for m in mappings])
-    return [mapping_to_response(m, names.get(m.target_model_id)) for m in mappings]
+    info = await _get_target_info(db, [m.target_model_id for m in mappings])
+    responses = []
+    for mapping in mappings:
+        name, model_type = info.get(mapping.target_model_id, (None, None))
+        responses.append(mapping_to_response(mapping, name, model_type))
+    return responses
 
 
 @router.get("/{mapping_id}", response_model=MappingResponse)
@@ -146,8 +155,9 @@ async def get_mapping(mapping_id: UUID, db: AsyncSession = Depends(get_db)):
     if not mapping:
         raise HTTPException(status_code=404, detail="映射服务不存在")
 
-    names = await _get_target_names(db, [mapping.target_model_id])
-    return mapping_to_response(mapping, names.get(mapping.target_model_id))
+    name, model_type = (await _get_target_info(db, [mapping.target_model_id])).get(
+        mapping.target_model_id, (None, None))
+    return mapping_to_response(mapping, name, model_type)
 
 
 @router.put("/{mapping_id}", response_model=MappingResponse)
@@ -177,8 +187,9 @@ async def update_mapping(mapping_id: UUID, data: MappingUpdate, db: AsyncSession
     await db.commit()
     await db.refresh(mapping)
 
-    names = await _get_target_names(db, [mapping.target_model_id])
-    return mapping_to_response(mapping, names.get(mapping.target_model_id))
+    name, model_type = (await _get_target_info(db, [mapping.target_model_id])).get(
+        mapping.target_model_id, (None, None))
+    return mapping_to_response(mapping, name, model_type)
 
 
 @router.post("/{mapping_id}/reset-key")

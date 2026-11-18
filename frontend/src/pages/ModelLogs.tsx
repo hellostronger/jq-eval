@@ -614,6 +614,8 @@ const MappingsTab: React.FC<{ onNotify: () => void }> = ({ onNotify }) => {
   const [loading, setLoading] = useState(false)
   const [mappings, setMappings] = useState<ModelMapping[]>([])
   const [models, setModels] = useState<ModelOption[]>([])
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const [modelsError, setModelsError] = useState<string | null>(null)
 
   const [modalVisible, setModalVisible] = useState(false)
   const [editingMapping, setEditingMapping] = useState<ModelMapping | null>(null)
@@ -641,7 +643,10 @@ const MappingsTab: React.FC<{ onNotify: () => void }> = ({ onNotify }) => {
       : ''
 
     // 按目标模型类型给对应端点的示例：embedding/reranker 的端点与请求体完全不同
-    const targetType = models.find(m => m.id === mapping.target_model_id)?.model_type || 'llm'
+    // 优先用映射接口带回的类型，模型列表加载失败时也不会把 embedding 示例误判成 chat
+    const targetType = mapping.target_model_type
+      || models.find(m => m.id === mapping.target_model_id)?.model_type
+      || 'llm'
 
     const chatExample = `# 1. OpenAI 协议调用（兼容 /v1/chat/completions）\ncurl -X POST "${baseUrl}/v1/chat/completions" \\${authLine}
   -H "Content-Type: application/json" \\
@@ -706,14 +711,29 @@ curl -X POST "${baseUrl}/v1/rerank" \\${authLine}
   const fetchModels = async () => {
     // 映射目标支持三种类型：llm/embedding/reranker，合并成一个下拉
     // （端点与类型在代理层按路径校验，这里只负责选得到）
-    try {
-      const [llm, embedding, reranker] = await Promise.all([
-        getModels('llm'), getModels('embedding'), getModels('reranker'),
-      ])
-      setModels([...llm, ...embedding, ...reranker])
-    } catch (e) {
-      // 错误已在拦截器处理
-    }
+    // 用 allSettled 而不是 all：任一路失败不该把另外两类的模型也一起丢掉，
+    // 否则下拉会整体变空，看起来跟"没配模型"一样
+    const types = ['llm', 'embedding', 'reranker'] as const
+    setModelsLoading(true)
+    const results = await Promise.allSettled(types.map(t => getModels(t)))
+    const loaded: ModelOption[] = []
+    const failed: string[] = []
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        loaded.push(...result.value)
+      } else {
+        failed.push(types[index])
+      }
+    })
+    setModels(loaded)
+    setModelsError(
+      failed.length === 0
+        ? null
+        : failed.length === types.length
+          ? '模型列表加载失败'
+          : `${failed.join(' / ')} 类型模型加载失败`
+    )
+    setModelsLoading(false)
   }
 
   useEffect(() => {
@@ -726,6 +746,8 @@ curl -X POST "${baseUrl}/v1/rerank" \\${authLine}
     form.resetFields()
     form.setFieldsValue({ auth_required: true, log_enabled: false })
     setModalVisible(true)
+    // 打开时重新拉一次：首次加载若碰上网关抖动，不必刷新整页才能选模型
+    fetchModels()
   }
 
   const showEditDialog = (mapping: ModelMapping) => {
@@ -738,6 +760,7 @@ curl -X POST "${baseUrl}/v1/rerank" \\${authLine}
       description: mapping.description,
     })
     setModalVisible(true)
+    fetchModels()
   }
 
   const saveMapping = async () => {
@@ -813,18 +836,29 @@ curl -X POST "${baseUrl}/v1/rerank" \\${authLine}
       title: '目标模型',
       dataIndex: 'target_model_name',
       key: 'target_model_name',
-      render: (v: string) => v ? <Tag color="blue">{v}</Tag> : '-',
+      render: (v: string, record: ModelMapping) => v ? (
+        <Space size={4}>
+          <Tag color="blue">{v}</Tag>
+          {record.target_model_type && <Tag>{record.target_model_type}</Tag>}
+        </Space>
+      ) : '-',
     },
     {
       title: '调用端点',
       key: 'endpoints',
       width: 320,
-      render: (_: unknown, record: ModelMapping) => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <CopyableText text={`${origin}/api/v1/model-mappings/${record.id}/v1`} />
-          <CopyableText text={`${origin}/api/v1/model-mappings/${record.id}`} />
-        </div>
-      ),
+      render: (_: unknown, record: ModelMapping) => {
+        const base = `${origin}/api/v1/model-mappings/${record.id}`
+        // 非 LLM 目标只有一种协议，直接给最终端点；LLM 保留两种协议的 base_url
+        if (record.target_model_type === 'embedding') return <CopyableText text={`${base}/v1/embeddings`} />
+        if (record.target_model_type === 'reranker') return <CopyableText text={`${base}/v1/rerank`} />
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <CopyableText text={`${base}/v1`} />
+            <CopyableText text={base} />
+          </div>
+        )
+      },
     },
     {
       title: '密钥',
@@ -903,13 +937,40 @@ curl -X POST "${baseUrl}/v1/rerank" \\${authLine}
     },
   ]
 
+  // 按类型分组，embedding/reranker 不会再被十几条 LLM 挤到滚动区里看不见
+  const TYPE_LABELS: Record<string, string> = { llm: 'LLM', embedding: 'Embedding', reranker: 'Reranker' }
+  const modelGroups = (['llm', 'embedding', 'reranker'] as const)
+    .map(t => ({
+      label: TYPE_LABELS[t],
+      options: models.filter(m => m.model_type === t).map(m => ({ value: m.id, label: m.name })),
+    }))
+    .filter(group => group.options.length > 0)
+  const otherModels = models.filter(m => !['llm', 'embedding', 'reranker'].includes(m.model_type))
+  if (otherModels.length > 0) {
+    modelGroups.push({
+      label: '其他',
+      options: otherModels.map(m => ({ value: m.id, label: `${m.name}（${m.model_type}）` })),
+    })
+  }
+  // 编辑时目标模型可能已被删除或列表暂未加载回来：补一个当前值，
+  // 否则下拉空着会让人以为必须重选
+  if (editingMapping && !models.some(m => m.id === editingMapping.target_model_id)) {
+    modelGroups.unshift({
+      label: '当前目标',
+      options: [{
+        value: editingMapping.target_model_id,
+        label: `${editingMapping.target_model_name || '当前目标模型'}（${editingMapping.target_model_type || '未知类型'}）`,
+      }],
+    })
+  }
+
   return (
     <>
       <Alert
         type="info"
         showIcon
         icon={<ApiOutlined />}
-        message="映射服务将外部请求转发到目标模型，兼容 OpenAI 与 Anthropic 协议互转（含流式）。OpenAI 客户端 base_url 填第一行，Anthropic 客户端 base_url 填第二行。"
+        message="映射服务将外部请求转发到目标模型：LLM 目标走 /v1/chat/completions（兼容 Anthropic /v1/messages），Embedding 目标走 /v1/embeddings，Reranker 目标走 /v1/rerank。"
         style={{ marginBottom: 16 }}
         action={
           <Button type="primary" icon={<PlusOutlined />} onClick={showCreateDialog}>
@@ -931,10 +992,31 @@ curl -X POST "${baseUrl}/v1/rerank" \\${authLine}
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
             <Input placeholder="映射服务名称" />
           </Form.Item>
-          <Form.Item name="target_model_id" label="目标模型" rules={[{ required: true, message: '请选择目标模型' }]}>
+          <Form.Item
+            name="target_model_id"
+            label="目标模型"
+            rules={[{ required: true, message: '请选择目标模型' }]}
+            extra={modelsError && !modelsLoading ? (
+              <Text type="warning">
+                {modelsError}，<a onClick={fetchModels}>重试</a>
+              </Text>
+            ) : undefined}
+          >
             <Select
-              placeholder="选择目标模型（LLM / Embedding / Reranker）"
-              options={models.map(m => ({ value: m.id, label: `${m.name}（${m.model_type}）` }))}
+              showSearch
+              optionFilterProp="label"
+              loading={modelsLoading}
+              placeholder={modelsLoading ? '正在加载模型…' : `选择目标模型（共 ${models.length} 个）`}
+              options={modelGroups}
+              notFoundContent={
+                modelsLoading ? '正在加载模型…'
+                  : modelsError ? (
+                    <Space direction="vertical" size={4} style={{ padding: 8 }}>
+                      <Text type="danger">{modelsError}</Text>
+                      <Button size="small" onClick={fetchModels}>重试</Button>
+                    </Space>
+                  ) : '暂无可选模型，请先在「模型配置」中添加 LLM / Embedding / Reranker'
+              }
             />
           </Form.Item>
           <Form.Item

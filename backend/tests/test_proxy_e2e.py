@@ -339,6 +339,13 @@ async def test_mapping_api_accepts_embedding_and_reranker_target(client: AsyncCl
         })
         assert resp.status_code == 200, resp.text
         assert resp.json()["target_model_id"] == str(model.id)
+        # 目标类型随映射返回：前端据此展示端点、生成对应协议的调用示例
+        assert resp.json()["target_model_type"] == model.model_type
+
+    listed = await client.get("/api/v1/model-mappings")
+    types = {m["target_model_name"]: m["target_model_type"] for m in listed.json()}
+    assert types[sample_embedding_model.name] == "embedding"
+    assert types[sample_reranker_model.name] == "reranker"
 
 
 @pytest.mark.asyncio

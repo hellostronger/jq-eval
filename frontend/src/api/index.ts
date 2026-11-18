@@ -119,6 +119,7 @@ export interface ModelMapping {
   name: string
   target_model_id: string
   target_model_name?: string
+  target_model_type?: string
   auth_required: boolean
   log_enabled: boolean
   status: string
