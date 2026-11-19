@@ -1,4 +1,5 @@
 # 映射调用日志服务 - 将映射调用记录写入 model_request_logs
+import json
 import logging
 from typing import Any, Dict, Optional
 from uuid import UUID
@@ -74,21 +75,14 @@ async def start_log(
     return log.id
 
 
-def _prompt_summary(request_type: str, payload: Dict[str, Any]) -> str:
-    """embedding/rerank 请求的日志摘要：文本列表拼摘要，避免整段文档撑爆 prompt 列"""
-    if request_type == "embedding":
-        inputs = payload.get("input") or []
-        if isinstance(inputs, str):
-            inputs = [inputs]
-        texts = [str(t) for t in inputs]
-        summary = " | ".join(t[:200] for t in texts[:5])
-        more = len(texts) - 5
-        if more > 0:
-            summary += f" ...[共{len(texts)}条输入]"
-        return summary
-    # rerank：query + 文档条数（文档正文量大，只记条数）
-    docs = payload.get("documents") or []
-    return f"query: {str(payload.get('query'))[:200]} | documents: {len(docs)}条"
+def _full_payload_text(payload: Dict[str, Any]) -> str:
+    """embedding/rerank 请求完整落库：整包 JSON 原样序列化，不摘要不截断。
+
+    与 chat 链路（有 base64 图片风险，必须 truncate）不同，这两类请求
+    的输入就是纯文本/文档列表，调用方要求日志可见完整输入输出——
+    reranker 的每一条 document 原文都在 prompt 列里可查。
+    """
+    return json.dumps(payload, ensure_ascii=False, indent=2, default=str)
 
 
 async def start_mapping_log(
@@ -98,16 +92,19 @@ async def start_mapping_log(
     request_type: str,
     payload: Dict[str, Any],
 ) -> UUID:
-    """embedding/rerank 映射调用的 pending 日志（request_type 区分，chat 走 start_log）"""
+    """embedding/rerank 映射调用的 pending 日志（request_type 区分，chat 走 start_log）
+
+    prompt 列存完整请求 JSON（含全部 input 文本 / rerank 全部 document 原文）；
+    params 只存计数类元信息，不再重复存 raw_request。
+    """
     log = ModelRequestLog(
         model_id=target.id,
         mapping_id=mapping.id,
         source="mapping",
         request_type=request_type,
-        prompt=_prompt_summary(request_type, payload),
+        prompt=_full_payload_text(payload),
         params={
             "mapping_name": mapping.name,
-            "raw_request": truncate(payload),
             "input_count": (len(payload.get("input")) if isinstance(payload.get("input"), list)
                             else 1 if payload.get("input") else None),
             "document_count": len(payload.get("documents") or []) if request_type == "rerank" else None,

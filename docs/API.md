@@ -1223,8 +1223,9 @@ GET  /api/v1/model-mappings/{mapping_id}/v1/models             # SDK list 兼容
 ```
 
 **日志记录口径**（model_request_logs，request_type=embedding/rerank）：
-prompt 列存摘要（embedding 为输入文本前 200 字符×前 5 条；rerank 为 query + 文档条数），
-响应列存摘要（条数/维度/top1），向量本体不落库；用量与 top1 分数等进 response_metadata。
+prompt 列存**完整请求 JSON**（embedding 为全部 input 文本；rerank 为 model/query/documents 全文，每条 document 原文可查），
+response 列存**完整响应 JSON**（embedding 含向量本体；rerank 含全部结果对与分数），均不摘要不截断；
+条数/维度/top1 等计数进 response_metadata 供列表页快速展示。
 
 ---
 

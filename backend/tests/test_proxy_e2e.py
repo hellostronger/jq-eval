@@ -379,10 +379,11 @@ async def test_embedding_rerank_logs_recorded(client: AsyncClient, db_session, t
 
     await client.post(f"/api/v1/model-mappings/{emb_mapping.id}/v1/embeddings",
                       headers={"Authorization": f"Bearer {emb_key}"},
-                      json={"model": "m", "input": ["a", "b"]})
+                      json={"model": "m", "input": ["第一段输入文本", "第二段输入文本"]})
     await client.post(f"/api/v1/model-mappings/{rr_mapping.id}/v1/rerank",
                       headers={"Authorization": f"Bearer {rr_key}"},
-                      json={"model": "m", "query": "q", "documents": ["d1", "d2"]})
+                      json={"model": "m", "query": "什么是向量检索",
+                            "documents": ["第一篇文档原文", "第二篇文档原文"]})
 
     rows = (await db_session.execute(select(ModelRequestLog))).scalars().all()
     by_type = {r.request_type: r for r in rows}
@@ -391,9 +392,16 @@ async def test_embedding_rerank_logs_recorded(client: AsyncClient, db_session, t
     assert emb_log.source == "mapping" and emb_log.status == "success"
     assert emb_log.mapping_id == emb_mapping.id
     assert emb_log.response_metadata.get("vector_dim") == 8
+    # 输入完整落库：每条输入文本原文都在 prompt 里，无省略
+    assert "第一段输入文本" in emb_log.prompt and "第二段输入文本" in emb_log.prompt
+    # 输出完整落库：向量本体在 response 里（JSON 完整序列化）
+    assert "0.1" in emb_log.response and '"embedding"' in emb_log.response
     rr_log = by_type["rerank"]
     assert rr_log.source == "mapping" and rr_log.status == "success"
-    # prompt 摘要含 query 与文档条数，而不是整段文档正文
-    assert "documents: 2条" in rr_log.prompt
+    # 输入完整落库：query 与每条 document 原文都在 prompt 里，无 "N条" 式省略
+    assert "什么是向量检索" in rr_log.prompt
+    assert "第一篇文档原文" in rr_log.prompt and "第二篇文档原文" in rr_log.prompt
+    # 输出完整落库：每条结果对与分数都在 response 里
+    assert '"relevance_score": 0.5' in rr_log.response and '"index": 0' in rr_log.response
 
 

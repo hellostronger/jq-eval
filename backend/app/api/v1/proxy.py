@@ -1,6 +1,7 @@
 # 模型调用映射代理路由 - 对外暴露 OpenAI/Anthropic 协议端点，转发到目标模型
 import asyncio
 import hmac
+import json
 import logging
 import time
 from typing import AsyncIterator, Dict, Optional, Tuple
@@ -465,11 +466,12 @@ async def _execute_embedding(mapping: ModelMapping, target: Model,
 
     latency_ms = int((time.time() - start_time) * 1000)
     if log_id:
-        # 响应列存摘要（维度/条数/用量），向量本体不落日志（几千维撑爆文本列）
+        # 响应列存完整 JSON（含全部向量），调用方要求日志可见完整输入输出；
+        # 维度/条数等计数仍进 metadata 供列表页快速展示
         embeddings = data.get("data") or []
         dims = len(embeddings[0].get("embedding") or []) if embeddings else None
-        summary = f"embeddings: {len(embeddings)}条" + (f", dim={dims}" if dims else "")
-        await finish_log(log_id, summary, usage=data.get("usage"),
+        await finish_log(log_id, json.dumps(data, ensure_ascii=False, indent=2, default=str),
+                         usage=data.get("usage"),
                          latency_ms=latency_ms, status="success",
                          outbound_protocol="openai", mapping_id=mapping.id,
                          extra_metadata={"vector_dim": dims,
@@ -507,11 +509,11 @@ async def _execute_rerank(mapping: ModelMapping, target: Model,
 
     latency_ms = int((time.time() - start_time) * 1000)
     if log_id:
+        # 响应列存完整 JSON（全部结果对 + 分数），不省略
         results = data.get("results") or []
         top = results[0] if results else {}
-        summary = (f"rerank: {len(results)}条结果, top1 index={top.get('index')} "
-                   f"score={top.get('relevance_score')}")
-        await finish_log(log_id, summary, usage=data.get("usage"),
+        await finish_log(log_id, json.dumps(data, ensure_ascii=False, indent=2, default=str),
+                         usage=data.get("usage"),
                          latency_ms=latency_ms, status="success",
                          outbound_protocol="openai", mapping_id=mapping.id,
                          extra_metadata={"result_count": len(results),
