@@ -67,14 +67,20 @@ class Settings(BaseSettings):
 
     # Celery配置（单一事实来源：celery_app 直接引用，勿在别处硬编码拼接 URL）
     # broker 与 result backend 用不同 Redis DB——同库时清理结果键会波及队列消息，
-    # 运维 FLUSHDB 也可能一锅端
+    # 运维 FLUSHDB 也可能一锅端。
+    # 库号可经 .env 覆盖（CELERY_BROKER_DB/CELERY_RESULT_DB）：多环境共用同一台
+    # Redis 时，若所有 worker 都监听同一 db，任何一台持有旧密钥/旧代码的机器
+    # 都会抢走别的环境派发的任务并在自己环境里执行失败——开发机切独立库即可隔离。
+    CELERY_BROKER_DB: int = 1
+    CELERY_RESULT_DB: int = 2
+
     @property
     def CELERY_BROKER_URL(self) -> str:
-        return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/1"
+        return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.CELERY_BROKER_DB}"
 
     @property
     def CELERY_RESULT_BACKEND(self) -> str:
-        return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/2"
+        return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.CELERY_RESULT_DB}"
 
     # VibeAgent 配置
     SANDBOX_URL: str = ""  # 沙箱服务地址，空则使用本地子进程
